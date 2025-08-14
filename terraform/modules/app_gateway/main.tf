@@ -110,6 +110,9 @@ resource "azurerm_application_gateway" "this" {
 
   tags = var.tags
 
+
+  # We ignore any changes to the following attributes because we are using 
+  # AGIC to manage this Application Gateway after initial deploy
   lifecycle {
     ignore_changes = [
       backend_address_pool,
