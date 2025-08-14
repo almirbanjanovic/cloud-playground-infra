@@ -1,0 +1,133 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ${name}
+  namespace: ${namespace}
+spec:
+  schedule: "${schedule}"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: ${name}
+            image: ubuntu:20.04
+            volumeMounts:
+            - name: sql-script-volume
+              mountPath: /scripts
+              readOnly: true
+            env: 
+            - name: DB_NAME
+              value: ${db_name} 
+            - name: SERVER_NAME
+              value: ${server_name}
+            - name: RESOURCE_GROUP
+              value: ${resource_group}
+            - name: STORAGE_ACCOUNT
+              value: ${storage_account}
+            - name: STORAGE_CONTAINER
+              value: ${storage_container}
+            - name: ADMIN_USER
+              value: ${admin_user}
+            - name: IDENTITY_ID
+              value: ${identity_id}
+            - name: STORAGE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: "${secrets_name}"
+                  key: STORAGE_KEY
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: "${secrets_name}"
+                  key: ADMIN_PASSWORD
+            command: 
+            - /bin/bash
+            - -c
+            - |
+
+              # Install Azure CLI
+              echo "Install Azure CLI..."
+
+              echo "1. Get packages needed for the installation process:"
+              apt-get update
+              apt-get install -y curl gnupg apt-transport-https ca-certificates lsb-release software-properties-common wget unzip
+
+              echo "2. Download and install the Microsoft signing key:"
+              mkdir -p /etc/apt/keyrings
+              curl -sLS https://packages.microsoft.com/keys/microsoft.asc |
+                gpg --dearmor | tee /etc/apt/keyrings/microsoft.gpg > /dev/null
+              chmod go+r /etc/apt/keyrings/microsoft.gpg
+
+              echo "3. Add the Azure CLI software repository:"
+              AZ_DIST=$(lsb_release -cs)
+              echo "Types: deb
+              URIs: https://packages.microsoft.com/repos/azure-cli/
+              Suites: $AZ_DIST
+              Components: main
+              Architectures: $(dpkg --print-architecture)
+              Signed-by: /etc/apt/keyrings/microsoft.gpg" | tee /etc/apt/sources.list.d/azure-cli.sources
+
+              echo "4. Update repository information and install the azure-cli package:"
+              apt-get update
+              apt-get install azure-cli
+
+              # Install SQLCMD
+              echo "Download and install sqlcmd (Go)... "
+
+              echo "1. Import the public repository GPG keys..."
+              curl https://packages.microsoft.com/keys/microsoft.asc | tee /etc/apt/trusted.gpg.d/microsoft.asc
+
+              echo "2. Add the Microsoft repository, where the ubuntu/20.04 segment might be debian/11, ubuntu/20.04, or ubuntu/22.04..."
+              add-apt-repository "$(wget -qO- https://packages.microsoft.com/config/ubuntu/20.04/prod.list)"
+
+              echo "3. Install sqlcmd (Go) with apt..."
+              apt-get update
+              apt-get install sqlcmd
+
+              # Set up variables
+              DATE=$(date +%Y-%m-%d-%H%M)
+              FILENAME="$DB_NAME-$DATE.bacpac"
+              STORAGE_URI="https://$STORAGE_ACCOUNT.blob.core.windows.net/$STORAGE_CONTAINER/$FILENAME"
+              CLONE_NAME="$DB_NAME-exportable"
+
+              echo "Logging in with identity $IDENTITY_ID"
+              echo "Executing command: az login --identity --object-id $IDENTITY_ID"
+              az login --identity --object-id $IDENTITY_ID
+              echo "Logged in using identity $IDENTITY_ID"
+
+              echo "Creating exportable DB clone: $CLONE_NAME ..."
+              az sql db copy --dest-name $CLONE_NAME --name $DB_NAME --resource-group $RESOURCE_GROUP --server $SERVER_NAME
+
+              # Wait for the clone to be fully created
+              echo "Waiting 3 minutes for clone creation to complete..."
+              sleep 180
+
+              echo "Running SQL cleanup on $CLONE_NAME..."
+              sqlcmd -S "$SERVER_NAME.database.windows.net" -d $CLONE_NAME -U "$ADMIN_USER" -P "$ADMIN_PASSWORD" -i /scripts/sql_db_clean_sync_objects.sql
+
+              echo "Enabling public access to the storage account $STORAGE_ACCOUNT..."
+              az storage account update --name $STORAGE_ACCOUNT --resource-group $RESOURCE_GROUP --default-action Allow
+
+              echo "Waiting 60 seconds for the storage account to be accessible..."
+              sleep 60
+
+              echo "Exporting database $CLONE_NAME to $STORAGE_URI ..."
+              az sql db export --server $SERVER_NAME --name $CLONE_NAME --resource-group $RESOURCE_GROUP --admin-user $ADMIN_USER --admin-password $ADMIN_PASSWORD --storage-key $STORAGE_KEY --storage-key-type StorageAccessKey --storage-uri $STORAGE_URI
+
+              echo "Reverting storage account to private access..."
+              az storage account update --name $STORAGE_ACCOUNT --resource-group $RESOURCE_GROUP --default-action Deny
+
+              echo "Deleting temporary clone $CLONE_NAME..."
+              az sql db delete --name $CLONE_NAME --server $SERVER_NAME --resource-group $RESOURCE_GROUP --yes
+
+              echo "Export operation completed."
+
+          restartPolicy: OnFailure
+          nodeSelector:
+            agentpool: ${agentpool}
+          volumes:
+          - name: sql-script-volume
+            configMap:
+              name: ${volume_name}
+
