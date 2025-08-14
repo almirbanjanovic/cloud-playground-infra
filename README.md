@@ -16,7 +16,6 @@ This repository contains infrastructure-as-code (IaC) templates and Kubernetes m
   - [📁 Kubernetes Assets](#-kubernetes-assets)
     - [Database](#database)
     - [Machine Learning](#machine-learning)
-    - [Analytics](#analytics)
   - [📁 Utility Scripts](#-utility-scripts)
 - [Key Features](#key-features)
   - [🔒 Security First](#-security-first)
@@ -109,14 +108,6 @@ The `assets/kubernetes/` directory contains Kubernetes manifests and configurati
 
 - **`machine_learning/`** - ML workload configurations:
   - Instance type specifications (`instance_type.yaml`)
-
-#### Analytics
-
-- **`metabase/`** - Metabase deployment for business intelligence:
-  - Application deployment (`deployment.yaml`)
-  - Service configuration (`service.yaml`)
-  - Ingress routing (`ingress.yaml`)
-  - Secrets management (`secrets.yaml`)
 
 ### 📁 Utility Scripts
 
