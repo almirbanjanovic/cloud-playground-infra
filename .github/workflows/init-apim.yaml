@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   call-init-backend:
-    uses: init.yml
+    uses: init.yaml
     with:
       baseName: ms
       environment: dev
