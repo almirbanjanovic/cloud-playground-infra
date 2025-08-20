@@ -8,14 +8,14 @@ permissions:
 
 jobs:
   call-init-backend:
-    uses: init.yaml@main
-    with:
-      baseName: ms
-      environment: dev
-      location: centralus
-      terraformStateFileName: terraform.tfstate
-      terraformStateContainerName: tfstate
-      defaultStorageAccountTier: Standard
-      defaultStorageAccountReplicationType: LRS
-      defaultStorageAccountEncryptionServices: blob
-      defaultStorageAccountMinTlsVersion: TLS1_2
+  uses: init.yaml@main
+  with:
+    baseName: ms
+    environment: dev
+    location: centralus
+    terraformStateFileName: terraform.tfstate
+    terraformStateContainerName: tfstate
+    defaultStorageAccountTier: Standard
+    defaultStorageAccountReplicationType: LRS
+    defaultStorageAccountEncryptionServices: blob
+    defaultStorageAccountMinTlsVersion: TLS1_2
