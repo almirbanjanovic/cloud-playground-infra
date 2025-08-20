@@ -12,9 +12,6 @@ on:
       location:
         required: true
         type: string
-      serviceConnectionName:
-        required: true
-        type: string
       terraformStateFileName:
         required: true
         type: string
