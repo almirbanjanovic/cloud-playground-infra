@@ -1,5 +1,5 @@
 # .github/workflows/main.yml
-name: API Management Init Terraform Backend
+name: API Management Init Backend
 
 on: 
   workflow_dispatch:
