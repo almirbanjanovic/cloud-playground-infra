@@ -10,12 +10,11 @@ permissions:
 
 jobs:
   call-init-backend:
-    uses: ./.github/workflows/init.yml
+    uses: init.yml
     with:
       baseName: ms
       environment: dev
       location: centralus
-      serviceConnectionName: my-service-connection
       terraformStateFileName: terraform.tfstate
       terraformStateContainerName: tfstate
       defaultStorageAccountTier: Standard
