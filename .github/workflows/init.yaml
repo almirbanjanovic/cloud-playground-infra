@@ -1,44 +1,85 @@
-name: Initialize Remote Backend
-on: 
-  workflow_dispatch:
+name: Init Terraform Backend Reusable Workflow
+
+on:
+  workflow_call:
     inputs:
-      current_environment:
+      baseName:
+        required: true
         type: string
-        default: dev
+      environment:
+        required: true
+        type: string
+      location:
+        required: true
+        type: string
+      serviceConnectionName:
+        required: true
+        type: string
+      terraformStateFileName:
+        required: true
+        type: string
+      terraformStateContainerName:
+        required: true
+        type: string
+      defaultStorageAccountTier:
+        required: true
+        type: string
+      defaultStorageAccountReplicationType:
+        required: true
+        type: string
+      defaultStorageAccountEncryptionServices:
+        required: true
+        type: string
+      defaultStorageAccountMinTlsVersion:
+        required: true
+        type: string
 
-permissions:
-      id-token: write
-      contents: read
-      
-jobs: 
-  initialize-state-storage:
+jobs:
+  init-backend:
     runs-on: ubuntu-latest
-
-    defaults:
-        run:
-          shell: bash
-
-    env:
-      FULL_RESOURCE_GROUP_NAME: ${{ format('rg-{0}-{1}', secrets.RESOURCE_GROUP_NAME, inputs.current_environment) }}
-      FULL_STORAGE_ACCOUNT_NAME: ${{ format('st{0}{1}', secrets.STORAGE_ACCOUNT_NAME, inputs.current_environment) }}
-      STORAGE_ACCOUNT_SKU: ${{ format('{0}_{1}', secrets.ACCOUNT_TIER, secrets.ACCOUNT_REPLICATION_TYPE) }}
-
     steps:
-        - uses: actions/checkout@v4
+      - name: Set variables
+        run: |
+          echo "initResourceGroupName=rg-${{ inputs.baseName }}-${{ inputs.environment }}-${{ inputs.location }}" >> $GITHUB_ENV
+          echo "initStorageAccountName=st${{ inputs.baseName }}${{ inputs.environment }}${{ inputs.location }}" >> $GITHUB_ENV
+          echo "initStorageAccountSku=${{ inputs.defaultStorageAccountTier }}_${{ inputs.defaultStorageAccountReplicationType }}" >> $GITHUB_ENV
 
-        - name: Azure login
-          uses: azure/login@v2
-          with:
-            tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-            subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-            client-id: ${{ secrets.AZURE_CLIENT_ID }}
-            
-        - name: Azure CLI Commands
-          uses: azure/cli@v2
-          with:
-            azcliversion: 2.30.0
-            inlineScript: |
-              az group create --name $FULL_RESOURCE_GROUP_NAME --location ${{ secrets.LOCATION }} 
-              az storage account create --resource-group $FULL_RESOURCE_GROUP_NAME --name $FULL_STORAGE_ACCOUNT_NAME --sku $STORAGE_ACCOUNT_SKU --encryption-services blob --min-tls-version TLS1_2
-              KEY=$(az storage account keys list -g $FULL_RESOURCE_GROUP_NAME -n $FULL_STORAGE_ACCOUNT_NAME --query "[0].value" -o tsv)
-              az storage container create --name ${{ secrets.BLOB_CONTAINER_NAME }} --account-name $FULL_STORAGE_ACCOUNT_NAME --account-key $KEY
+      - name: Check Resource Group Name
+        run: echo "${{ env.initResourceGroupName }}"
+
+      - name: Check Terraform State File Name
+        run: echo "${{ inputs.terraformStateFileName }}"
+
+      - name: Check Storage Account Name
+        run: echo "${{ env.initStorageAccountName }}"
+
+      # - name: Create Remote Backend Storage
+      #   run: |
+      #     set -e
+      #     IP=$(curl -s https://ifconfig.me)
+      #     wait_time=25
+
+      #     remove_network_rule() {
+      #       echo "Removing network rule for IP $IP"
+      #       az storage account network-rule remove --resource-group ${{ env.initResourceGroupName }} --account-name ${{ env.initStorageAccountName }} --ip-address $IP
+      #     }
+
+      #     trap remove_network_rule EXIT
+
+      #     if ! az storage account show --resource-group ${{ env.initResourceGroupName }} --name ${{ env.initStorageAccountName }} > /dev/null 2>&1; then
+      #       echo "Creating storage account..."
+      #       az storage account create --resource-group ${{ env.initResourceGroupName }} --name ${{ env.initStorageAccountName }} --sku ${{ env.initStorageAccountSku }} --encryption-services ${{ inputs.defaultStorageAccountEncryptionServices }} --min-tls-version ${{ inputs.defaultStorageAccountMinTlsVersion }} --location ${{ inputs.location }} --default-action Deny
+      #       sleep $wait_time
+      #     fi
+
+      #     echo "Adding network rule for $IP"
+      #     az storage account network-rule add --resource-group ${{ env.initResourceGroupName }} --account-name ${{ env.initStorageAccountName }} --ip-address $IP
+      #     sleep $wait_time
+
+      #     KEY=$(az storage account keys list -g ${{ env.initResourceGroupName }} -n ${{ env.initStorageAccountName }} --query "[0].value" -o tsv)
+
+      #     if ! az storage container show --name ${{ inputs.terraformStateContainerName }} --account-name ${{ env.initStorageAccountName }} --account-key $KEY > /dev/null 2>&1; then
+      #       az storage container create --name ${{ inputs.terraformStateContainerName }} --account-name ${{ env.initStorageAccountName }} --account-key $KEY
+      #     fi
+
+      #     az storage container show --name ${{ inputs.terraformStateContainerName }} --account-name ${{ env.initStorageAccountName }} --account-key $KEY
