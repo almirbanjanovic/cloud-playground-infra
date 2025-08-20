@@ -1,5 +1,4 @@
 name: API Management Init Backend
-
 on: 
   workflow_dispatch:
 
