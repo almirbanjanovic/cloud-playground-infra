@@ -4,7 +4,7 @@ on:
     inputs:
       current_environment:
         type: string
-        default: "prod"
+        default: dev
 
 permissions:
       id-token: write
