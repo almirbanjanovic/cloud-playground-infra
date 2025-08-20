@@ -1,0 +1,22 @@
+name: API Management Init Backend
+
+on: 
+  workflow_dispatch:
+
+permissions:
+      id-token: write
+      contents: read
+
+jobs:
+  call-init-backend:
+    uses: init.yaml@main
+    with:
+      baseName: ms
+      environment: dev
+      location: centralus
+      terraformStateFileName: terraform.tfstate
+      terraformStateContainerName: tfstate
+      defaultStorageAccountTier: Standard
+      defaultStorageAccountReplicationType: LRS
+      defaultStorageAccountEncryptionServices: blob
+      defaultStorageAccountMinTlsVersion: TLS1_2
