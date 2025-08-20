@@ -3,10 +3,6 @@ name: API Management Init Terraform Backend
 
 on: 
   workflow_dispatch:
-    inputs:
-      current_environment:
-        type: string
-        default: dev
 
 permissions:
       id-token: write
@@ -14,9 +10,9 @@ permissions:
 
 jobs:
   call-init-backend:
-    uses: ./.github/workflows/init-backend.yml
+    uses: ./.github/workflows/init.yml
     with:
-      baseName: mybase
+      baseName: ms
       environment: dev
       location: centralus
       serviceConnectionName: my-service-connection
