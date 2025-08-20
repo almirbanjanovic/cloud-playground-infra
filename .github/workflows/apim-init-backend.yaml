@@ -1,4 +1,4 @@
-name: API Management Init Backend
+name: APIM Init Backend
 on: 
   workflow_dispatch:
 
