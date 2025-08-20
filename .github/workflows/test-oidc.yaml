@@ -13,7 +13,7 @@ permissions:
 jobs: 
   test-oidc:
     runs-on: ubuntu-latest
-    environment: ${{ inputs.current_environment }}
+    
     steps:
     - name: 'Az CLI login'
       uses: azure/login@v2

@@ -13,8 +13,6 @@ permissions:
 jobs: 
   initialize-state-storage:
     runs-on: ubuntu-latest
-    
-    environment: ${{ inputs.current_environment }}
 
     defaults:
         run:
