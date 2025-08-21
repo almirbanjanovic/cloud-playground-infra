@@ -24,7 +24,8 @@ permissions:
 
 jobs:
 
-  call-terraform-plan:
+  terraform-plan:
+    name: Terraform Plan
     uses: almirbanjanovic/cloud-playground-infra/.github/workflows/terraform-plan.yaml@main
     with:
       resourceGroupName: ${{ inputs.resourceGroupName }}
@@ -53,7 +54,9 @@ jobs:
         run: echo "Waiting for manual approval before applying Terraform plan..."
 
 
-  call-terraform-apply:
+  terraform-apply:
+    name: Terraform Apply
+    needs: [manual-approval]
     uses: almirbanjanovic/cloud-playground-infra/.github/workflows/terraform-apply.yaml@main
     with:
       resourceGroupName: ${{ inputs.resourceGroupName }}
