@@ -73,7 +73,7 @@ jobs:
       uses: actions/download-artifact@v4
       with:
         name: tf-plan
-        path: ./  
+        path: ${{ inputs.workingDirectory }}/  
 
     - name: Apply the plan
       id: apply
