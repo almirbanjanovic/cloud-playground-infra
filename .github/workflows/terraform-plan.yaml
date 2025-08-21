@@ -29,10 +29,10 @@ permissions:
   contents: read
 
 env:
-  ARM_CLIENT_ID: ${{ secrets.azureClientId }}
-  ARM_TENANT_ID: ${{ secrets.azureTenantId }}
-  ARM_SUBSCRIPTION_ID: ${{ secrets.azureSubscriptionId }}
-  ARM_USE_OIDC: true
+  # ARM_CLIENT_ID: ${{ secrets.azureClientId }}
+  # ARM_TENANT_ID: ${{ secrets.azureTenantId }}
+  # ARM_SUBSCRIPTION_ID: ${{ secrets.azureSubscriptionId }}
+  # ARM_USE_OIDC: true
 
 
   # TF_VAR_resource_group_name: ${{ secrets.RESOURCE_GROUP_NAME }}
@@ -85,11 +85,11 @@ jobs:
         -backend-config ${{ inputs.storageAccountName }} \
         -backend-config ${{ inputs.terraformStateContainerName }} \
         -backend-config ${{ inputs.terraformStateBlobName }}
-      # env:
-      #   ARM_CLIENT_ID: ${{ secrets.azureClientId }}
-      #   ARM_TENANT_ID: ${{ secrets.azureTenantId }}
-      #   ARM_SUBSCRIPTION_ID: ${{ secrets.azureSubscriptionId }}
-      #   ARM_USE_OIDC: true
+      env:
+        ARM_CLIENT_ID: ${{ secrets.azureClientId }}
+        ARM_TENANT_ID: ${{ secrets.azureTenantId }}
+        ARM_SUBSCRIPTION_ID: ${{ secrets.azureSubscriptionId }}
+        ARM_USE_OIDC: true
 
     - name: Terraform Validate
       id: validate
