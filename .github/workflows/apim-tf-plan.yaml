@@ -1,4 +1,4 @@
-name: APIM Lab Terraform Plan
+name: APIM Lab Terraform Plan, Approve, Apply
 on: 
   workflow_dispatch:
     inputs:
@@ -23,6 +23,7 @@ permissions:
   contents: read
 
 jobs:
+
   call-terraform-plan:
     uses: almirbanjanovic/cloud-playground-infra/.github/workflows/terraform-plan.yaml@main
     with:
@@ -35,3 +36,32 @@ jobs:
       azureClientId: ${{ secrets.AZURE_CLIENT_ID }}
       azureTenantId: ${{ secrets.AZURE_TENANT_ID }}
       azureSubscriptionId: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+  manual-approval:
+    name: Manual Approval
+    needs: [terraform-plan]
+    runs-on: ubuntu-latest
+    environment:
+      name: approval-required
+      # Optional: add a wait timer if you want to delay before approval is allowed
+      # wait_timer: 10 minutes
+      # Optional: require reviewers
+      # reviewers:
+      #   - almirbanjanovic
+    steps:
+      - name: Awaiting manual approval
+        run: echo "Waiting for manual approval before applying Terraform plan..."
+
+
+  call-terraform-apply:
+    uses: almirbanjanovic/cloud-playground-infra/.github/workflows/terraform-apply.yaml@main
+    with:
+      resourceGroupName: ${{ inputs.resourceGroupName }}
+      storageAccountName: ${{ inputs.storageAccountName }}
+      terraformStateContainerName: ${{ inputs.terraformStateContainerName }}
+      terraformStateBlobName: ${{ inputs.terraformStateBlobName }}
+      workingDirectory: ${{ inputs.workingDirectory }}
+    secrets:
+      azureClientId: ${{ secrets.AZURE_CLIENT_ID }}
+      azureTenantId: ${{ secrets.AZURE_TENANT_ID }}
+      azureSubscriptionId: ${{ secrets.AZURE_SUBSCRIPTION_ID }}  
