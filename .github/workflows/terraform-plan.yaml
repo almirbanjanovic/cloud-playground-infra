@@ -28,7 +28,7 @@ permissions:
   id-token: write
   contents: read
 
-env:
+# env:
   # ARM_CLIENT_ID: ${{ secrets.azureClientId }}
   # ARM_TENANT_ID: ${{ secrets.azureTenantId }}
   # ARM_SUBSCRIPTION_ID: ${{ secrets.azureSubscriptionId }}
