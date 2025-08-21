@@ -27,10 +27,10 @@ jobs:
       storageAccountName: ${{ env.storageAccountName }}
       terraformStateFileName: ${{ env.terraformStateFileName }}
       terraformStateContainerName: ${{ env.terraformStateContainerName }}
-      defaultStorageAccountTier: ${{ env.storageAccountTier }}
-      defaultStorageAccountReplicationType: ${{ env.storageAccountReplicationType }}
-      defaultStorageAccountEncryptionServices: ${{ env.storageAccountEncryptionServices }}
-      defaultStorageAccountMinTlsVersion: ${{ env.storageAccountMinTlsVersion }}
+      storageAccountTier: ${{ env.storageAccountTier }}
+      storageAccountReplicationType: ${{ env.storageAccountReplicationType }}
+      storageAccountEncryptionServices: ${{ env.storageAccountEncryptionServices }}
+      storageAccountMinTlsVersion: ${{ env.storageAccountMinTlsVersion }}
 
     secrets:
       azureClientId: ${{ secrets.AZURE_CLIENT_ID }}
