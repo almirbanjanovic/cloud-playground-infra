@@ -30,6 +30,7 @@ on:
       defaultStorageAccountMinTlsVersion:
         required: true
         type: string
+    secrets:
       azureClientId:
         required: true
         type: string
