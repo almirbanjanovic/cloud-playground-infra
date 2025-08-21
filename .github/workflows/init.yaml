@@ -68,8 +68,8 @@ jobs:
       - name: Create Resource Group
         run: |
           set -e
-          
-          if ! az group show --name "${{ env.resourceGroupName }} &> /dev/null; then
+
+          if ! az group show --name ${{ env.resourceGroupName }} &> /dev/null; then
             echo "Resource group ${{ env.resourceGroupName }} does not exist. Creating..."
             az group create --name ${{ env.resourceGroupName }} --location ${{ inputs.location }}
           else
