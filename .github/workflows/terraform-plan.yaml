@@ -92,7 +92,7 @@ jobs:
     - name: Terraform Plan
       id: plan
       run: |
-        terraform -chdir=${{ inputs.workingDirectory }} plan --out=out.tfplan \
+        terraform -chdir=${{ inputs.workingDirectory }} plan \
         -backend-config="resource_group_name=${{ inputs.resourceGroupName }}" \
         -backend-config="storage_account_name=${{ inputs.storageAccountName }}" \
         -backend-config="container_name=${{ inputs.terraformStateContainerName }}" \
