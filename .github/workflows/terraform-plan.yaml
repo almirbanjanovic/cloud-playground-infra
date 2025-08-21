@@ -28,22 +28,9 @@ permissions:
   id-token: write
   contents: read
 
-# env:
-  # ARM_CLIENT_ID: ${{ secrets.azureClientId }}
-  # ARM_TENANT_ID: ${{ secrets.azureTenantId }}
-  # ARM_SUBSCRIPTION_ID: ${{ secrets.azureSubscriptionId }}
-  # ARM_USE_OIDC: true
-
-
+env:
   TF_VAR_resource_group_name: ${{ inputs.resourceGroupName }}
-  # TF_VAR_environment: ${{ inputs.current_environment }}
-  # TF_VAR_location: ${{ secrets.LOCATION }}
-  # TF_VAR_resource_group_import_id: ${{ secrets.RESOURCE_GROUP_IMPORT_ID }}
-  # TF_VAR_storage_account_name: ${{ secrets.STORAGE_ACCOUNT_NAME }}
-  # TF_VAR_account_tier: ${{ secrets.ACCOUNT_TIER }}
-  # TF_VAR_account_replication_type: ${{ secrets.ACCOUNT_REPLICATION_TYPE }}
-  # TF_VAR_storage_account_import_id: ${{ secrets.STORAGE_ACCOUNT_IMPORT_ID }}
-  # TF_VAR_virtual_network_name: ${{ secrets.VIRTUAL_NETWORK_NAME }}
+
           
 jobs: 
   terraform-plan:
@@ -102,14 +89,19 @@ jobs:
     - name: Run TFLint
       run: tflint -f compact
 
-    # - name: Terraform Plan
-    #   id: plan
-    #   run: terraform -chdir=${{ inputs.workingDirectory }} plan --out=out.tfplan
-      # env:
-      #   ARM_CLIENT_ID: ${{ secrets.azureClientId }}
-      #   ARM_SUBSCRIPTION_ID: ${{ secrets.azureSubscriptionId }}
-      #   ARM_TENANT_ID: ${{ secrets.azureTenantId }}
-      #   ARM_USE_OIDC: true
+    - name: Terraform Plan
+      id: plan
+      run: |
+        terraform -chdir=${{ inputs.workingDirectory }} plan --out=out.tfplan \
+        -backend-config="resource_group_name=${{ inputs.resourceGroupName }}" \
+        -backend-config="storage_account_name=${{ inputs.storageAccountName }}" \
+        -backend-config="container_name=${{ inputs.terraformStateContainerName }}" \
+        -backend-config="key=${{ inputs.terraformStateBlobName }}"
+      env:
+        ARM_CLIENT_ID: ${{ secrets.azureClientId }}
+        ARM_SUBSCRIPTION_ID: ${{ secrets.azureSubscriptionId }}
+        ARM_TENANT_ID: ${{ secrets.azureTenantId }}
+        ARM_USE_OIDC: true
 
   # terraform-apply:
   #   name: Terraform Apply
