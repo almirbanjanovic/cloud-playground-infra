@@ -80,8 +80,7 @@ jobs:
     - name: Terraform Init
       id: init
       run: |
-        terraform init \
-        -chdir=${{ inputs.workingDirectory }} \
+        terraform -chdir=${{ inputs.workingDirectory }} init \
         -backend-config ${{ inputs.resourceGroupName }} \
         -backend-config ${{ inputs.storageAccountName }} \
         -backend-config ${{ inputs.terraformStateContainerName }} \
@@ -104,7 +103,7 @@ jobs:
 
     # - name: Terraform Plan
     #   id: plan
-    #   run: terraform plan --out=out.tfplan
+    #   run: terraform -chdir=${{ inputs.workingDirectory }} plan --out=out.tfplan
       # env:
       #   ARM_CLIENT_ID: ${{ secrets.azureClientId }}
       #   ARM_SUBSCRIPTION_ID: ${{ secrets.azureSubscriptionId }}
