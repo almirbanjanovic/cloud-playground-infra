@@ -5,7 +5,7 @@ resource "azurerm_api_management" "this" {
   publisher_name      = "MS"
   publisher_email     = "company@terraform.io"
 
-  sku_name = "Developer_1"
+  sku_name = "StandardV2_1"
 }
 
 # resource "azurerm_api_management_workspace" "this" {
@@ -20,6 +20,7 @@ resource "azurerm_api_management_api" "this" {
   api_management_name = azurerm_api_management.this.name
   revision            = "1"
   display_name        = "Colors API"
+  protocols           = ["https"]
   import {
     content_format = "swagger-link-json"
     content_value  = "https://colors-api.azurewebsites.net/swagger/v1/swagger.json"
