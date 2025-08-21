@@ -38,20 +38,20 @@ jobs:
       azureTenantId: ${{ secrets.AZURE_TENANT_ID }}
       azureSubscriptionId: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+  
   manual-approval:
     name: Manual Approval
     needs: [terraform-plan]
     runs-on: ubuntu-latest
-    environment:
-      name: approval-required
-      # Optional: add a wait timer if you want to delay before approval is allowed
-      # wait_timer: 10 minutes
-      # Optional: require reviewers
-      # reviewers:
-      #   - almirbanjanovic
     steps:
-      - name: Awaiting manual approval
-        run: echo "Waiting for manual approval before applying Terraform plan..."
+      - uses: trstringer/manual-approval@v1
+        with:
+          secret: ${{ github.TOKEN }}
+          approvers: almirbanjanovic
+          minimum-approvals: 1
+          issue-title: "Approve deployment to production"
+          issue-body: "Please approve or deny the deployment."
+          fail-on-denial: true
 
 
   terraform-apply:
