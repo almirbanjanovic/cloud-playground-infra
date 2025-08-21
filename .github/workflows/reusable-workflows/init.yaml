@@ -10,16 +10,10 @@ on:
       storageAccountName:
         required: true
         type: string
-      storageAccountSku:
-        required: true
-        type: string
       storageAccountPublicNetworkAccess:
         required: true
         type: string
-      storageAccountTier:
-        required: true
-        type: string
-      storageAccountReplicationType:
+      storageAccountSku:
         required: true
         type: string
       storageAccountEncryptionServices:

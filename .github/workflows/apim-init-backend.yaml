@@ -4,34 +4,31 @@ on:
     inputs:
       resourceGroupName:
         type: string
-        description: rg-apim-lab-dev-centralus
+        default: rg-apim-lab-dev-centralus
       storageAccountName:
         type: string
-        description: stapimlabdevcentralus
+        default: stapimlabdevcentralus
       storageAccountPublicNetworkAccess:
         type: string
-        description: Enabled
+        default: Enabled
       storageAccountTier:
         type: string
-        description: Standard
+        default: Standard
       storageAccountReplicationType:
         type: string
-        description: LRS
+        default: LRS
       storageAccountEncryptionServices:
         type: string
-        description: blob
+        default: blob
       storageAccountMinTlsVersion:
         type: string
-        description: TLS1_2
-      terraformStateFileName:
-        type: string
-        description: terraform.tfstate
+        default: TLS1_2
       terraformStateContainerName:
         type: string
-        description: tfstate
+        default: tfstate
       location:
         type: string
-        description: centralus
+        default: centralus
 
 permissions:
   id-token: write
@@ -46,7 +43,7 @@ jobs:
       storageAccountSku: ${{ inputs.storageAccountSku }}
       storageAccountPublicNetworkAccess: ${{ inputs.storageAccountPublicNetworkAccess }}
       storageAccountTier: ${{ inputs.storageAccountTier }}
-      storageAccountReplicationType: ${{ inputs.storageAccountReplicationType }}
+      storageAccountSku: ${{ inputs.defaultStorageAccountTier }}_${{ inputs.defaultStorageAccountReplicationType }}
       storageAccountEncryptionServices: ${{ inputs.storageAccountEncryptionServices }}
       storageAccountMinTlsVersion: ${{ inputs.storageAccountMinTlsVersion }}
       terraformStateContainerName: ${{ inputs.terraformStateContainerName }}
