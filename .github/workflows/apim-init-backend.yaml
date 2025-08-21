@@ -41,9 +41,8 @@ jobs:
       resourceGroupName: ${{ inputs.resourceGroupName }}
       storageAccountName: ${{ inputs.storageAccountName }}
       storageAccountPublicNetworkAccess: ${{ inputs.storageAccountPublicNetworkAccess }}
-      storageAccountSku: ${{ inputs.defaultStorageAccountTier }}_${{ inputs.defaultStorageAccountReplicationType }}
+      storageAccountSku: ${{ inputs.storageAccountTier }}_${{ inputs.storageAccountReplicationType }}
       storageAccountEncryptionServices: ${{ inputs.storageAccountEncryptionServices }}
-      storageAccountTier: ${{ inputs.storageAccountTier }}
       storageAccountMinTlsVersion: ${{ inputs.storageAccountMinTlsVersion }}
       terraformStateContainerName: ${{ inputs.terraformStateContainerName }}
       location: ${{ inputs.location }}

@@ -28,7 +28,6 @@ on:
       location:
         required: true
         type: string
-
     secrets:
       azureClientId:
         required: true
