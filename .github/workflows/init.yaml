@@ -45,9 +45,9 @@ jobs:
     steps:
       - name: Set variables
         run: |
-          echo "initResourceGroupName=rg-${{ inputs.baseName }}-${{ inputs.environment }}-${{ inputs.location }}"
-          echo "initStorageAccountName=st${{ inputs.baseName }}${{ inputs.environment }}${{ inputs.location }}"
-          echo "initStorageAccountSku=${{ inputs.defaultStorageAccountTier }}_${{ inputs.defaultStorageAccountReplicationType }}"
+          echo "initResourceGroupName=rg-${{ inputs.baseName }}-${{ inputs.environment }}-${{ inputs.location }}" >> $GITHUB_ENV
+          echo "initStorageAccountName=st${{ inputs.baseName }}${{ inputs.environment }}${{ inputs.location }}" >> $GITHUB_ENV
+          echo "initStorageAccountSku=${{ inputs.defaultStorageAccountTier }}_${{ inputs.defaultStorageAccountReplicationType }}" >> $GITHUB_ENV
 
       - name: Check Resource Group Name
         run: echo "${{ env.initResourceGroupName }}"
