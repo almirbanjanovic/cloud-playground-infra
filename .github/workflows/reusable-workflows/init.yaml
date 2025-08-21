@@ -3,31 +3,28 @@ name: Init Terraform Backend Reusable Workflow
 on:
   workflow_call:
     inputs:
-      baseName:
+      resourceGroupName:
         required: true
         type: string
-      environment:
+      storageAccountName:
         required: true
         type: string
-      location:
+      storageAccountPublicNetworkAccess:
         required: true
         type: string
-      terraformStateFileName:
+      storageAccountTier:
+        required: true
+        type: string
+      storageAccountReplicationType:
+        required: true
+        type: string
+      storageAccountEncryptionServices:
+        required: true
+        type: string
+      storageAccountMinTlsVersion:
         required: true
         type: string
       terraformStateContainerName:
-        required: true
-        type: string
-      defaultStorageAccountTier:
-        required: true
-        type: string
-      defaultStorageAccountReplicationType:
-        required: true
-        type: string
-      defaultStorageAccountEncryptionServices:
-        required: true
-        type: string
-      defaultStorageAccountMinTlsVersion:
         required: true
         type: string
     secrets:
@@ -42,21 +39,8 @@ on:
 jobs:
   init-backend:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Set variables
-        run: |
-          echo "resourceGroupName=rg-${{ inputs.baseName }}-${{ inputs.environment }}-${{ inputs.location }}" >> $GITHUB_ENV
-          echo "storageAccountName=st${{ inputs.baseName }}${{ inputs.environment }}${{ inputs.location }}" >> $GITHUB_ENV
-          echo "storageAccountSku=${{ inputs.defaultStorageAccountTier }}_${{ inputs.defaultStorageAccountReplicationType }}" >> $GITHUB_ENV
-
-      - name: Check Resource Group Name
-        run: echo "${{ env.resourceGroupName }}"
-
-      - name: Check Terraform State File Name
-        run: echo "${{ inputs.terraformStateFileName }}"
-
-      - name: Check Storage Account Name
-        run: echo "${{ env.storageAccountName }}"
 
       - name: 'Az CLI login'
         uses: azure/login@v2
@@ -91,7 +75,7 @@ jobs:
 
           if ! az storage account show --resource-group ${{ env.resourceGroupName }} --name ${{ env.storageAccountName }} > /dev/null 2>&1; then
             echo "Creating storage account ${{ env.storageAccountName }}..."
-            az storage account create --resource-group ${{ env.resourceGroupName }} --name ${{ env.storageAccountName }} --sku ${{ env.storageAccountSku }} --encryption-services ${{ inputs.defaultStorageAccountEncryptionServices }} --min-tls-version ${{ inputs.defaultStorageAccountMinTlsVersion }} --location ${{ inputs.location }} --default-action Deny
+            az storage account create --resource-group ${{ env.resourceGroupName }} --name ${{ env.storageAccountName }} --sku ${{ env.storageAccountSku }} --encryption-services ${{ inputs.storageAccountEncryptionServices }} --min-tls-version ${{ inputs.storageAccountMinTlsVersion }} --location ${{ inputs.location }} --public-network-access ${{ inputs.storageAccountPublicNetworkAccess }}
             sleep $wait_time
           else
             echo "Storage account ${{ env.storageAccountName }} already exists."

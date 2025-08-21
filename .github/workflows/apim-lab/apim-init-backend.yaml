@@ -1,0 +1,38 @@
+name: APIM Init Backend
+on: 
+  workflow_dispatch:
+
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  resourceGroupName: rg-apim-lab-dev-centralus
+  storageAccountName: stapimlabdevcentralus
+  storageAccountPublicNetworkAccess: Enabled
+  storageAccountTier: Standard
+  storageAccountReplicationType: LRS
+  storageAccountEncryptionServices: blob
+  storageAccountMinTlsVersion: TLS1_2
+  terraformStateFileName: terraform.tfstate
+  terraformStateContainerName: tfstate
+
+jobs:
+  call-init-backend:
+    uses: almirbanjanovic/cloud-playground-infra/.github/workflows/reusable-workflows/init.yaml@main
+    with:
+      resourceGroupName: ${{ env.resourceGroupName }}
+      storageAccountPublicNetworkAccess: ${{ env.storageAccountPublicNetworkAccess }}
+      storageAccountName: ${{ env.storageAccountName }}
+      terraformStateFileName: ${{ env.terraformStateFileName }}
+      terraformStateContainerName: ${{ env.terraformStateContainerName }}
+      defaultStorageAccountTier: ${{ env.storageAccountTier }}
+      defaultStorageAccountReplicationType: ${{ env.storageAccountReplicationType }}
+      defaultStorageAccountEncryptionServices: ${{ env.storageAccountEncryptionServices }}
+      defaultStorageAccountMinTlsVersion: ${{ env.storageAccountMinTlsVersion }}
+
+    secrets:
+      azureClientId: ${{ secrets.AZURE_CLIENT_ID }}
+      azureTenantId: ${{ secrets.AZURE_TENANT_ID }}
+      azureSubscriptionId: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
