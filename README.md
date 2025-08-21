@@ -17,7 +17,7 @@ This repository contains infrastructure-as-code (IaC) templates and Kubernetes m
     - [Database](#database)
     - [Machine Learning](#machine-learning)
   - [📁 Utility Scripts](#-utility-scripts)
-  - [📁 CI/CD Workflows](#ci-cd-workflows)
+  - [CI/CD Workflows](#ci-cd-workflows)
 - [Key Features](#key-features)
   - [🔒 Security First](#-security-first)
   - [🏗️ Enterprise-Ready Architecture](#️-enterprise-ready-architecture)
@@ -118,7 +118,7 @@ The `assets/scripts/` directory contains utility scripts:
 - **`get_compute_sp_id.sh`** - Script to retrieve compute service principal IDs
 - **`page_views_query.sql`** - Analytics query for page view metrics
 
-### CI/CD Workflows
+## CI/CD Workflows
 
 The `.github/workflows/` directory contains GitHub Actions workflows for automating infrastructure and application tasks:
 

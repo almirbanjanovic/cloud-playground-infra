@@ -32,8 +32,8 @@ env:
   TF_VAR_resource_group_name: ${{ inputs.resourceGroupName }}
 
 jobs: 
-  terraform-plan:
-    name: Terraform Plan
+  terraform-apply:
+    name: Terraform Apply
     runs-on: ubuntu-latest
 
     defaults:
@@ -55,14 +55,6 @@ jobs:
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v3
 
-    - name: Setup TFLint
-      uses: terraform-linters/setup-tflint@v1
-    
-    - name: Terraform Format Check
-      id: fmt
-      run: terraform fmt -check
-      continue-on-error: true  
-
     - name: Terraform Init
       id: init
       run: |
@@ -77,18 +69,8 @@ jobs:
         ARM_SUBSCRIPTION_ID: ${{ secrets.azureSubscriptionId }}
         ARM_USE_OIDC: true
 
-    - name: Terraform Validate
-      id: validate
-      run: terraform validate
-
-    - name: Init TFLint
-      run: tflint --init
-
-    - name: Run TFLint
-      run: tflint -f compact
-
     - name: Download the plan
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: tf-plan
         path: ./  
