@@ -40,11 +40,10 @@ jobs:
     with:
       resourceGroupName: ${{ inputs.resourceGroupName }}
       storageAccountName: ${{ inputs.storageAccountName }}
-      storageAccountSku: ${{ inputs.storageAccountSku }}
       storageAccountPublicNetworkAccess: ${{ inputs.storageAccountPublicNetworkAccess }}
-      storageAccountTier: ${{ inputs.storageAccountTier }}
       storageAccountSku: ${{ inputs.defaultStorageAccountTier }}_${{ inputs.defaultStorageAccountReplicationType }}
       storageAccountEncryptionServices: ${{ inputs.storageAccountEncryptionServices }}
+      storageAccountTier: ${{ inputs.storageAccountTier }}
       storageAccountMinTlsVersion: ${{ inputs.storageAccountMinTlsVersion }}
       terraformStateContainerName: ${{ inputs.terraformStateContainerName }}
       location: ${{ inputs.location }}
