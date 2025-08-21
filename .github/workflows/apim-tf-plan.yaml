@@ -1,0 +1,37 @@
+name: APIM Lab Terraform Plan
+on: 
+  workflow_dispatch:
+    inputs:
+      resourceGroupName:
+        type: string
+        default: rg-apim-lab-dev-centralus
+      storageAccountName:
+        type: string
+        default: stapimlabdevcentralus
+      terraformStateContainerName:
+        type: string
+        default: tfstate
+      terraformStateBlobName:
+        type: string
+        default: terraform.tfstate
+      workingDirectory:
+        type: string
+        default: ./projects/apim-lab
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  call-terraform-plan:
+    uses: almirbanjanovic/cloud-playground-infra/.github/workflows/terraform-plan.yaml@main
+    with:
+      resourceGroupName: ${{ inputs.resourceGroupName }}
+      storageAccountName: ${{ inputs.storageAccountName }}
+      terraformStateContainerName: ${{ inputs.terraformStateContainerName }}
+      terraformStateBlobName: ${{ inputs.terraformStateBlobName }}
+      workingDirectory: ${{ inputs.workingDirectory }}
+    secrets:
+      azureClientId: ${{ secrets.AZURE_CLIENT_ID }}
+      azureTenantId: ${{ secrets.AZURE_TENANT_ID }}
+      azureSubscriptionId: ${{ secrets.AZURE_SUBSCRIPTION_ID }}

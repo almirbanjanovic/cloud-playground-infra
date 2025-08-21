@@ -1,0 +1,167 @@
+on:
+  workflow_call:
+    inputs:
+      resourceGroupName:
+        required: true
+        type: string
+      storageAccountName:
+        required: true
+        type: string
+      terraformStateContainerName:
+        required: true
+        type: string
+      terraformStateBlobName:
+        required: true
+        type: string
+      workingDirectory:
+        required: true
+        type: string
+    secrets:
+      azureClientId:
+        required: true
+      azureTenantId:
+        required: true
+      azureSubscriptionId:
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  ARM_CLIENT_ID: ${{ secrets.azureClientId }}
+  ARM_TENANT_ID: ${{ secrets.azureTenantId }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.azureSubscriptionId }}
+  ARM_USE_OIDC: true
+
+
+  # TF_VAR_resource_group_name: ${{ secrets.RESOURCE_GROUP_NAME }}
+  # TF_VAR_environment: ${{ inputs.current_environment }}
+  # TF_VAR_location: ${{ secrets.LOCATION }}
+  # TF_VAR_resource_group_import_id: ${{ secrets.RESOURCE_GROUP_IMPORT_ID }}
+  # TF_VAR_storage_account_name: ${{ secrets.STORAGE_ACCOUNT_NAME }}
+  # TF_VAR_account_tier: ${{ secrets.ACCOUNT_TIER }}
+  # TF_VAR_account_replication_type: ${{ secrets.ACCOUNT_REPLICATION_TYPE }}
+  # TF_VAR_storage_account_import_id: ${{ secrets.STORAGE_ACCOUNT_IMPORT_ID }}
+  # TF_VAR_virtual_network_name: ${{ secrets.VIRTUAL_NETWORK_NAME }}
+          
+jobs: 
+  terraform-plan:
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+
+    defaults:
+        run:
+          shell: bash
+
+    steps:
+
+    - name: Checkout Repo
+      uses: actions/checkout@v3
+
+    - name: Login to Azure using OIDC
+      uses: azure/login@v2
+      with:
+          client-id: ${{ secrets.azureClientId }}
+          tenant-id: ${{ secrets.azureTenantId }}
+          subscription-id: ${{ secrets.azureSubscriptionId }}
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+
+    - name: Setup TFLint
+      uses: terraform-linters/setup-tflint@v1
+    
+    - name: Terraform Format Check
+      id: fmt
+      run: terraform fmt -check
+      continue-on-error: true  
+
+    - name: Terraform Init
+      id: init
+      run: |
+        terraform init \
+        -chdir=${{ inputs.workingDirectory }} \
+        -backend-config ${{ inputs.resourceGroupName }} \
+        -backend-config ${{ inputs.storageAccountName }} \
+        -backend-config ${{ inputs.terraformStateContainerName }} \
+        -backend-config ${{ inputs.terraformStateBlobName }}
+      # env:
+      #   ARM_CLIENT_ID: ${{ secrets.azureClientId }}
+      #   ARM_TENANT_ID: ${{ secrets.azureTenantId }}
+      #   ARM_SUBSCRIPTION_ID: ${{ secrets.azureSubscriptionId }}
+      #   ARM_USE_OIDC: true
+
+    - name: Terraform Validate
+      id: validate
+      run: terraform validate
+
+    - name: Init TFLint
+      run: tflint --init
+
+    - name: Run TFLint
+      run: tflint -f compact
+
+    # - name: Terraform Plan
+    #   id: plan
+    #   run: terraform plan --out=out.tfplan
+      # env:
+      #   ARM_CLIENT_ID: ${{ secrets.azureClientId }}
+      #   ARM_SUBSCRIPTION_ID: ${{ secrets.azureSubscriptionId }}
+      #   ARM_TENANT_ID: ${{ secrets.azureTenantId }}
+      #   ARM_USE_OIDC: true
+
+  # terraform-apply:
+  #   name: Terraform Apply
+  #   needs: [ terraform-plan ]
+  #   runs-on: ubuntu-latest
+  #   environment: ${{ inputs.current_environment }}
+
+  #   defaults:
+  #     run:
+  #       shell: bash
+
+  #   steps:
+
+  #     - name: Checkout Repo
+  #       uses: actions/checkout@v2
+
+  #     - name: Login to Azure using OIDC
+  #       uses: azure/login@v2
+  #       with:
+  #         client-id: ${{ secrets.azureClientId }}
+  #         tenant-id: ${{ secrets.azureTenantId }}
+  #         subscription-id: ${{ secrets.azureSubscriptionId }}
+
+  #     - name: Setup Terraform
+  #       uses: hashicorp/setup-terraform@v1
+
+  #     - name: Terraform Init
+  #       id: init
+  #       run: |
+  #         terraform init \
+  #         -backend-config ${{ env.CONFIG_FULL_RESOURCE_GROUP_NAME }} \
+  #         -backend-config ${{ env.CONFIG_FULL_STORAGE_ACCOUNT_NAME }} \
+  #         -backend-config ${{ env.CONFIG_BLOB_CONTAINER_NAME }} \
+  #         -backend-config ${{ env.CONFIG_KEY }}
+  #       env:
+  #         ARM_CLIENT_ID: ${{ secrets.azureClientId }}
+  #         ARM_TENANT_ID: ${{ secrets.azureTenantId }}
+  #         ARM_SUBSCRIPTION_ID: ${{ secrets.azureSubscriptionId }}
+  #         ARM_USE_OIDC: true
+
+  #     - name: Download the plan
+  #       uses: actions/download-artifact@v3
+  #       with:
+  #         name: tf-plan
+  #         path: ./
+
+  #     - name: Apply the plan
+  #       id: apply
+  #       run: terraform apply -auto-approve out.tfplan
+  #       env:
+  #         ARM_CLIENT_ID: ${{ secrets.azureClientId }}
+  #         ARM_SUBSCRIPTION_ID: ${{ secrets.azureSubscriptionId }}
+  #         ARM_TENANT_ID: ${{ secrets.azureTenantId }}
+  #         ARM_USE_OIDC: true
+

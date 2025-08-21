@@ -7,8 +7,8 @@ on:
         default: dev
 
 permissions:
-      id-token: write
-      contents: read
+  id-token: write
+  contents: read
       
 jobs: 
   test-oidc:
