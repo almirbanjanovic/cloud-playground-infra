@@ -1,38 +1,56 @@
 name: APIM Lab Init Backend
 on: 
   workflow_dispatch:
-
+    inputs:
+      resourceGroupName:
+        type: string
+        description: rg-apim-lab-dev-centralus
+      storageAccountName:
+        type: string
+        description: stapimlabdevcentralus
+      storageAccountPublicNetworkAccess:
+        type: string
+        description: Enabled
+      storageAccountTier:
+        type: string
+        description: Standard
+      storageAccountReplicationType:
+        type: string
+        description: LRS
+      storageAccountEncryptionServices:
+        type: string
+        description: blob
+      storageAccountMinTlsVersion:
+        type: string
+        description: TLS1_2
+      terraformStateFileName:
+        type: string
+        description: terraform.tfstate
+      terraformStateContainerName:
+        type: string
+        description: tfstate
+      location:
+        type: string
+        description: centralus
 
 permissions:
   id-token: write
   contents: read
 
-env:
-  resourceGroupName: rg-apim-lab-dev-centralus
-  storageAccountName: stapimlabdevcentralus
-  storageAccountPublicNetworkAccess: Enabled
-  storageAccountTier: Standard
-  storageAccountReplicationType: LRS
-  storageAccountEncryptionServices: blob
-  storageAccountMinTlsVersion: TLS1_2
-  terraformStateFileName: terraform.tfstate
-  terraformStateContainerName: tfstate
-  location: centralus
-
 jobs:
   call-init-backend:
     uses: almirbanjanovic/cloud-playground-infra/.github/workflows/reusable-workflows/init.yaml@main
     with:
-      resourceGroupName: ${{ env.resourceGroupName }}
-      storageAccountName: ${{ env.storageAccountName }}
-      storageAccountSku: ${{ env.storageAccountSku }}
-      storageAccountPublicNetworkAccess: ${{ env.storageAccountPublicNetworkAccess }}
-      storageAccountTier: ${{ env.storageAccountTier }}
-      storageAccountReplicationType: ${{ env.storageAccountReplicationType }}
-      storageAccountEncryptionServices: ${{ env.storageAccountEncryptionServices }}
-      storageAccountMinTlsVersion: ${{ env.storageAccountMinTlsVersion }}
-      terraformStateContainerName: ${{ env.terraformStateContainerName }}
-      location: ${{ env.location }}
+      resourceGroupName: ${{ inputs.resourceGroupName }}
+      storageAccountName: ${{ inputs.storageAccountName }}
+      storageAccountSku: ${{ inputs.storageAccountSku }}
+      storageAccountPublicNetworkAccess: ${{ inputs.storageAccountPublicNetworkAccess }}
+      storageAccountTier: ${{ inputs.storageAccountTier }}
+      storageAccountReplicationType: ${{ inputs.storageAccountReplicationType }}
+      storageAccountEncryptionServices: ${{ inputs.storageAccountEncryptionServices }}
+      storageAccountMinTlsVersion: ${{ inputs.storageAccountMinTlsVersion }}
+      terraformStateContainerName: ${{ inputs.terraformStateContainerName }}
+      location: ${{ inputs.location }}
     secrets:
       azureClientId: ${{ secrets.AZURE_CLIENT_ID }}
       azureTenantId: ${{ secrets.AZURE_TENANT_ID }}
