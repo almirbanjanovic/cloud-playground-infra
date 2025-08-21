@@ -8,8 +8,8 @@ resource "azurerm_api_management" "this" {
   sku_name = "Developer_1"
 }
 
-resource "azurerm_api_management_workspace" "this" {
-  name              = "workspace-1"
-  api_management_id = azurerm_api_management.this.id
-  display_name      = "workspace-1"
-}
+# resource "azurerm_api_management_workspace" "this" {
+#   name              = "workspace-1"
+#   api_management_id = azurerm_api_management.this.id
+#   display_name      = "workspace-1"
+# }
