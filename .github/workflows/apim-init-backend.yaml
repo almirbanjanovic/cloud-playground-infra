@@ -1,4 +1,4 @@
-name: APIM Init Backend
+name: APIM Lab Init Backend
 on: 
   workflow_dispatch:
 
