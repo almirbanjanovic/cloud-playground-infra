@@ -65,7 +65,18 @@ jobs:
           tenant-id: ${{ secrets.azureTenantId }}
           subscription-id: ${{ secrets.azureSubscriptionId }}
 
-      - name: Create Remote Backend Storage
+      - name: Create Resource Group
+        run: |
+          set -e
+          
+          if ! az group show --name "${{ env.resourceGroupName }} &> /dev/null; then
+            echo "Resource group ${{ env.resourceGroupName }} does not exist. Creating..."
+            az group create --name ${{ env.resourceGroupName }} --location ${{ inputs.location }}
+          else
+            echo "Resource group ${{ env.resourceGroupName }} already exists."
+          fi
+
+      - name: Create Remote Backend Storage Account and Container
         run: |
           set -e
           IP=$(curl -s https://ifconfig.me)
@@ -77,15 +88,6 @@ jobs:
           }
 
           trap remove_network_rule EXIT
-
-
-          if ! az group show --name "${{ env.resourceGroupName }} &> /dev/null; then
-            echo "Resource group ${{ env.resourceGroupName }} does not exist. Creating..."
-            az group create --name ${{ env.resourceGroupName }} --location ${{ inputs.location }}
-          else
-            echo "Resource group ${{ env.resourceGroupName }} already exists."
-          fi
-
 
           # if ! az storage account show --resource-group ${{ env.resourceGroupName }} --name ${{ env.storageAccountName }} > /dev/null 2>&1; then
           #   echo "Creating storage account ${{ env.storageAccountName }}..."
