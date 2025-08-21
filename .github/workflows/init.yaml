@@ -61,9 +61,9 @@ jobs:
       - name: 'Az CLI login'
         uses: azure/login@v2
         with:
-          client-id: ${{ inputs.azureClientId }}
-          tenant-id: ${{ inputs.azureTenantId }}
-          subscription-id: ${{ inputs.azureSubscriptionId }}
+          client-id: ${{ secrets.azureClientId }}
+          tenant-id: ${{ secrets.azureTenantId }}
+          subscription-id: ${{ secrets.azureSubscriptionId }}
 
       # - name: Create Remote Backend Storage
       #   run: |
