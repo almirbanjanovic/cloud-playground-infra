@@ -13,3 +13,15 @@ resource "azurerm_api_management" "this" {
 #   api_management_id = azurerm_api_management.this.id
 #   display_name      = "workspace-1"
 # }
+
+resource "azurerm_api_management_api" "this" {
+  name                = "colors-api"
+  resource_group_name = var.resource_group_name
+  api_management_name = azurerm_api_management.this.name
+  revision            = "1"
+  display_name        = "Colors API"
+  import {
+    content_format = "swagger-link-json"
+    content_value  = "https://colors-api.azurewebsites.net/swagger/v1/swagger.json"
+  }
+}
