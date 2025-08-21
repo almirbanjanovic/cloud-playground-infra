@@ -1,5 +1,3 @@
-name: Init Terraform Backend Reusable Workflow
-
 on:
   workflow_call:
     
