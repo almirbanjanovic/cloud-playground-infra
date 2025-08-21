@@ -89,22 +89,22 @@ jobs:
 
           trap remove_network_rule EXIT
 
-          # if ! az storage account show --resource-group ${{ env.resourceGroupName }} --name ${{ env.storageAccountName }} > /dev/null 2>&1; then
-          #   echo "Creating storage account ${{ env.storageAccountName }}..."
-          #   az storage account create --resource-group ${{ env.resourceGroupName }} --name ${{ env.storageAccountName }} --sku ${{ env.storageAccountSku }} --encryption-services ${{ inputs.defaultStorageAccountEncryptionServices }} --min-tls-version ${{ inputs.defaultStorageAccountMinTlsVersion }} --location ${{ inputs.location }} --default-action Deny
-          #   sleep $wait_time
-          # else
-          #   echo "Storage account ${{ env.storageAccountName }} already exists."
-          # fi
+          if ! az storage account show --resource-group ${{ env.resourceGroupName }} --name ${{ env.storageAccountName }} > /dev/null 2>&1; then
+            echo "Creating storage account ${{ env.storageAccountName }}..."
+            az storage account create --resource-group ${{ env.resourceGroupName }} --name ${{ env.storageAccountName }} --sku ${{ env.storageAccountSku }} --encryption-services ${{ inputs.defaultStorageAccountEncryptionServices }} --min-tls-version ${{ inputs.defaultStorageAccountMinTlsVersion }} --location ${{ inputs.location }} --default-action Deny
+            sleep $wait_time
+          else
+            echo "Storage account ${{ env.storageAccountName }} already exists."
+          fi
 
-          # echo "Adding network rule for $IP"
-          # az storage account network-rule add --resource-group ${{ env.resourceGroupName }} --account-name ${{ env.storageAccountName }} --ip-address $IP
-          # sleep $wait_time
+          echo "Adding network rule for $IP"
+          az storage account network-rule add --resource-group ${{ env.resourceGroupName }} --account-name ${{ env.storageAccountName }} --ip-address $IP
+          sleep $wait_time
 
-          # KEY=$(az storage account keys list -g ${{ env.resourceGroupName }} -n ${{ env.storageAccountName }} --query "[0].value" -o tsv)
+          KEY=$(az storage account keys list -g ${{ env.resourceGroupName }} -n ${{ env.storageAccountName }} --query "[0].value" -o tsv)
 
-          # if ! az storage container show --name ${{ inputs.terraformStateContainerName }} --account-name ${{ env.storageAccountName }} --account-key $KEY > /dev/null 2>&1; then
-          #   az storage container create --name ${{ inputs.terraformStateContainerName }} --account-name ${{ env.storageAccountName }} --account-key $KEY
-          # fi
+          if ! az storage container show --name ${{ inputs.terraformStateContainerName }} --account-name ${{ env.storageAccountName }} --account-key $KEY > /dev/null 2>&1; then
+            az storage container create --name ${{ inputs.terraformStateContainerName }} --account-name ${{ env.storageAccountName }} --account-key $KEY
+          fi
 
-          # az storage container show --name ${{ inputs.terraformStateContainerName }} --account-name ${{ env.storageAccountName }} --account-key $KEY
+          az storage container show --name ${{ inputs.terraformStateContainerName }} --account-name ${{ env.storageAccountName }} --account-key $KEY
