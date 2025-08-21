@@ -24,11 +24,6 @@ on:
       azureSubscriptionId:
         required: true
 
-permissions:
-  id-token: write
-  contents: read
-  issues: write
-
 env:
   TF_VAR_resource_group_name: ${{ inputs.resourceGroupName }}
 
