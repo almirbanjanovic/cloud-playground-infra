@@ -81,10 +81,10 @@ jobs:
       id: init
       run: |
         terraform -chdir=${{ inputs.workingDirectory }} init \
-        -backend-config ${{ inputs.resourceGroupName }} \
-        -backend-config ${{ inputs.storageAccountName }} \
-        -backend-config ${{ inputs.terraformStateContainerName }} \
-        -backend-config ${{ inputs.terraformStateBlobName }}
+        -backend-config=${{ inputs.resourceGroupName }} \
+        -backend-config=${{ inputs.storageAccountName }} \
+        -backend-config=${{ inputs.terraformStateContainerName }} \
+        -backend-config=${{ inputs.terraformStateBlobName }}
       env:
         ARM_CLIENT_ID: ${{ secrets.azureClientId }}
         ARM_TENANT_ID: ${{ secrets.azureTenantId }}
