@@ -17,21 +17,22 @@ env:
   storageAccountMinTlsVersion: TLS1_2
   terraformStateFileName: terraform.tfstate
   terraformStateContainerName: tfstate
+  location: centralus
 
 jobs:
   call-init-backend:
     uses: almirbanjanovic/cloud-playground-infra/.github/workflows/reusable-workflows/init.yaml@main
     with:
       resourceGroupName: ${{ env.resourceGroupName }}
-      storageAccountPublicNetworkAccess: ${{ env.storageAccountPublicNetworkAccess }}
       storageAccountName: ${{ env.storageAccountName }}
-      terraformStateFileName: ${{ env.terraformStateFileName }}
-      terraformStateContainerName: ${{ env.terraformStateContainerName }}
+      storageAccountSku: ${{ env.storageAccountSku }}
+      storageAccountPublicNetworkAccess: ${{ env.storageAccountPublicNetworkAccess }}
       storageAccountTier: ${{ env.storageAccountTier }}
       storageAccountReplicationType: ${{ env.storageAccountReplicationType }}
       storageAccountEncryptionServices: ${{ env.storageAccountEncryptionServices }}
       storageAccountMinTlsVersion: ${{ env.storageAccountMinTlsVersion }}
-
+      terraformStateContainerName: ${{ env.terraformStateContainerName }}
+      location: ${{ env.location }}
     secrets:
       azureClientId: ${{ secrets.AZURE_CLIENT_ID }}
       azureTenantId: ${{ secrets.AZURE_TENANT_ID }}
