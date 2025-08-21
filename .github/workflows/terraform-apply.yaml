@@ -1,0 +1,108 @@
+on:
+  workflow_call:
+    inputs:
+      resourceGroupName:
+        required: true
+        type: string
+      storageAccountName:
+        required: true
+        type: string
+      terraformStateContainerName:
+        required: true
+        type: string
+      terraformStateBlobName:
+        required: true
+        type: string
+      workingDirectory:
+        required: true
+        type: string
+    secrets:
+      azureClientId:
+        required: true
+      azureTenantId:
+        required: true
+      azureSubscriptionId:
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  TF_VAR_resource_group_name: ${{ inputs.resourceGroupName }}
+
+          
+jobs: 
+  terraform-plan:
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+
+    defaults:
+        run:
+          shell: bash
+
+    steps:
+
+    - name: Checkout Repo
+      uses: actions/checkout@v3
+
+    - name: Login to Azure using OIDC
+      uses: azure/login@v2
+      with:
+        client-id: ${{ secrets.azureClientId }}
+        tenant-id: ${{ secrets.azureTenantId }}
+        subscription-id: ${{ secrets.azureSubscriptionId }}
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+
+    - name: Setup TFLint
+      uses: terraform-linters/setup-tflint@v1
+    
+    - name: Terraform Format Check
+      id: fmt
+      run: terraform fmt -check
+      continue-on-error: true  
+
+    - name: Terraform Init
+      id: init
+      run: |
+        terraform -chdir=${{ inputs.workingDirectory }} init \
+        -backend-config="resource_group_name=${{ inputs.resourceGroupName }}" \
+        -backend-config="storage_account_name=${{ inputs.storageAccountName }}" \
+        -backend-config="container_name=${{ inputs.terraformStateContainerName }}" \
+        -backend-config="key=${{ inputs.terraformStateBlobName }}"
+      env:
+        ARM_CLIENT_ID: ${{ secrets.azureClientId }}
+        ARM_TENANT_ID: ${{ secrets.azureTenantId }}
+        ARM_SUBSCRIPTION_ID: ${{ secrets.azureSubscriptionId }}
+        ARM_USE_OIDC: true
+
+    - name: Terraform Validate
+      id: validate
+      run: terraform validate
+
+    - name: Init TFLint
+      run: tflint --init
+
+    - name: Run TFLint
+      run: tflint -f compact
+
+    - name: Terraform Plan
+      id: plan
+      run: terraform -chdir=${{ inputs.workingDirectory }} plan --out=out.tfplan
+      env:
+        ARM_CLIENT_ID: ${{ secrets.azureClientId }}
+        ARM_SUBSCRIPTION_ID: ${{ secrets.azureSubscriptionId }}
+        ARM_TENANT_ID: ${{ secrets.azureTenantId }}
+        ARM_USE_OIDC: true  
+
+    - name: Apply the plan
+      id: apply
+      run: terraform -chdir=${{ inputs.workingDirectory }} apply -auto-approve out.tfplan
+      env:
+        ARM_CLIENT_ID: ${{ secrets.azureClientId }}
+        ARM_SUBSCRIPTION_ID: ${{ secrets.azureSubscriptionId }}
+        ARM_TENANT_ID: ${{ secrets.azureTenantId }}
+        ARM_USE_OIDC: true
+
