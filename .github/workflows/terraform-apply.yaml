@@ -87,14 +87,11 @@ jobs:
     - name: Run TFLint
       run: tflint -f compact
 
-    - name: Terraform Plan
-      id: plan
-      run: terraform -chdir=${{ inputs.workingDirectory }} plan --out=out.tfplan
-      env:
-        ARM_CLIENT_ID: ${{ secrets.azureClientId }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.azureSubscriptionId }}
-        ARM_TENANT_ID: ${{ secrets.azureTenantId }}
-        ARM_USE_OIDC: true  
+    - name: Download the plan
+      uses: actions/download-artifact@v3
+      with:
+        name: tf-plan
+        path: ./  
 
     - name: Apply the plan
       id: apply
