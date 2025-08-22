@@ -21,8 +21,9 @@ resource "azurerm_api_management_api" "this" {
   revision            = "1"
   display_name        = "Colors API"
   protocols           = ["https"]
+  service_url = "https://colors-api.azurewebsites.net/"
   import {
-    content_format = "swagger-link-json"
+    content_format = "openapi+json-link"
     content_value  = "https://colors-api.azurewebsites.net/swagger/v1/swagger.json"
   }
 }
