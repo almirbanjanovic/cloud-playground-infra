@@ -28,16 +28,16 @@ resource "azurerm_api_management_api" "colors" {
   }
 }
 
-resource "azurerm_api_management_api" "calculator" {
-  name                = "calculator-api"
-  resource_group_name = var.resource_group_name
-  api_management_name = azurerm_api_management.this.name
-  revision            = "1"
-  display_name        = "Calculator API"
-  protocols           = ["http"]
-  service_url = "http://calcapi.cloudapp.net"
-  import {
-    content_format = "openapi+json-link"
-    content_value  = "https://raw.githubusercontent.com/Azure/api-management-samples/refs/heads/master/apis/calculator.swagger.json"
-  }
-}
+# resource "azurerm_api_management_api" "calculator" {
+#   name                = "calculator-api"
+#   resource_group_name = var.resource_group_name
+#   api_management_name = azurerm_api_management.this.name
+#   revision            = "1"
+#   display_name        = "Calculator API"
+#   protocols           = ["http"]
+#   service_url = "http://calcapi.cloudapp.net"
+#   import {
+#     content_format = "openapi+json-link"
+#     content_value  = "https://raw.githubusercontent.com/Azure/api-management-samples/refs/heads/master/apis/calculator.swagger.json"
+#   }
+# }
