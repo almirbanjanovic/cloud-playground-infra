@@ -64,6 +64,7 @@ jobs:
         ARM_TENANT_ID: ${{ secrets.azureTenantId }}
         ARM_SUBSCRIPTION_ID: ${{ secrets.azureSubscriptionId }}
         ARM_USE_OIDC: true
+        ARM_USE_AZUREAD: true
 
     - name: Download the plan
       uses: actions/download-artifact@v4
