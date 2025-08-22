@@ -35,6 +35,7 @@ resource "azurerm_api_management_api" "calculator" {
   revision            = "1"
   display_name        = "Calculator API"
   protocols           = ["http"]
+  service_url = "http://calcapi.cloudapp.net/calcapi.json"
   import {
     content_format = "swagger-link-json"
     content_value  = "https://raw.githubusercontent.com/Azure/api-management-samples/refs/heads/master/apis/calculator.swagger.json"
