@@ -36,7 +36,7 @@ resource "azurerm_api_management_api" "calculator" {
   display_name        = "Calculator API"
   protocols           = ["http"]
   import {
-    content_format = "swagger+json-link"
+    content_format = "swagger-link-json"
     content_value  = "https://raw.githubusercontent.com/Azure/api-management-samples/refs/heads/master/apis/calculator.swagger.json"
   }
 }
