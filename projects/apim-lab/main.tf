@@ -14,7 +14,7 @@ resource "azurerm_api_management" "this" {
 #   display_name      = "workspace-1"
 # }
 
-resource "azurerm_api_management_api" "this" {
+resource "azurerm_api_management_api" "colors" {
   name                = "colors-api"
   resource_group_name = var.resource_group_name
   api_management_name = azurerm_api_management.this.name
@@ -25,5 +25,18 @@ resource "azurerm_api_management_api" "this" {
   import {
     content_format = "openapi+json-link"
     content_value  = "https://colors-api.azurewebsites.net/swagger/v1/swagger.json"
+  }
+}
+
+resource "azurerm_api_management_api" "calculator" {
+  name                = "calculator-api"
+  resource_group_name = var.resource_group_name
+  api_management_name = azurerm_api_management.this.name
+  revision            = "1"
+  display_name        = "Calculator API"
+  protocols           = ["http"]
+  import {
+    content_format = "swagger+json-link"
+    content_value  = "https://raw.githubusercontent.com/Azure/api-management-samples/refs/heads/master/apis/calculator.swagger.json"
   }
 }
