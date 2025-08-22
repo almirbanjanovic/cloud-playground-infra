@@ -57,7 +57,11 @@ jobs:
         --name ${{ inputs.storageAccountName }} \
         --resource-group ${{ inputs.resourceGroupName }} \
         --public-network-access Enabled
-    
+
+        # Wait for 25 seconds
+        sleep 25
+        echo "Public network access has been enabled and waited for 25 seconds."
+
     - name: Terraform Init
       id: init
       run: |
