@@ -51,6 +51,13 @@ jobs:
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v3
 
+    - name: Enable public access for backend storage account
+      run: |
+        az storage account update \
+        --name ${{ inputs.storageAccountName }} \
+        --resource-group ${{ inputs.resourceGroupName }} \
+        --public-network-access Enabled
+    
     - name: Terraform Init
       id: init
       run: |
@@ -80,4 +87,12 @@ jobs:
         ARM_SUBSCRIPTION_ID: ${{ secrets.azureSubscriptionId }}
         ARM_TENANT_ID: ${{ secrets.azureTenantId }}
         ARM_USE_OIDC: true
+        ARM_USE_AZUREAD: true
 
+    - name: Disable public access for backend storage account
+      if: always()
+      run: |
+        az storage account update \
+        --name ${{ inputs.storageAccountName }} \
+        --resource-group ${{ inputs.resourceGroupName }} \
+        --public-network-access Disabled

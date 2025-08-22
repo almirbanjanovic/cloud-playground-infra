@@ -59,6 +59,13 @@ jobs:
       id: fmt
       run: terraform fmt -check
       continue-on-error: true  
+    
+    - name: Enable public access for backend storage account
+      run: |
+        az storage account update \
+        --name ${{ inputs.storageAccountName }} \
+        --resource-group ${{ inputs.resourceGroupName }} \
+        --public-network-access Enabled
 
     - name: Terraform Init
       id: init
@@ -93,9 +100,18 @@ jobs:
         ARM_SUBSCRIPTION_ID: ${{ secrets.azureSubscriptionId }}
         ARM_TENANT_ID: ${{ secrets.azureTenantId }}
         ARM_USE_OIDC: true  
+        ARM_USE_AZUREAD: true
 
     - name: Upload the plan
       uses: actions/upload-artifact@v4
       with:
         name: tf-plan
         path: ${{ inputs.workingDirectory }}/out.tfplan
+
+    - name: Disable public access for backend storage account
+      if: always()
+      run: |
+        az storage account update \
+        --name ${{ inputs.storageAccountName }} \
+        --resource-group ${{ inputs.resourceGroupName }} \
+        --public-network-access Disabled
