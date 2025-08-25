@@ -38,38 +38,44 @@ env:
 
 jobs:
 
-  terraform-plan:
-    name: Terraform Plan
+  extract-env:
+    name: Extract Environment Variables
     runs-on: ubuntu-latest
 
+    outputs:
+      resourceGroupName: ${{ steps.export.outputs.resourceGroupName }}
+      storageAccountName: ${{ steps.export.outputs.storageAccountName }}
+      terraformStateContainerName: ${{ steps.export.outputs.terraformStateContainerName }}
+      terraformStateBlobName: ${{ steps.export.outputs.terraformStateBlobName }}
+      workingDirectory: ${{ steps.export.outputs.workingDirectory }}
     steps:
-    - uses: c-py/action-dotenv-to-setenv@v5
-      with:
-        env-file: ${{ env.PROJECT_DIRECTORY }}/.env
+      - uses: c-py/action-dotenv-to-setenv@v5
+        with:
+          env-file: ${{ env.PROJECT_DIRECTORY }}/.env
 
-    - uses: almirbanjanovic/cloud-playground-infra/.github/workflows/terraform-plan.yaml@main
-      with:
-        resourceGroupName: ${{ env.resourceGroupName }}
-        storageAccountName: ${{ env.storageAccountName }}
-        terraformStateContainerName: ${{ env.terraformStateContainerName }}
-        terraformStateBlobName: ${{ env.terraformStateBlobName }}
-        workingDirectory: ${{ env.workingDirectory }}
-      secrets:
-        azureClientId: ${{ secrets.AZURE_CLIENT_ID }}
-        azureTenantId: ${{ secrets.AZURE_TENANT_ID }}
-        azureSubscriptionId: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - id: export
+        run: |
+          echo "resourceGroupName=${resourceGroupName}" >> $GITHUB_OUTPUT
+          echo "storageAccountName=${storageAccountName}" >> $GITHUB_OUTPUT
+          echo "terraformStateContainerName=${terraformStateContainerName}" >> $GITHUB_OUTPUT
+          echo "terraformStateBlobName=${terraformStateBlobName}" >> $GITHUB_OUTPUT
+          echo "workingDirectory=${workingDirectory}" >> $GITHUB_OUTPUT
 
-    # - uses: almirbanjanovic/cloud-playground-infra/.github/workflows/terraform-plan.yaml@main
-    #   with:
-    #     resourceGroupName: ${{ inputs.resourceGroupName }}
-    #     storageAccountName: ${{ inputs.storageAccountName }}
-    #     terraformStateContainerName: ${{ inputs.terraformStateContainerName }}
-    #     terraformStateBlobName: ${{ inputs.terraformStateBlobName }}
-    #     workingDirectory: ${{ inputs.workingDirectory }}
-    #   secrets:
-    #     azureClientId: ${{ secrets.AZURE_CLIENT_ID }}
-    #     azureTenantId: ${{ secrets.AZURE_TENANT_ID }}
-    #     azureSubscriptionId: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+  terraform-plan:
+    name: Terraform Plan
+    needs: extract-env
+    uses: almirbanjanovic/cloud-playground-infra/.github/workflows/terraform-plan.yaml@main
+    with:
+      resourceGroupName: ${{ needs.extract-env.outputs.resourceGroupName }}
+      storageAccountName: ${{ needs.extract-env.outputs.storageAccountName }}
+      terraformStateContainerName: ${{ needs.extract-env.outputs.terraformStateContainerName }}
+      terraformStateBlobName: ${{ needs.extract-env.outputs.terraformStateBlobName }}
+      workingDirectory: ${{ needs.extract-env.outputs.workingDirectory }}
+    secrets:
+      azureClientId: ${{ secrets.AZURE_CLIENT_ID }}
+      azureTenantId: ${{ secrets.AZURE_TENANT_ID }}
+      azureSubscriptionId: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
   
   # manual-approval:
