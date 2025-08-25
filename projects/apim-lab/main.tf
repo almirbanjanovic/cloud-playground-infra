@@ -22,6 +22,8 @@ resource "azurerm_api_management_api" "colors" {
   display_name        = "Colors API"
   protocols           = ["https"]
   service_url = "https://colors-api.azurewebsites.net/"
+  path = "colors"
+
   import {
     content_format = "openapi+json-link"
     content_value  = "https://colors-api.azurewebsites.net/swagger/v1/swagger.json"
@@ -35,7 +37,8 @@ resource "azurerm_api_management_api" "petstore" {
   revision            = "1"
   display_name        = "Petstore API"
   protocols           = ["https"]
-  service_url = "http://petstore.swagger.io/v2"
+  path = "petstore"
+
   import {
     content_format = "openapi+json-link"
     content_value  = "https://petstore3.swagger.io/api/v3/openapi.json"
