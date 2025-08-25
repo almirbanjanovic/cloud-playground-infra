@@ -22,13 +22,40 @@ Infrastructure-as-Code for cloud playground environments.
 ## Usage
 
 1. Fork the repo.
+2. Configure new App Registration in Microsoft Entra ID.
 2. [Configure environment variables in your repository’s **Settings** → **Environments** in GitHub for your chosen environment.](#configure-a-new-cloud-playground) 
 3. [Run GitHub Actions pipelines in specified order.](#terraform-a-new-cloud-playground)
 
 
 ---
 
-For details on modules or workflows, see comments in the code.
+## Configure new App Registration in Microsoft Entra ID
+
+To enable GitHub Actions to deploy to Azure using OIDC, follow these steps:
+
+1. In the Azure Portal, go to **Microsoft Entra ID** > **App registrations** > **New registration**. Register a new application for your cloud playground.
+2. After registration, go to your new App Registration > **Certificates & secrets** > **Federated credentials** > **Add credential**.
+3. Configure the federated credential as follows:
+	- **Federated credential scenario**: GitHub Actions deploying Azure resources
+	- **Organization**: Your GitHub org or username
+	- **Repository**: Your repository name (e.g., `almirbanjanovic/cloud-playground-infra`)
+	- **Entity type**: Environment
+	- **Based on selection**: The GitHub environment name (your cloud playground, e.g., `dev`, `test`, `prod`)
+4. Save the federated credential. No client secret is required for OIDC.
+5. Copy the following values for use as GitHub secrets:
+	- **Application (client) ID** → `AZURE_CLIENT_ID`
+	- **Directory (tenant) ID** → `AZURE_TENANT_ID`
+	- Your Azure Subscription ID → `AZURE_SUBSCRIPTION_ID`
+
+---
+
+## Assign IAM Roles for App Registration
+
+1. **Contributor** (subscription scope is required for 2. Terraform Init Remote Backend to create Resource Group, but best practice would be to lower this later to adhere to Principle of Least Privilege)
+2. **Storage Blob Data Contributor** (at the scope of the storage account used for the Terraform state)
+3. Additional RBAC roles as required by your cloud playground's resources
+
+You can assign these roles in the Azure Portal under the relevant scope's **Access control (IAM)** > **Add role assignment**. Use the App Registration's client ID as the principal.
 
 ## Configure a new "Cloud Playground"
 
