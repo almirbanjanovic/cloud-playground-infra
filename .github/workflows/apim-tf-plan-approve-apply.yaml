@@ -2,14 +2,15 @@ name: APIM Lab Terraform Plan, Approve, Apply
 on: 
   workflow_dispatch:
     inputs:
-      description: 'Select the project'
-      required: true
-      default: apim-lab
-      type: choice
-      options:
-        - apim-lab
-        - my-other-project
-        - demo-project
+      projectName:
+        description: 'Select the project'
+        required: true
+        default: apim-lab
+        type: choice
+        options:
+          - apim-lab
+          - my-other-project
+          - demo-project
 
       # resourceGroupName:
       #   type: string
