@@ -40,6 +40,7 @@ jobs:
 
   terraform-plan:
     name: Terraform Plan
+    runs-on: ubuntu-latest
 
     steps:
     - uses: c-py/action-dotenv-to-setenv@v5
