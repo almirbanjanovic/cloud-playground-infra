@@ -77,9 +77,11 @@ jobs:
             sleep $wait_time
           fi
 
-          if ! az storage container show --name ${{ vars.TERRAFORM_STATE_CONTAINER }} > /dev/null 2>&1; then
+          az storage container show --name ${{ vars.TERRAFORM_STATE_CONTAINER }} --auth-mode login
+
+          if ! az storage container show --name ${{ vars.TERRAFORM_STATE_CONTAINER }} --auth-mode login > /dev/null 2>&1; then
             echo "Creating storage container ${{ vars.TERRAFORM_STATE_CONTAINER }}..."
-            az storage container create --name ${{ vars.TERRAFORM_STATE_CONTAINER }} --account-name ${{ vars.STORAGE_ACCOUNT }}
+            az storage container create --name ${{ vars.TERRAFORM_STATE_CONTAINER }} --account-name ${{ vars.STORAGE_ACCOUNT }} --auth-mode login
           else
             echo "Storage container ${{ vars.TERRAFORM_STATE_CONTAINER }} already exists..."
           fi
