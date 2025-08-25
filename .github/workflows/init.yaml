@@ -38,6 +38,7 @@ on:
 jobs:
   init-backend:
     runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
 
     steps:
 
@@ -52,11 +53,11 @@ jobs:
         run: |
           set -e
 
-          if ! az group show --name ${{ inputs.resourceGroupName }} &> /dev/null; then
-            echo "Resource group ${{ inputs.resourceGroupName }} does not exist. Creating..."
-            az group create --name ${{ inputs.resourceGroupName }} --location ${{ inputs.location }}
+          if ! az group show --name ${{ vars.RESOURCE_GROUP }} &> /dev/null; then
+            echo "Resource group ${{ vars.RESOURCE_GROUP }} does not exist. Creating..."
+            az group create --name ${{ vars.RESOURCE_GROUP }} --location ${{ vars.LOCATION }}
           else
-            echo "Resource group ${{ inputs.resourceGroupName }} already exists."
+            echo "Resource group ${{ vars.RESOURCE_GROUP }} already exists."
           fi
 
       - name: Create Remote Backend Storage Account and Container
@@ -67,27 +68,27 @@ jobs:
 
           remove_network_rule() {
             echo "Removing network rule for IP $IP"
-            az storage account network-rule remove --resource-group ${{ inputs.resourceGroupName }} --account-name ${{ inputs.storageAccountName }} --ip-address $IP
+            az storage account network-rule remove --resource-group ${{ vars.RESOURCE_GROUP }} --account-name ${{ vars.STORAGE_ACCOUNT }} --ip-address $IP
           }
 
           trap remove_network_rule EXIT
 
-          if ! az storage account show --resource-group ${{ inputs.resourceGroupName }} --name ${{ inputs.storageAccountName }} > /dev/null 2>&1; then
-            echo "Creating storage account ${{ inputs.storageAccountName }}..."
-            az storage account create --resource-group ${{ inputs.resourceGroupName }} --name ${{ inputs.storageAccountName }} --sku ${{ inputs.storageAccountSku }} --encryption-services ${{ inputs.storageAccountEncryptionServices }} --min-tls-version ${{ inputs.storageAccountMinTlsVersion }} --location ${{ inputs.location }} --public-network-access ${{ inputs.storageAccountPublicNetworkAccess }}
+          if ! az storage account show --resource-group ${{ vars.RESOURCE_GROUP }} --name ${{ vars.STORAGE_ACCOUNT }} > /dev/null 2>&1; then
+            echo "Creating storage account ${{ vars.STORAGE_ACCOUNT }}..."
+            az storage account create --resource-group ${{ vars.RESOURCE_GROUP }} --name ${{ vars.STORAGE_ACCOUNT }} --sku ${{ vars.STORAGE_ACCOUNT_SKU }} --encryption-services ${{ vars.STORAGE_ACCOUNT_ENCRYPTION_SERVICES }} --min-tls-version ${{ vars.STORAGE_ACCOUNT_MIN_TLS_VERSION }} --location ${{ vars.LOCATION }} --public-network-access ${{ vars.STORAGE_ACCOUNT_PUBLIC_NETWORK_ACCESS }}
             sleep $wait_time
           else
-            echo "Storage account ${{ inputs.storageAccountName }} already exists."
+            echo "Storage account ${{ vars.STORAGE_ACCOUNT }} already exists."
           fi
 
           echo "Adding network rule for $IP"
-          az storage account network-rule add --resource-group ${{ inputs.resourceGroupName }} --account-name ${{ inputs.storageAccountName }} --ip-address $IP
+          az storage account network-rule add --resource-group ${{ vars.RESOURCE_GROUP }} --account-name ${{ vars.STORAGE_ACCOUNT }} --ip-address $IP
           sleep $wait_time
 
-          KEY=$(az storage account keys list -g ${{ inputs.resourceGroupName }} -n ${{ inputs.storageAccountName }} --query "[0].value" -o tsv)
+          KEY=$(az storage account keys list -g ${{ vars.RESOURCE_GROUP }} -n ${{ vars.STORAGE_ACCOUNT }} --query "[0].value" -o tsv)
 
-          if ! az storage container show --name ${{ inputs.terraformStateContainerName }} --account-name ${{ inputs.storageAccountName }} --account-key $KEY > /dev/null 2>&1; then
-            az storage container create --name ${{ inputs.terraformStateContainerName }} --account-name ${{ inputs.storageAccountName }} --account-key $KEY
+          if ! az storage container show --name ${{ vars.TERRAFORM_STATE_CONTAINER }} --account-name ${{ vars.STORAGE_ACCOUNT }} --account-key $KEY > /dev/null 2>&1; then
+            az storage container create --name ${{ vars.TERRAFORM_STATE_CONTAINER }} --account-name ${{ vars.STORAGE_ACCOUNT }} --account-key $KEY
           fi
 
-          az storage container show --name ${{ inputs.terraformStateContainerName }} --account-name ${{ inputs.storageAccountName }} --account-key $KEY
+          az storage container show --name ${{ vars.TERRAFORM_STATE_CONTAINER }} --account-name ${{ vars.STORAGE_ACCOUNT }} --account-key $KEY
