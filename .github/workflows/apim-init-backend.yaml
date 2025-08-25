@@ -2,7 +2,6 @@ name: APIM Lab Init Backend
 on: 
   workflow_dispatch:
     inputs:
-      inputs:
       environment:
         description: 'Select the environment'
         required: true
