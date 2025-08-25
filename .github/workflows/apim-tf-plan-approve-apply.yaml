@@ -27,6 +27,12 @@ jobs:
 
   terraform-plan:
     name: Terraform Plan
+
+    steps:
+    uses: c-py/action-dotenv-to-setenv@v5
+    with:
+      env-file: ./projects/apim-lab/.env
+
     uses: almirbanjanovic/cloud-playground-infra/.github/workflows/terraform-plan.yaml@main
     with:
       resourceGroupName: ${{ inputs.resourceGroupName }}
