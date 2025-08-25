@@ -47,15 +47,27 @@ jobs:
 
     - uses: almirbanjanovic/cloud-playground-infra/.github/workflows/terraform-plan.yaml@main
       with:
-        resourceGroupName: ${{ inputs.resourceGroupName }}
-        storageAccountName: ${{ inputs.storageAccountName }}
-        terraformStateContainerName: ${{ inputs.terraformStateContainerName }}
-        terraformStateBlobName: ${{ inputs.terraformStateBlobName }}
-        workingDirectory: ${{ inputs.workingDirectory }}
+        resourceGroupName: ${{ env.resourceGroupName }}
+        storageAccountName: ${{ env.storageAccountName }}
+        terraformStateContainerName: ${{ env.terraformStateContainerName }}
+        terraformStateBlobName: ${{ env.terraformStateBlobName }}
+        workingDirectory: ${{ env.workingDirectory }}
       secrets:
         azureClientId: ${{ secrets.AZURE_CLIENT_ID }}
         azureTenantId: ${{ secrets.AZURE_TENANT_ID }}
         azureSubscriptionId: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+    # - uses: almirbanjanovic/cloud-playground-infra/.github/workflows/terraform-plan.yaml@main
+    #   with:
+    #     resourceGroupName: ${{ inputs.resourceGroupName }}
+    #     storageAccountName: ${{ inputs.storageAccountName }}
+    #     terraformStateContainerName: ${{ inputs.terraformStateContainerName }}
+    #     terraformStateBlobName: ${{ inputs.terraformStateBlobName }}
+    #     workingDirectory: ${{ inputs.workingDirectory }}
+    #   secrets:
+    #     azureClientId: ${{ secrets.AZURE_CLIENT_ID }}
+    #     azureTenantId: ${{ secrets.AZURE_TENANT_ID }}
+    #     azureSubscriptionId: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
   
   manual-approval:
