@@ -1,5 +1,5 @@
 
-# cloud-playground-infra
+# Cloud Playground Environments
 
 Infrastructure-as-Code for cloud playground environments.
 
