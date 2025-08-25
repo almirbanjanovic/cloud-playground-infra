@@ -1,4 +1,3 @@
-
 # Cloud Playground Environments
 
 Infrastructure-as-Code for cloud playground environments.
@@ -92,3 +91,12 @@ You can now run the following pipelines:
 The workflow **3. Terraform Plan, Approve, Apply** uses [trstringer/manual-approval@v1](https://github.com/trstringer/manual-approval) to require a manual check of the Terraform plan before applying changes. This is intended for cloud playground scenarios to allow review and approval of infrastructure changes.
 
 > **Note:** Generally, it is best practice to separate Terraform Plan and Terraform Apply into different workflows or pull requests (PRs) for better change management and review.
+
+---
+
+## About This Repository
+
+This repository is intended for training, proof-of-concept, and demo purposes. In a real-world production scenario:
+
+- There would typically be one repository per architecture or environment.
+- Reusable workflows could also be maintained in a dedicated repository and shared across projects.
