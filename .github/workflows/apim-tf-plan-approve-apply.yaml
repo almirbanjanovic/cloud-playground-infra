@@ -50,8 +50,6 @@ jobs:
       workingDirectory: ${{ steps.export.outputs.workingDirectory }}
 
     steps:
-      - name: Install dotenv-cli
-        run: npm install -g dotenv-cli
 
       - id: export
         run: |
