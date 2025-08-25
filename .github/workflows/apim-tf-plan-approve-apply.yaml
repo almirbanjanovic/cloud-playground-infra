@@ -33,46 +33,17 @@ permissions:
   contents: read
   issues: write
 
-env:
-  PROJECT_DIRECTORY: ./projects/${{ inputs.projectName }}
-
 jobs:
-
-  extract-env:
-    name: Extract Environment Variables
-    runs-on: ubuntu-latest
-
-    outputs:
-      resourceGroupName: ${{ steps.export.outputs.resourceGroupName }}
-      storageAccountName: ${{ steps.export.outputs.storageAccountName }}
-      terraformStateContainerName: ${{ steps.export.outputs.terraformStateContainerName }}
-      terraformStateBlobName: ${{ steps.export.outputs.terraformStateBlobName }}
-      workingDirectory: ${{ steps.export.outputs.workingDirectory }}
-      
-    steps:
-      - uses: c-py/action-dotenv-to-setenv@v5
-        with:
-          env-file: ${{ env.PROJECT_DIRECTORY }}/.env.${{ inputs.projectName }}
-
-      - id: export
-        run: |
-          echo "resourceGroupName=${resourceGroupName}" >> $GITHUB_OUTPUT
-          echo "storageAccountName=${storageAccountName}" >> $GITHUB_OUTPUT
-          echo "terraformStateContainerName=${terraformStateContainerName}" >> $GITHUB_OUTPUT
-          echo "terraformStateBlobName=${terraformStateBlobName}" >> $GITHUB_OUTPUT
-          echo "workingDirectory=${workingDirectory}" >> $GITHUB_OUTPUT
-
 
   terraform-plan:
     name: Terraform Plan
-    needs: extract-env
     uses: almirbanjanovic/cloud-playground-infra/.github/workflows/terraform-plan.yaml@main
     with:
-      resourceGroupName: ${{ needs.extract-env.outputs.resourceGroupName }}
-      storageAccountName: ${{ needs.extract-env.outputs.storageAccountName }}
-      terraformStateContainerName: ${{ needs.extract-env.outputs.terraformStateContainerName }}
-      terraformStateBlobName: ${{ needs.extract-env.outputs.terraformStateBlobName }}
-      workingDirectory: ${{ needs.extract-env.outputs.workingDirectory }}
+      resourceGroupName: $RESOURCE_GROUP
+      storageAccountName: $STORAGE_ACCOUNT
+      terraformStateContainerName: $TERRAFORM_STATE_CONTAINER
+      terraformStateBlobName: $TERRAFORM_STATE_BLOB
+      workingDirectory: $WORKING_DIRECTORY
     secrets:
       azureClientId: ${{ secrets.AZURE_CLIENT_ID }}
       azureTenantId: ${{ secrets.AZURE_TENANT_ID }}
