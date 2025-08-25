@@ -1,16 +1,14 @@
-name: APIM Lab Init Backend
+name: Init Backend
 on: 
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Select the environment'
+        description: 'Select environment'
         required: true
         default: apim-lab
         type: choice
         options:
           - apim-lab
-          - my-other-project
-          - demo-project
 
 permissions:
   id-token: write

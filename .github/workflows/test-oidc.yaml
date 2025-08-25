@@ -2,9 +2,13 @@ name: Test OpenID Connect
 on: 
   workflow_dispatch:
     inputs:
-      current_environment:
-        type: string
-        default: dev
+      environment:
+        description: 'Select environment'
+        required: true
+        default: apim-lab
+        type: choice
+        options:
+          - apim-lab
 
 permissions:
   id-token: write

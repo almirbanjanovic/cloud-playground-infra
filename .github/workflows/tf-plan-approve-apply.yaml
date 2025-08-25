@@ -3,29 +3,12 @@ on:
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Select the environment'
+        description: 'Select environment'
         required: true
         default: apim-lab
         type: choice
         options:
           - apim-lab
-          - my-other-project
-          - demo-project
-      # resourceGroupName:
-      #   type: string
-      #   default: rg-apim-lab-dev-centralus
-      # storageAccountName:
-      #   type: string
-      #   default: stapimlabdevcentralus
-      # terraformStateContainerName:
-      #   type: string
-      #   default: tfstate
-      # terraformStateBlobName:
-      #   type: string
-      #   default: terraform.tfstate
-      # workingDirectory:
-      #   type: string
-      #   default: ./projects/apim-lab
 
 permissions:
   id-token: write
