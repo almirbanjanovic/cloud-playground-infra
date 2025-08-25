@@ -33,6 +33,8 @@ permissions:
   contents: read
   issues: write
 
+environment: ${{ inputs.projectName }}
+
 jobs:
 
   terraform-plan:
