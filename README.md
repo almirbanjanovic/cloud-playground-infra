@@ -2,6 +2,7 @@
 
 Infrastructure-as-Code for cloud playground environments.
 
+---
 
 ## Structure
 
@@ -56,6 +57,8 @@ To enable GitHub Actions to deploy to Azure using OIDC, follow these steps:
 
 You can assign these roles in the Azure Portal under the relevant scope's **Access control (IAM)** > **Add role assignment**. Use the App Registration's client ID as the principal.
 
+---
+
 ## Configure a new Cloud Playground
 
 1. Go to your repository’s **Settings** → **Environments** in GitHub.
@@ -78,6 +81,8 @@ You can assign these roles in the Azure Portal under the relevant scope's **Acce
 	- `AZURE_SUBSCRIPTION_ID`
 	- `AZURE_TENANT_ID` (Microsoft Entra Tenant ID)
 
+---
+
 ## Terraform a new Cloud Playground
 You can now run the following pipelines:
 
@@ -85,6 +90,8 @@ You can now run the following pipelines:
 	1. Test OpenID Connect
 	2. Terraform Init Remote Backend
 	3. Terraform Plan, Approve, Apply
+
+---
 
 ## Manual Approval in Cloud Playground Pipelines
 
