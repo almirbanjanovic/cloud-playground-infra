@@ -4,21 +4,6 @@ on:
       environment:
         required: true
         type: string
-      resourceGroupName:
-        required: true
-        type: string
-      storageAccountName:
-        required: true
-        type: string
-      terraformStateContainerName:
-        required: true
-        type: string
-      terraformStateBlobName:
-        required: true
-        type: string
-      workingDirectory:
-        required: true
-        type: string
     secrets:
       azureClientId:
         required: true
@@ -66,8 +51,8 @@ jobs:
     - name: Enable public access for backend storage account
       run: |
         az storage account update \
-        --name ${{ inputs.storageAccountName }} \
-        --resource-group ${{ inputs.resourceGroupName }} \
+        --name ${{ vars.STORAGE_ACCOUNT }} \
+        --resource-group ${{ vars.RESOURCE_GROUP }} \
         --public-network-access Enabled
 
         # Wait for 25 seconds
@@ -78,11 +63,11 @@ jobs:
     - name: Terraform Init
       id: init
       run: |
-        terraform -chdir=${{ inputs.workingDirectory }} init \
-        -backend-config="resource_group_name=${{ inputs.resourceGroupName }}" \
-        -backend-config="storage_account_name=${{ inputs.storageAccountName }}" \
-        -backend-config="container_name=${{ inputs.terraformStateContainerName }}" \
-        -backend-config="key=${{ inputs.terraformStateBlobName }}"
+        terraform -chdir=${{ vars.WORKING_DIRECTORY }} init \
+        -backend-config="resource_group_name=${{ vars.RESOURCE_GROUP }}" \
+        -backend-config="storage_account_name=${{ vars.STORAGE_ACCOUNT }}" \
+        -backend-config="container_name=${{ vars.TERRAFORM_STATE_CONTAINER }}" \
+        -backend-config="key=${{ vars.TERRAFORM_STATE_BLOB }}"
       env:
         ARM_CLIENT_ID: ${{ secrets.azureClientId }}
         ARM_TENANT_ID: ${{ secrets.azureTenantId }}
@@ -102,7 +87,7 @@ jobs:
 
     - name: Terraform plan
       id: plan
-      run: terraform -chdir=${{ inputs.workingDirectory }} plan --out=out.tfplan
+      run: terraform -chdir=${{ vars.WORKING_DIRECTORY }} plan --out=out.tfplan
       env:
         ARM_CLIENT_ID: ${{ secrets.azureClientId }}
         ARM_SUBSCRIPTION_ID: ${{ secrets.azureSubscriptionId }}
@@ -114,12 +99,12 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: tf-plan
-        path: ${{ inputs.workingDirectory }}/out.tfplan
+        path: ${{ vars.WORKING_DIRECTORY }}/out.tfplan
 
     - name: Disable public access for backend storage account
       if: always()
       run: |
         az storage account update \
-        --name ${{ inputs.storageAccountName }} \
-        --resource-group ${{ inputs.resourceGroupName }} \
+        --name ${{ vars.STORAGE_ACCOUNT }} \
+        --resource-group ${{ vars.RESOURCE_GROUP }} \
         --public-network-access Disabled

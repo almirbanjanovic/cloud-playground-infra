@@ -2,6 +2,16 @@ name: APIM Lab Init Backend
 on: 
   workflow_dispatch:
     inputs:
+      inputs:
+      environment:
+        description: 'Select the environment'
+        required: true
+        default: apim-lab
+        type: choice
+        options:
+          - apim-lab
+          - my-other-project
+          - demo-project
       resourceGroupName:
         type: string
         default: rg-apim-lab-dev-centralus
