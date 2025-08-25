@@ -36,7 +36,6 @@ jobs:
 
   terraform-plan:
     name: Terraform Plan
-    environment: ${{ inputs.environment}}
     uses: almirbanjanovic/cloud-playground-infra/.github/workflows/terraform-plan.yaml@main
     with:
       environment: ${{ inputs.environment }}
