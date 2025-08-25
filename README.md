@@ -89,7 +89,7 @@ inputs:
         required: true
         default: apim-lab
         type: choice
-        options:
+        **options:**
           - ai-foundry
           - apim-lab
 ```
