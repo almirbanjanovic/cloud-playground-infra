@@ -39,11 +39,6 @@ jobs:
     uses: almirbanjanovic/cloud-playground-infra/.github/workflows/terraform-plan.yaml@main
     with:
       environment: ${{ inputs.environment }}
-      resourceGroupName: ${{ vars.RESOURCE_GROUP }}
-      storageAccountName: ${{ vars.STORAGE_ACCOUNT }}
-      terraformStateContainerName: ${{ vars.TERRAFORM_STATE_CONTAINER }}
-      terraformStateBlobName: ${{ vars.TERRAFORM_STATE_BLOB }}
-      workingDirectory: ${{ vars.WORKING_DIRECTORY }}
     secrets:
       azureClientId: ${{ secrets.AZURE_CLIENT_ID }}
       azureTenantId: ${{ secrets.AZURE_TENANT_ID }}
