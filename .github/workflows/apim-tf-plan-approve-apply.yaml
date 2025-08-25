@@ -2,8 +2,8 @@ name: APIM Lab Terraform Plan, Approve, Apply
 on: 
   workflow_dispatch:
     inputs:
-      projectName:
-        description: 'Select the project'
+      environment:
+        description: 'Select the environment'
         required: true
         default: apim-lab
         type: choice
@@ -36,14 +36,15 @@ jobs:
 
   terraform-plan:
     name: Terraform Plan
+    environment: ${{ inputs.environment}}
     uses: almirbanjanovic/cloud-playground-infra/.github/workflows/terraform-plan.yaml@main
     with:
-      environment: ${{ inputs.projectName }}
-      resourceGroupName: $RESOURCE_GROUP
-      storageAccountName: $STORAGE_ACCOUNT
-      terraformStateContainerName: $TERRAFORM_STATE_CONTAINER
-      terraformStateBlobName: $TERRAFORM_STATE_BLOB
-      workingDirectory: $WORKING_DIRECTORY
+      environment: ${{ inputs.environment }}
+      resourceGroupName: ${{ vars.RESOURCE_GROUP }}
+      storageAccountName: ${{ vars.STORAGE_ACCOUNT }}
+      terraformStateContainerName: ${{ vars.TERRAFORM_STATE_CONTAINER }}
+      terraformStateBlobName: ${{ vars.TERRAFORM_STATE_BLOB }}
+      workingDirectory: ${{ vars.WORKING_DIRECTORY }}
     secrets:
       azureClientId: ${{ secrets.AZURE_CLIENT_ID }}
       azureTenantId: ${{ secrets.AZURE_TENANT_ID }}
@@ -70,12 +71,12 @@ jobs:
     needs: [manual-approval]
     uses: almirbanjanovic/cloud-playground-infra/.github/workflows/terraform-apply.yaml@main
     with:
-      environment: ${{ inputs.projectName }}
-      resourceGroupName: ${{ inputs.resourceGroupName }}
-      storageAccountName: ${{ inputs.storageAccountName }}
-      terraformStateContainerName: ${{ inputs.terraformStateContainerName }}
-      terraformStateBlobName: ${{ inputs.terraformStateBlobName }}
-      workingDirectory: ${{ inputs.workingDirectory }}
+      environment: ${{ inputs.environment }}
+      resourceGroupName: ${{ vars.RESOURCE_GROUP }}
+      storageAccountName: ${{ vars.STORAGE_ACCOUNT }}
+      terraformStateContainerName: ${{ vars.TERRAFORM_STATE_CONTAINER }}
+      terraformStateBlobName: ${{ vars.TERRAFORM_STATE_BLOB }}
+      workingDirectory: ${{ vars.WORKING_DIRECTORY }}
     secrets:
       azureClientId: ${{ secrets.AZURE_CLIENT_ID }}
       azureTenantId: ${{ secrets.AZURE_TENANT_ID }}

@@ -28,9 +28,8 @@ on:
         required: true
 
 env:
-  TF_VAR_resource_group_name: $RESOURCE_GROUP
+  TF_VAR_resource_group_name: ${{ vars.RESOURCE_GROUP }}
 
-          
 jobs: 
   terraform-plan:
     name: Terraform Plan
