@@ -1,29 +1,7 @@
 on:
   workflow_call:
-    
     inputs:
-      resourceGroupName:
-        required: true
-        type: string
-      storageAccountName:
-        required: true
-        type: string
-      storageAccountPublicNetworkAccess:
-        required: true
-        type: string
-      storageAccountSku:
-        required: true
-        type: string
-      storageAccountEncryptionServices:
-        required: true
-        type: string
-      storageAccountMinTlsVersion:
-        required: true
-        type: string
-      terraformStateContainerName:
-        required: true
-        type: string
-      location:
+      environment:
         required: true
         type: string
     secrets:
