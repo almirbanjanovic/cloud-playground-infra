@@ -91,4 +91,4 @@ You can now run the following pipelines:
 
 The workflow **3. Terraform Plan, Approve, Apply** uses [trstringer/manual-approval@v1](https://github.com/trstringer/manual-approval) to require a manual check of the Terraform plan before applying changes. This is intended for cloud playground scenarios to allow review and approval of infrastructure changes.
 
-> **Note:** In production environments, it is best practice to separate Plan and Apply into different workflows or pull requests for better change management and review.
+> **Note:** Generally, it is best practice to separate Terraform Plan and Terraform Apply into different workflows or pull requests (PRs) for better change management and review.
