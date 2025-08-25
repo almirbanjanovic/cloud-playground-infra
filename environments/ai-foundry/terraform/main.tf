@@ -6,7 +6,6 @@ resource "azurerm_ai_services" "this" {
   sku_name                           = "S0"
   
   identity {
-    identity_ids = []
     type         = "SystemAssigned"
   }
   
