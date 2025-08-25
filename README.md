@@ -81,6 +81,19 @@ You can assign these roles in the Azure Portal under the relevant scope's **Acce
 	- `AZURE_SUBSCRIPTION_ID`
 	- `AZURE_TENANT_ID` (Microsoft Entra Tenant ID)
 
+5. Add new cloud playground folder name to `terraform-init-backend.yaml` and `terraform-plan-approve-apply.yaml` under `options`:
+```
+inputs:
+      environment:
+        description: 'Select environment'
+        required: true
+        default: apim-lab
+        type: choice
+        options:
+          - ai-foundry
+          - apim-lab
+```
+
 ---
 
 ## Terraform a new Cloud Playground
