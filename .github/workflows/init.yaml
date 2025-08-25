@@ -58,23 +58,19 @@ jobs:
             sleep $wait_time
           else
             echo "Storage account ${{ vars.STORAGE_ACCOUNT }} already exists..."
-            echo "Enabling public network access and waiting for 25 seconds..."
+            
             az storage account update \
             --name ${{ vars.STORAGE_ACCOUNT }} \
             --resource-group ${{ vars.RESOURCE_GROUP }} \
             --public-network-access Enabled
 
+            echo "Enabling public network access and waiting for 25 seconds..."
             sleep $wait_time
           fi
 
-          echo "Retrieving storage account key..."
-          KEY=$(az storage account keys list -g ${{ vars.RESOURCE_GROUP }} -n ${{ vars.STORAGE_ACCOUNT }} --query "[0].value" -o tsv)
-
-          if ! az storage container show --name ${{ vars.TERRAFORM_STATE_CONTAINER }} --account-name ${{ vars.STORAGE_ACCOUNT }} --account-key $KEY > /dev/null 2>&1; then
+          if ! az storage container show --name ${{ vars.TERRAFORM_STATE_CONTAINER }} --account-name ${{ vars.STORAGE_ACCOUNT }} --auth_mode login > /dev/null 2>&1; then
             echo "Creating storage container ${{ vars.TERRAFORM_STATE_CONTAINER }}..."
-            az storage container create --name ${{ vars.TERRAFORM_STATE_CONTAINER }} --account-name ${{ vars.STORAGE_ACCOUNT }} --account-key $KEY
+            az storage container create --name ${{ vars.TERRAFORM_STATE_CONTAINER }} --account-name ${{ vars.STORAGE_ACCOUNT }} --auth_mode login
           else
             echo "Storage container ${{ vars.TERRAFORM_STATE_CONTAINER }} already exists..."
           fi
-
-          # az storage container show --name ${{ vars.TERRAFORM_STATE_CONTAINER }} --account-name ${{ vars.STORAGE_ACCOUNT }} --account-key $KEY
