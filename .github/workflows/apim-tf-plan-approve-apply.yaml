@@ -2,26 +2,38 @@ name: APIM Lab Terraform Plan, Approve, Apply
 on: 
   workflow_dispatch:
     inputs:
-      resourceGroupName:
-        type: string
-        default: rg-apim-lab-dev-centralus
-      storageAccountName:
-        type: string
-        default: stapimlabdevcentralus
-      terraformStateContainerName:
-        type: string
-        default: tfstate
-      terraformStateBlobName:
-        type: string
-        default: terraform.tfstate
-      workingDirectory:
-        type: string
-        default: ./projects/apim-lab/terraform
+      description: 'Select the project'
+      required: true
+      default: apim-lab
+      type: choice
+      options:
+        - apim-lab
+        - my-other-project
+        - demo-project
+
+      # resourceGroupName:
+      #   type: string
+      #   default: rg-apim-lab-dev-centralus
+      # storageAccountName:
+      #   type: string
+      #   default: stapimlabdevcentralus
+      # terraformStateContainerName:
+      #   type: string
+      #   default: tfstate
+      # terraformStateBlobName:
+      #   type: string
+      #   default: terraform.tfstate
+      # workingDirectory:
+      #   type: string
+      #   default: ./projects/apim-lab/terraform
 
 permissions:
   id-token: write
   contents: read
   issues: write
+
+env:
+  PROJECT_DIRECTORY: ./projects/${{ inputs.projectName }}
 
 jobs:
 
@@ -29,21 +41,21 @@ jobs:
     name: Terraform Plan
 
     steps:
-    uses: c-py/action-dotenv-to-setenv@v5
-    with:
-      env-file: ./projects/apim-lab/.env
+    - uses: c-py/action-dotenv-to-setenv@v5
+      with:
+        env-file: ${{ env.PROJECT_DIRECTORY }}/.env
 
-    uses: almirbanjanovic/cloud-playground-infra/.github/workflows/terraform-plan.yaml@main
-    with:
-      resourceGroupName: ${{ inputs.resourceGroupName }}
-      storageAccountName: ${{ inputs.storageAccountName }}
-      terraformStateContainerName: ${{ inputs.terraformStateContainerName }}
-      terraformStateBlobName: ${{ inputs.terraformStateBlobName }}
-      workingDirectory: ${{ inputs.workingDirectory }}
-    secrets:
-      azureClientId: ${{ secrets.AZURE_CLIENT_ID }}
-      azureTenantId: ${{ secrets.AZURE_TENANT_ID }}
-      azureSubscriptionId: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+    - uses: almirbanjanovic/cloud-playground-infra/.github/workflows/terraform-plan.yaml@main
+      with:
+        resourceGroupName: ${{ inputs.resourceGroupName }}
+        storageAccountName: ${{ inputs.storageAccountName }}
+        terraformStateContainerName: ${{ inputs.terraformStateContainerName }}
+        terraformStateBlobName: ${{ inputs.terraformStateBlobName }}
+        workingDirectory: ${{ inputs.workingDirectory }}
+      secrets:
+        azureClientId: ${{ secrets.AZURE_CLIENT_ID }}
+        azureTenantId: ${{ secrets.AZURE_TENANT_ID }}
+        azureSubscriptionId: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
   
   manual-approval:
@@ -51,14 +63,14 @@ jobs:
     needs: [terraform-plan]
     runs-on: ubuntu-latest
     steps:
-      - uses: trstringer/manual-approval@v1
-        with:
-          secret: ${{ github.TOKEN }}
-          approvers: almirbanjanovic
-          minimum-approvals: 1
-          issue-title: "Approve deployment to production"
-          issue-body: "Please approve or deny the deployment."
-          fail-on-denial: true
+    - uses: trstringer/manual-approval@v1
+      with:
+        secret: ${{ github.TOKEN }}
+        approvers: almirbanjanovic
+        minimum-approvals: 1
+        issue-title: "Approve deployment to production"
+        issue-body: "Please approve or deny the deployment."
+        fail-on-denial: true
 
 
   terraform-apply:
