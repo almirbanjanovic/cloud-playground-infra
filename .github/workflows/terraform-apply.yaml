@@ -4,21 +4,6 @@ on:
       environment:
         required: true
         type: string
-      resourceGroupName:
-        required: true
-        type: string
-      storageAccountName:
-        required: true
-        type: string
-      terraformStateContainerName:
-        required: true
-        type: string
-      terraformStateBlobName:
-        required: true
-        type: string
-      workingDirectory:
-        required: true
-        type: string
     secrets:
       azureClientId:
         required: true
@@ -28,7 +13,7 @@ on:
         required: true
 
 env:
-  TF_VAR_resource_group_name: ${{ inputs.resourceGroupName }}
+  TF_VAR_resource_group_name: ${{ vars.RESOURCE_GROUP }}
 
 jobs: 
   terraform-apply:
@@ -58,8 +43,8 @@ jobs:
     - name: Enable public access for backend storage account
       run: |
         az storage account update \
-        --name ${{ inputs.storageAccountName }} \
-        --resource-group ${{ inputs.resourceGroupName }} \
+        --name ${{ vars.STORAGE_ACCOUNT }} \
+        --resource-group ${{ vars.RESOURCE_GROUP }} \
         --public-network-access Enabled
 
         # Wait for 25 seconds
@@ -70,11 +55,11 @@ jobs:
     - name: Terraform Init
       id: init
       run: |
-        terraform -chdir=${{ inputs.workingDirectory }} init \
-        -backend-config="resource_group_name=${{ inputs.resourceGroupName }}" \
-        -backend-config="storage_account_name=${{ inputs.storageAccountName }}" \
-        -backend-config="container_name=${{ inputs.terraformStateContainerName }}" \
-        -backend-config="key=${{ inputs.terraformStateBlobName }}"
+        terraform -chdir=${{ vars.WORKING_DIRECTORY }} init \
+        -backend-config="resource_group_name=${{ vars.RESOURCE_GROUP }}" \
+        -backend-config="storage_account_name=${{ vars.STORAGE_ACCOUNT }}" \
+        -backend-config="container_name=${{ vars.TERRAFORM_STATE_CONTAINER }}" \
+        -backend-config="key=${{ vars.TERRAFORM_STATE_BLOB }}"
       env:
         ARM_CLIENT_ID: ${{ secrets.azureClientId }}
         ARM_TENANT_ID: ${{ secrets.azureTenantId }}
@@ -86,11 +71,11 @@ jobs:
       uses: actions/download-artifact@v4
       with:
         name: tf-plan
-        path: ${{ inputs.workingDirectory }}/  
+        path: ${{ vars.WORKING_DIRECTORY }}/
 
     - name: Apply the plan
       id: apply
-      run: terraform -chdir=${{ inputs.workingDirectory }} apply -auto-approve out.tfplan
+      run: terraform -chdir=${{ vars.WORKING_DIRECTORY }} apply -auto-approve out.tfplan
       env:
         ARM_CLIENT_ID: ${{ secrets.azureClientId }}
         ARM_SUBSCRIPTION_ID: ${{ secrets.azureSubscriptionId }}
@@ -102,6 +87,6 @@ jobs:
       if: always()
       run: |
         az storage account update \
-        --name ${{ inputs.storageAccountName }} \
-        --resource-group ${{ inputs.resourceGroupName }} \
+        --name ${{ vars.STORAGE_ACCOUNT }} \
+        --resource-group ${{ vars.RESOURCE_GROUP }} \
         --public-network-access Disabled
