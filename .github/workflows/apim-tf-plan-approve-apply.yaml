@@ -33,12 +33,11 @@ permissions:
   contents: read
   issues: write
 
-environment: ${{ inputs.projectName }}
-
 jobs:
 
   terraform-plan:
     name: Terraform Plan
+    environment: ${{ inputs.projectName }}
     uses: almirbanjanovic/cloud-playground-infra/.github/workflows/terraform-plan.yaml@main
     with:
       resourceGroupName: $RESOURCE_GROUP
@@ -52,32 +51,33 @@ jobs:
       azureSubscriptionId: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
   
-  # manual-approval:
-  #   name: Manual Approval
-  #   needs: [terraform-plan]
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #   - uses: trstringer/manual-approval@v1
-  #     with:
-  #       secret: ${{ github.TOKEN }}
-  #       approvers: almirbanjanovic
-  #       minimum-approvals: 1
-  #       issue-title: "Approve deployment to production"
-  #       issue-body: "Please approve or deny the deployment."
-  #       fail-on-denial: true
+  manual-approval:
+    name: Manual Approval
+    needs: [terraform-plan]
+    runs-on: ubuntu-latest
+    steps:
+    - uses: trstringer/manual-approval@v1
+      with:
+        secret: ${{ github.TOKEN }}
+        approvers: almirbanjanovic
+        minimum-approvals: 1
+        issue-title: "Approve deployment to production"
+        issue-body: "Please approve or deny the deployment."
+        fail-on-denial: true
 
 
-  # terraform-apply:
-  #   name: Terraform Apply
-  #   needs: [manual-approval]
-  #   uses: almirbanjanovic/cloud-playground-infra/.github/workflows/terraform-apply.yaml@main
-  #   with:
-  #     resourceGroupName: ${{ inputs.resourceGroupName }}
-  #     storageAccountName: ${{ inputs.storageAccountName }}
-  #     terraformStateContainerName: ${{ inputs.terraformStateContainerName }}
-  #     terraformStateBlobName: ${{ inputs.terraformStateBlobName }}
-  #     workingDirectory: ${{ inputs.workingDirectory }}
-  #   secrets:
-  #     azureClientId: ${{ secrets.AZURE_CLIENT_ID }}
-  #     azureTenantId: ${{ secrets.AZURE_TENANT_ID }}
-  #     azureSubscriptionId: ${{ secrets.AZURE_SUBSCRIPTION_ID }}  
+  terraform-apply:
+    name: Terraform Apply
+    environment: ${{ inputs.projectName }}
+    needs: [manual-approval]
+    uses: almirbanjanovic/cloud-playground-infra/.github/workflows/terraform-apply.yaml@main
+    with:
+      resourceGroupName: $RESOURCE_GROUP
+      storageAccountName: $STORAGE_ACCOUNT
+      terraformStateContainerName: $TERRAFORM_STATE_CONTAINER
+      terraformStateBlobName: $TERRAFORM_STATE_BLOB
+      workingDirectory: $WORKING_DIRECTORY
+    secrets:
+      azureClientId: ${{ secrets.AZURE_CLIENT_ID }}
+      azureTenantId: ${{ secrets.AZURE_TENANT_ID }}
+      azureSubscriptionId: ${{ secrets.AZURE_SUBSCRIPTION_ID }}  
