@@ -12,33 +12,6 @@ on:
           - apim-lab
           - my-other-project
           - demo-project
-      resourceGroupName:
-        type: string
-        default: rg-apim-lab-dev-centralus
-      storageAccountName:
-        type: string
-        default: stapimlabdevcentralus
-      storageAccountPublicNetworkAccess:
-        type: string
-        default: Enabled
-      storageAccountTier:
-        type: string
-        default: Standard
-      storageAccountReplicationType:
-        type: string
-        default: LRS
-      storageAccountEncryptionServices:
-        type: string
-        default: blob
-      storageAccountMinTlsVersion:
-        type: string
-        default: TLS1_2
-      terraformStateContainerName:
-        type: string
-        default: tfstate
-      location:
-        type: string
-        default: centralus
 
 permissions:
   id-token: write
@@ -48,14 +21,7 @@ jobs:
   call-init-backend:
     uses: almirbanjanovic/cloud-playground-infra/.github/workflows/init.yaml@main
     with:
-      resourceGroupName: ${{ inputs.resourceGroupName }}
-      storageAccountName: ${{ inputs.storageAccountName }}
-      storageAccountPublicNetworkAccess: ${{ inputs.storageAccountPublicNetworkAccess }}
-      storageAccountSku: ${{ inputs.storageAccountTier }}_${{ inputs.storageAccountReplicationType }}
-      storageAccountEncryptionServices: ${{ inputs.storageAccountEncryptionServices }}
-      storageAccountMinTlsVersion: ${{ inputs.storageAccountMinTlsVersion }}
-      terraformStateContainerName: ${{ inputs.terraformStateContainerName }}
-      location: ${{ inputs.location }}
+      environment: ${{ inputs.environment }}
     secrets:
       azureClientId: ${{ secrets.AZURE_CLIENT_ID }}
       azureTenantId: ${{ secrets.AZURE_TENANT_ID }}
