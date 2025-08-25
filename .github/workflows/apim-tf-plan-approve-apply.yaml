@@ -11,7 +11,6 @@ on:
           - apim-lab
           - my-other-project
           - demo-project
-
       # resourceGroupName:
       #   type: string
       #   default: rg-apim-lab-dev-centralus
@@ -26,7 +25,7 @@ on:
       #   default: terraform.tfstate
       # workingDirectory:
       #   type: string
-      #   default: ./projects/apim-lab/terraform
+      #   default: ./projects/apim-lab
 
 permissions:
   id-token: write
@@ -37,14 +36,14 @@ jobs:
 
   terraform-plan:
     name: Terraform Plan
-    environment: ${{ inputs.projectName }}
     uses: almirbanjanovic/cloud-playground-infra/.github/workflows/terraform-plan.yaml@main
     with:
-      resourceGroupName: $RESOURCE_GROUP
-      storageAccountName: $STORAGE_ACCOUNT
-      terraformStateContainerName: $TERRAFORM_STATE_CONTAINER
-      terraformStateBlobName: $TERRAFORM_STATE_BLOB
-      workingDirectory: $WORKING_DIRECTORY
+      environment: ${{ inputs.projectName }}
+      resourceGroupName: ${{ inputs.resourceGroupName }}
+      storageAccountName: ${{ inputs.storageAccountName }}
+      terraformStateContainerName: ${{ inputs.terraformStateContainerName }}
+      terraformStateBlobName: ${{ inputs.terraformStateBlobName }}
+      workingDirectory: ${{ inputs.workingDirectory }}
     secrets:
       azureClientId: ${{ secrets.AZURE_CLIENT_ID }}
       azureTenantId: ${{ secrets.AZURE_TENANT_ID }}
@@ -56,27 +55,26 @@ jobs:
     needs: [terraform-plan]
     runs-on: ubuntu-latest
     steps:
-    - uses: trstringer/manual-approval@v1
-      with:
-        secret: ${{ github.TOKEN }}
-        approvers: almirbanjanovic
-        minimum-approvals: 1
-        issue-title: "Approve deployment to production"
-        issue-body: "Please approve or deny the deployment."
-        fail-on-denial: true
+      - uses: trstringer/manual-approval@v1
+        with:
+          secret: ${{ github.TOKEN }}
+          approvers: almirbanjanovic
+          minimum-approvals: 1
+          issue-title: "Approve deployment to production"
+          issue-body: "Please approve or deny the deployment."
+          fail-on-denial: true
 
 
   terraform-apply:
     name: Terraform Apply
-    environment: ${{ inputs.projectName }}
     needs: [manual-approval]
     uses: almirbanjanovic/cloud-playground-infra/.github/workflows/terraform-apply.yaml@main
     with:
-      resourceGroupName: $RESOURCE_GROUP
-      storageAccountName: $STORAGE_ACCOUNT
-      terraformStateContainerName: $TERRAFORM_STATE_CONTAINER
-      terraformStateBlobName: $TERRAFORM_STATE_BLOB
-      workingDirectory: $WORKING_DIRECTORY
+      resourceGroupName: ${{ inputs.resourceGroupName }}
+      storageAccountName: ${{ inputs.storageAccountName }}
+      terraformStateContainerName: ${{ inputs.terraformStateContainerName }}
+      terraformStateBlobName: ${{ inputs.terraformStateBlobName }}
+      workingDirectory: ${{ inputs.workingDirectory }}
     secrets:
       azureClientId: ${{ secrets.AZURE_CLIENT_ID }}
       azureTenantId: ${{ secrets.AZURE_TENANT_ID }}

@@ -23,6 +23,8 @@ on:
         required: true
       azureSubscriptionId:
         required: true
+      environment:
+        required: true
 
 env:
   TF_VAR_resource_group_name: ${{ inputs.resourceGroupName }}
@@ -32,6 +34,7 @@ jobs:
   terraform-plan:
     name: Terraform Plan
     runs-on: ubuntu-latest
+    environment: ${{ inputs.environment}}
 
     defaults:
         run:
