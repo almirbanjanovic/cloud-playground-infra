@@ -1,4 +1,4 @@
-name: APIM Lab Terraform Plan, Approve, Apply
+name: Terraform Plan, Approve, Apply
 on: 
   workflow_dispatch:
     inputs:
