@@ -1,4 +1,4 @@
-name: Test OpenID Connect
+name: 1. Test OpenID Connect
 on: 
   workflow_dispatch:
     inputs:

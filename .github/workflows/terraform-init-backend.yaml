@@ -1,4 +1,4 @@
-name: Init Backend
+name: 2. TerraformInit Backend
 on: 
   workflow_dispatch:
     inputs:
