@@ -40,9 +40,18 @@ jobs:
 
       - name: Create Remote Backend Storage Account and Container
         run: |
+          set -e
           wait_time=25
 
-          trap remove_network_rule EXIT
+          disable_public_access() {
+            echo "Disabling public network access..."
+            az storage account update \
+            --name ${{ vars.STORAGE_ACCOUNT }} \
+            --resource-group ${{ vars.RESOURCE_GROUP }} \
+            --public-network-access Disabled
+          }
+
+          trap disable_public_access EXIT
 
           if ! az storage account show --resource-group ${{ vars.RESOURCE_GROUP }} --name ${{ vars.STORAGE_ACCOUNT }} > /dev/null 2>&1; then
             echo "Creating storage account ${{ vars.STORAGE_ACCOUNT }}..."
@@ -68,7 +77,7 @@ jobs:
             sleep $wait_time
           fi
 
-          if ! az storage container show --name ${{ vars.TERRAFORM_STATE_CONTAINER }} --account-name ${{ vars.STORAGE_ACCOUNT }} --auth_mode login > /dev/null 2>&1; then
+          if ! az storage container show --name ${{ vars.TERRAFORM_STATE_CONTAINER }} --auth_mode login > /dev/null 2>&1; then
             echo "Creating storage container ${{ vars.TERRAFORM_STATE_CONTAINER }}..."
             az storage container create --name ${{ vars.TERRAFORM_STATE_CONTAINER }} --account-name ${{ vars.STORAGE_ACCOUNT }} --auth_mode login
           else
