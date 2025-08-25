@@ -48,10 +48,11 @@ jobs:
       terraformStateContainerName: ${{ steps.export.outputs.terraformStateContainerName }}
       terraformStateBlobName: ${{ steps.export.outputs.terraformStateBlobName }}
       workingDirectory: ${{ steps.export.outputs.workingDirectory }}
+      
     steps:
       - uses: c-py/action-dotenv-to-setenv@v5
         with:
-          env-file: ${{ env.PROJECT_DIRECTORY }}/${{ inputs.projectName }}.env
+          env-file: ${{ env.PROJECT_DIRECTORY }}/.env
 
       - id: export
         run: |
