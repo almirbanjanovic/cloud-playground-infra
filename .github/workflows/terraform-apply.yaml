@@ -1,6 +1,9 @@
 on:
   workflow_call:
     inputs:
+      environment:
+        required: true
+        type: string
       resourceGroupName:
         required: true
         type: string
@@ -31,6 +34,7 @@ jobs:
   terraform-apply:
     name: Terraform Apply
     runs-on: ubuntu-latest
+    environment: ${{ inputs.environment}}
 
     defaults:
         run:

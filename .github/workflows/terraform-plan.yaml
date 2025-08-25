@@ -1,6 +1,9 @@
 on:
   workflow_call:
     inputs:
+      environment:
+        required: true
+        type: string
       resourceGroupName:
         required: true
         type: string
@@ -22,8 +25,6 @@ on:
       azureTenantId:
         required: true
       azureSubscriptionId:
-        required: true
-      environment:
         required: true
 
 env:
