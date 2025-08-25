@@ -48,20 +48,20 @@ jobs:
       terraformStateContainerName: ${{ steps.export.outputs.terraformStateContainerName }}
       terraformStateBlobName: ${{ steps.export.outputs.terraformStateBlobName }}
       workingDirectory: ${{ steps.export.outputs.workingDirectory }}
-      
+
     steps:
-      - uses: c-py/action-dotenv-to-setenv@v5
-        with:
-          env-file: ${{ env.PROJECT_DIRECTORY }}/.env
+      - name: Install dotenv-cli
+        run: npm install -g dotenv-cli
 
       - id: export
         run: |
-          echo "resourceGroupName=${resourceGroupName}" >> $GITHUB_OUTPUT
-          echo "storageAccountName=${storageAccountName}" >> $GITHUB_OUTPUT
-          echo "terraformStateContainerName=${terraformStateContainerName}" >> $GITHUB_OUTPUT
-          echo "terraformStateBlobName=${terraformStateBlobName}" >> $GITHUB_OUTPUT
-          echo "workingDirectory=${workingDirectory}" >> $GITHUB_OUTPUT
-
+          dotenv -e ${{ env.PROJECT_DIRECTORY }}/.env -- bash -c '
+            echo "resourceGroupName=$resourceGroupName" >> $GITHUB_OUTPUT
+            echo "storageAccountName=$storageAccountName" >> $GITHUB_OUTPUT
+            echo "terraformStateContainerName=$terraformStateContainerName" >> $GITHUB_OUTPUT
+            echo "terraformStateBlobName=$terraformStateBlobName" >> $GITHUB_OUTPUT
+            echo "workingDirectory=$workingDirectory" >> $GITHUB_OUTPUT
+          '
 
   terraform-plan:
     name: Terraform Plan
