@@ -16,7 +16,7 @@ on:
         default: terraform.tfstate
       workingDirectory:
         type: string
-        default: ./projects/apim-lab
+        default: ./projects/apim-lab/terraform
 
 permissions:
   id-token: write
