@@ -22,8 +22,8 @@ Infrastructure-as-Code for cloud playground environments.
 
 1. Fork the repo.
 2. Configure new App Registration in Microsoft Entra ID.
-2. [Configure environment variables in your repository’s **Settings** → **Environments** in GitHub for your chosen environment.](#configure-a-new-cloud-playground) 
-3. [Run GitHub Actions pipelines in specified order.](#terraform-a-new-cloud-playground)
+3. Configure a new Cloud Playground.
+4. Terraform a new Cloud Playground.
 
 
 ---
@@ -48,7 +48,7 @@ To enable GitHub Actions to deploy to Azure using OIDC, follow these steps:
 
 ---
 
-## Assign IAM Roles for App Registration
+### Assign IAM Roles for App Registration
 
 1. **Contributor** (subscription scope is required for 2. Terraform Init Remote Backend to create Resource Group, but best practice would be to lower this later to adhere to Principle of Least Privilege)
 2. **Storage Blob Data Contributor** (at the scope of the storage account used for the Terraform state)
@@ -56,7 +56,7 @@ To enable GitHub Actions to deploy to Azure using OIDC, follow these steps:
 
 You can assign these roles in the Azure Portal under the relevant scope's **Access control (IAM)** > **Add role assignment**. Use the App Registration's client ID as the principal.
 
-## Configure a new "Cloud Playground"
+## Configure a new Cloud Playground
 
 1. Go to your repository’s **Settings** → **Environments** in GitHub.
 2. Create a cloud playground (new environment) (e.g., `dev`, `test`, `prod`, etc.).
@@ -78,7 +78,7 @@ You can assign these roles in the Azure Portal under the relevant scope's **Acce
 	- `AZURE_SUBSCRIPTION_ID`
 	- `AZURE_TENANT_ID` (Microsoft Entra Tenant ID)
 
-## Terraform a new "Cloud Playground"
+## Terraform a new Cloud Playground
 You can now run the following pipelines:
 
 
