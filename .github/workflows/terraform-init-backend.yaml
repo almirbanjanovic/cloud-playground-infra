@@ -46,7 +46,7 @@ jobs:
       - name: Create Remote Backend Storage Account and Container
         run: |
           set -e
-          wait_time=25
+          wait_time=30
 
           disable_public_access() {
             echo "Disabling public network access..."
