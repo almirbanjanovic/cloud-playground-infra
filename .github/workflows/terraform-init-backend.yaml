@@ -18,8 +18,8 @@ permissions:
 
 jobs:
 
-  name: Init TerraformBackend
   init-backend:
+    name: Init TerraformBackend
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
 
