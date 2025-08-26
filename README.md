@@ -40,7 +40,7 @@ To enable GitHub Actions to deploy to Azure using OIDC, follow these steps:
 	- **Organization**: Your GitHub org or username
 	- **Repository**: Your repository name (e.g., `almirbanjanovic/cloud-playground-infra`)
 	- **Entity type**: Environment
-	- **Based on selection**: The GitHub environment name (your cloud playground, e.g., `dev`, `test`, `prod`)
+	- **Based on selection**: The GitHub environment name (your cloud playground)
 4. Save the federated credential. No client secret is required for OIDC.
 5. Copy the following values for use as GitHub secrets:
 	- Application (client) ID → `AZURE_CLIENT_ID`
