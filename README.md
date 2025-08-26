@@ -15,18 +15,18 @@ Infrastructure-as-Code for cloud playground environments.
 
 ```
 cloud-playground-infra/
-├── environments/
-│   └── <cloud-playground-env>
-	│   ├── terraform/
-	│   └── bicep/
-├── iac-modules/
-│   ├── terraform/
-│   └── bicep/
+├── .github/
+│   └── workflows/
 ├── assets/
 │   ├── kubernetes/
 │   └── scripts/
-├── .github/
-│   └── workflows/
+├── environments/
+│   └── <cloud-playground-env>
+|	│   ├── terraform/
+|	│   └── bicep/
+├── iac-modules/
+│   ├── terraform/
+│   └── bicep/
 └── README.md
 ```
 
