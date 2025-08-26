@@ -24,7 +24,7 @@ Infrastructure-as-Code for cloud playground environments.
 1. Fork the repo.
 2. Configure new App Registration in Microsoft Entra ID.
 3. Configure a new Cloud Playground.
-4. Terraform a new Cloud Playground.
+4. Deploy a new Cloud Playground.
 
 
 ---
