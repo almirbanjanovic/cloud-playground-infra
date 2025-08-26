@@ -8,12 +8,6 @@ resource "azurerm_api_management" "this" {
   sku_name = "StandardV2_1"
 }
 
-# resource "azurerm_api_management_workspace" "this" {
-#   name              = "workspace-1"
-#   api_management_id = azurerm_api_management.this.id
-#   display_name      = "workspace-1"
-# }
-
 resource "azurerm_api_management_api" "colors" {
   name                = "colors-api"
   resource_group_name = var.resource_group_name
