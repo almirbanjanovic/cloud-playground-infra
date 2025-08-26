@@ -1,16 +1,19 @@
-on:
-  workflow_call:
+name: 2. Terraform Init Remote Backend
+on: 
+  workflow_dispatch:
     inputs:
       environment:
+        description: 'Select environment'
         required: true
-        type: string
-    secrets:
-      azureClientId:
-        required: true
-      azureTenantId:
-        required: true
-      azureSubscriptionId:
-        required: true
+        default: apim-lab
+        type: choice
+        options:
+          - ai-foundry
+          - apim-lab
+
+permissions:
+  id-token: write
+  contents: read
 
 
 jobs:
@@ -23,9 +26,9 @@ jobs:
       - name: 'Az CLI login'
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.azureClientId }}
-          tenant-id: ${{ secrets.azureTenantId }}
-          subscription-id: ${{ secrets.azureSubscriptionId }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Create Resource Group
         run: |
