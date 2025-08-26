@@ -15,13 +15,74 @@ permissions:
   id-token: write
   contents: read
 
+
 jobs:
-  Name: Init Terraform Remote Backend
-  call-init-backend:
-    uses: almirbanjanovic/cloud-playground-infra/.github/workflows/init.yaml@main
-    with:
-      environment: ${{ inputs.environment }}
-    secrets:
-      azureClientId: ${{ secrets.AZURE_CLIENT_ID }}
-      azureTenantId: ${{ secrets.AZURE_TENANT_ID }}
-      azureSubscriptionId: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  init-backend:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    steps:
+
+      - name: 'Az CLI login'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Create Resource Group
+        run: |
+          set -e
+
+          if ! az group show --name ${{ vars.RESOURCE_GROUP }} &> /dev/null; then
+            echo "Resource group ${{ vars.RESOURCE_GROUP }} does not exist. Creating..."
+            az group create --name ${{ vars.RESOURCE_GROUP }} --location ${{ vars.LOCATION }}
+          else
+            echo "Resource group ${{ vars.RESOURCE_GROUP }} already exists..."
+          fi
+
+      - name: Create Remote Backend Storage Account and Container
+        run: |
+          set -e
+          wait_time=25
+
+          disable_public_access() {
+            echo "Disabling public network access..."
+            az storage account update \
+            --name ${{ vars.STORAGE_ACCOUNT }} \
+            --resource-group ${{ vars.RESOURCE_GROUP }} \
+            --public-network-access Disabled
+          }
+
+          trap disable_public_access EXIT
+
+          if ! az storage account show --resource-group ${{ vars.RESOURCE_GROUP }} --name ${{ vars.STORAGE_ACCOUNT }} > /dev/null 2>&1; then
+            echo "Creating storage account ${{ vars.STORAGE_ACCOUNT }}..."
+            az storage account create \
+            --resource-group ${{ vars.RESOURCE_GROUP }} \
+            --name ${{ vars.STORAGE_ACCOUNT }} \
+            --sku ${{ vars.STORAGE_ACCOUNT_SKU }} \
+            --encryption-services ${{ vars.STORAGE_ACCOUNT_ENCRYPTION_SERVICES }} \
+            --min-tls-version ${{ vars.STORAGE_ACCOUNT_MIN_TLS_VERSION }} \
+            --location ${{ vars.LOCATION }} \
+            --public-network-access ${{ vars.STORAGE_ACCOUNT_PUBLIC_NETWORK_ACCESS }}
+            
+            sleep $wait_time
+          else
+            echo "Storage account ${{ vars.STORAGE_ACCOUNT }} already exists..."
+            
+            az storage account update \
+            --name ${{ vars.STORAGE_ACCOUNT }} \
+            --resource-group ${{ vars.RESOURCE_GROUP }} \
+            --public-network-access Enabled
+
+            echo "Enabling public network access and waiting for 25 seconds..."
+            sleep $wait_time
+          fi
+
+          if ! az storage container show --name ${{ vars.TERRAFORM_STATE_CONTAINER }} --account-name ${{ vars.STORAGE_ACCOUNT }} --auth-mode login > /dev/null 2>&1; then
+            echo "Creating storage container ${{ vars.TERRAFORM_STATE_CONTAINER }}..."
+            az storage container create --name ${{ vars.TERRAFORM_STATE_CONTAINER }} --account-name ${{ vars.STORAGE_ACCOUNT }} --auth-mode login
+          else
+            echo "Storage container ${{ vars.TERRAFORM_STATE_CONTAINER }} already exists..."
+          fi
