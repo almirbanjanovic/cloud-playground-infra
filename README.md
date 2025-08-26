@@ -13,6 +13,21 @@ Infrastructure-as-Code for cloud playground environments.
 	- `scripts/` – Utility scripts (SQL, shell, etc.)
 - `.github/` – GitHub Actions workflows and configuration
 
+```
+cloud-playground-infra/
+├── environments/
+│   └── <cloud-playground-envs>
+├── iac-modules/
+│   ├── terraform/
+│   └── bicep/
+├── assets/
+│   ├── kubernetes/
+│   └── scripts/
+├── .github/
+│   └── workflows/
+└── README.md
+```
+
 ## Requirements
 
 - Terraform
