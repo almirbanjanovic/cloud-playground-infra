@@ -84,14 +84,14 @@ You can assign these roles in the Azure Portal under the relevant scope's **Acce
 5. Add new cloud playground folder name to `terraform-init-backend.yaml` and `terraform-plan-approve-apply.yaml` under `options`:
 ```
 inputs:
-      environment:
-        description: 'Select environment'
-        required: true
-        default: apim-lab
-        type: choice
-        options:
-          - ai-foundry
-          - apim-lab
+	environment:
+	description: 'Select environment'
+	required: true
+	default: apim-lab
+	type: choice
+	options:
+		- ai-foundry
+		- apim-lab
 ```
 
 ---
