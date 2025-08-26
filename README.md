@@ -16,7 +16,9 @@ Infrastructure-as-Code for cloud playground environments.
 ```
 cloud-playground-infra/
 ├── environments/
-│   └── <cloud-playground-envs>
+│   └── <cloud-playground-env>
+	│   ├── terraform/
+	│   └── bicep/
 ├── iac-modules/
 │   ├── terraform/
 │   └── bicep/
@@ -62,7 +64,7 @@ To enable GitHub Actions to deploy to Azure using OIDC, follow these steps:
 	- Directory (tenant) ID → `AZURE_TENANT_ID`
 	- Your Azure Subscription ID → `AZURE_SUBSCRIPTION_ID`
 
-4. Add these secrets (at the environment or repository level) for OIDC authentication:
+6. Add these secrets (at the repository level to avoid duplication) for OIDC authentication:
 
 	- `AZURE_CLIENT_ID` (from Microsoft Entra ID Application Registration)
 	- `AZURE_SUBSCRIPTION_ID`
