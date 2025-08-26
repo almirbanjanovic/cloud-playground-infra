@@ -38,3 +38,14 @@ resource "azurerm_api_management_api" "petstore" {
     content_value  = "https://petstore3.swagger.io/api/v3/openapi.json"
   }
 }
+
+resource "azurerm_api_management_api" "starwars" {
+  name                = "starwars-api"
+  resource_group_name = var.resource_group_name
+  api_management_name = azurerm_api_management.this.name
+  revision            = "1"
+  display_name        = "Star Wars API"
+  protocols           = ["https"]
+  service_url = "https://swapi.dev/api"
+  path                = "sw"
+}
