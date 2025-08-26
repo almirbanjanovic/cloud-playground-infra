@@ -16,6 +16,7 @@ permissions:
   contents: read
 
 jobs:
+  Name: Init Terraform Remote Backend
   call-init-backend:
     uses: almirbanjanovic/cloud-playground-infra/.github/workflows/init.yaml@main
     with:

@@ -62,6 +62,12 @@ To enable GitHub Actions to deploy to Azure using OIDC, follow these steps:
 	- Directory (tenant) ID → `AZURE_TENANT_ID`
 	- Your Azure Subscription ID → `AZURE_SUBSCRIPTION_ID`
 
+4. Add these secrets (at the environment or repository level) for OIDC authentication:
+
+	- `AZURE_CLIENT_ID` (from Microsoft Entra ID Application Registration)
+	- `AZURE_SUBSCRIPTION_ID`
+	- `AZURE_TENANT_ID` (Microsoft Entra Tenant ID)
+
 ---
 
 ### Assign IAM Roles for App Registration
@@ -90,11 +96,7 @@ You can assign these roles in the Azure Portal under the relevant scope's **Acce
 	- `TERRAFORM_STATE_BLOB`
 	- `TERRAFORM_STATE_CONTAINER`
 	- `WORKING_DIRECTORY`
-4. Add these secrets (at the environment or repository level) for OIDC authentication:
 
-	- `AZURE_CLIENT_ID` (from Microsoft Entra ID Application Registration)
-	- `AZURE_SUBSCRIPTION_ID`
-	- `AZURE_TENANT_ID` (Microsoft Entra Tenant ID)
 
 5. Add new cloud playground folder name to `terraform-init-backend.yaml` and `terraform-plan-approve-apply.yaml` under `options`:
 ```
