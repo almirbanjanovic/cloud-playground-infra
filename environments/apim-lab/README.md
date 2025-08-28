@@ -7,9 +7,11 @@ Azure API Management (APIM) is a fully managed service that enables organization
 
 For a detailed overview, see the official [APIM Key Concepts documentation](https://learn.microsoft.com/en-us/azure/api-management/api-management-key-concepts).
 
+
 ## Deep Dive Video
 
-<iframe width="560" height="315" src="https://www.youtube.com/embed/PXtFq5wmGt0" title="John Savill's APIM Deep Dive" frameborder="0" allowfullscreen></iframe>
+[![Watch on YouTube](https://img.youtube.com/vi/PXtFq5wmGt0/0.jpg)](https://www.youtube.com/watch?v=PXtFq5wmGt0)
+
 
 ## Whiteboard Architecture
 
