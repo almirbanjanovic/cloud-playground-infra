@@ -14,5 +14,5 @@ For a detailed overview of Azure AI and ML services, see the official [Azure AI 
 
 ## References
 - [Azure AI Services Documentation (Microsoft Docs)](https://learn.microsoft.com/en-us/azure/ai-services/)
-- [John Savill's Overview of AI Foundry (YouTube)](https://img.youtube.com/vi/Sq8Cq7RZM2o/0.jpg)(https://www.youtube.com/watch?v=Sq8Cq7RZM2o)
+- [John Savill's Overview of AI Foundry (YouTube)](https://www.youtube.com/watch?v=Sq8Cq7RZM2o)
 - [Azure AI Whiteboard Architecture](https://github.com/johnthebrit/RandomStuff/raw/master/Whiteboards/AzureAI.png)
