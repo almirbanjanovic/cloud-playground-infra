@@ -5,7 +5,7 @@ resource "azurerm_api_management" "this" {
   publisher_name      = "MS"
   publisher_email     = "company@terraform.io"
 
-  sku_name = "Developer_1"
+  sku_name = "Premmium_1"
 }
 
 resource "azurerm_api_management_api" "colors" {
