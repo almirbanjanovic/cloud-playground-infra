@@ -2,16 +2,15 @@
 
 Infrastructure-as-Code for cloud playground environments.
 
----
-
 ## Structure
 
-- `environments/` – Contains cloud playgrounds (each subfolder is a separate environment)
-- `iac-modules/` – Infrastructure-as-Code modules (Terraform and Bicep for Azure resources)
-- `assets/` – Supporting files:
-	- `kubernetes/` – Kubernetes manifests (e.g., for databases, machine learning)
-	- `scripts/` – Utility scripts (SQL, shell, etc.)
-- `.github/` – GitHub Actions workflows and configuration
+- `.github/` – GitHub Actions workflows and CI/CD configuration
+- `environments/` – Cloud playground environment folders (each subfolder is a separate playground, e.g. `apim-lab`, `ai-foundry`). Each environment contains IaC for that playground (Terraform/Bicep) and any environment-specific assets.
+- `iac-modules/` – Reusable Infrastructure-as-Code modules (Terraform and Bicep) used by environments
+- `assets/` – Supporting files (kubernetes manifests, scripts, SQL, etc.)
+- `LICENSE`, `README.md` – repository metadata and documentation
+
+Repository layout (top-level):
 
 ```
 cloud-playground-infra/
@@ -21,12 +20,14 @@ cloud-playground-infra/
 │   ├── kubernetes/
 │   └── scripts/
 ├── environments/
-│   └── <cloud-playground-env>
-|	│   ├── terraform/
-|	│   └── bicep/
+│   ├── apim-lab/
+│   │   └── terraform/
+│   └── ai-foundry/
+│       └── terraform/
 ├── iac-modules/
 │   ├── terraform/
 │   └── bicep/
+├── LICENSE
 └── README.md
 ```
 
