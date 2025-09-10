@@ -4,21 +4,22 @@ Infrastructure-as-Code for cloud playground environments.
 
 ## Structure
 
-- `.github/` – GitHub Actions workflows and CI/CD configuration
-- `environments/` – Cloud playground environment folders (each subfolder is a separate playground, e.g. `apim-lab`, `ai-foundry`). Each environment contains IaC for that playground (Terraform/Bicep) and any environment-specific assets.
-- `iac-modules/` – Reusable Infrastructure-as-Code modules (Terraform and Bicep) used by environments
-- `assets/` – Supporting files (kubernetes manifests, scripts, SQL, etc.)
-- `LICENSE`, `README.md` – repository metadata and documentation
+- `.github/` — GitHub Actions workflows and CI/CD configuration
+  - workflows: `bicep.yaml`, `terraform-apply.yaml`, `terraform-init-backend.yaml`, `terraform-plan-approve-apply.yaml`, `terraform-plan.yaml`, `test-oidc.yaml`
+- `environments/` — Cloud playground environment folders. Each environment contains its own IaC and docs (examples: `apim-lab`, `ai-foundry`).
+  - `apim-lab/` — `terraform/`, `bicep/`, `README.md`
+  - `ai-foundry/` — `terraform/`, `README.md`
+- `iac-modules/` — Reusable IaC modules (Terraform and Bicep)
+- `assets/` — Supporting files (kubernetes manifests, scripts, SQL, etc.). Currently empty.
+- `LICENSE`, `README.md` — repository metadata and documentation
 
 Repository layout (top-level):
 
-```
+```text
 cloud-playground-infra/
 ├── .github/
 │   └── workflows/
-├── assets/
-│   ├── kubernetes/
-│   └── scripts/
+├── assets/ (currently empty)
 ├── environments/
 │   ├── apim-lab/
 │   │   └── terraform/
@@ -40,103 +41,84 @@ cloud-playground-infra/
 ## Usage
 
 1. Fork the repo.
-2. Configure new App Registration in Microsoft Entra ID.
-3. Configure a new Cloud Playground.
-4. Deploy a new Cloud Playground.
-
+2. Configure an App Registration in Microsoft Entra ID for OIDC (see below).
+3. Create a GitHub Environment for the cloud playground and set required variables.
+4. Run the GitHub Actions pipelines in order.
 
 ---
 
 ## Configure new App Registration in Microsoft Entra ID
 
-To enable GitHub Actions to deploy to Azure using OIDC, follow these steps:
+To enable GitHub Actions to deploy to Azure using OIDC:
 
-1. In the Azure Portal, go to **Microsoft Entra ID** > **App registrations** > **New registration**. Register a new application for your cloud playground.
-2. After registration, go to your new App Registration > **Certificates & secrets** > **Federated credentials** > **Add credential**.
-3. Configure the federated credential as follows:
-	- **Federated credential scenario**: GitHub Actions deploying Azure resources
-	- **Organization**: Your GitHub org or username
-	- **Repository**: Your repository name (e.g., `almirbanjanovic/cloud-playground-infra`)
-	- **Entity type**: Environment
-	- **Based on selection**: The GitHub environment name (your cloud playground)
-4. Save the federated credential. No client secret is required for OIDC.
-5. Copy the following values for use as GitHub secrets:
-	- Application (client) ID → `AZURE_CLIENT_ID`
-	- Directory (tenant) ID → `AZURE_TENANT_ID`
-	- Your Azure Subscription ID → `AZURE_SUBSCRIPTION_ID`
+1. In the Azure Portal, go to Microsoft Entra ID → App registrations → New registration.
+2. After registration, open the App Registration → Certificates & secrets → Federated credentials → Add credential.
+3. Configure the federated credential:
+   - Federated credential scenario: GitHub Actions deploying Azure resources
+   - Organization: your GitHub org or username
+   - Repository: `owner/repo` (e.g., `almirbanjanovic/cloud-playground-infra`)
+   - Entity type: Environment
+   - Based on selection: GitHub environment name (e.g., `apim-lab`)
+4. Save the credential. No client secret is required for OIDC.
+5. Copy values for GitHub secrets (repository or environment level):
+   - `AZURE_CLIENT_ID` (Application/Client ID)
+   - `AZURE_TENANT_ID` (Directory/Tenant ID)
+   - `AZURE_SUBSCRIPTION_ID`
 
-6. Add these secrets (at the repository level to avoid duplication) for OIDC authentication:
+### IAM role suggestions
 
-	- `AZURE_CLIENT_ID` (from Microsoft Entra ID Application Registration)
-	- `AZURE_SUBSCRIPTION_ID`
-	- `AZURE_TENANT_ID` (Microsoft Entra Tenant ID)
-
----
-
-### Assign IAM Roles for App Registration
-
-1. **Contributor** (subscription scope is required for 2. Terraform Init Remote Backend to create Resource Group, but best practice would be to lower this later to adhere to Principle of Least Privilege)
-2. **Storage Blob Data Contributor** (at the scope of the storage account used for the Terraform state)
-3. Additional RBAC roles as required by your cloud playground's resources
-
-You can assign these roles in the Azure Portal under the relevant scope's **Access control (IAM)** > **Add role assignment**. Use the App Registration's client ID as the principal.
+- Contributor (scope: subscription or resource group as needed)
+- Storage Blob Data Contributor (scope: storage account used for Terraform state)
+- Additional roles as required by the environment
 
 ---
 
-## Configure a new Cloud Playground
+## Configure a new Cloud Playground (GitHub Environment)
 
-1. Go to your repository’s **Settings** → **Environments** in GitHub.
-2. Create a cloud playground (new environment) (e.g., `dev`, `test`, `prod`, etc.).
-3. Add the following environment variables (minimum required):
+1. Go to your repository Settings → Environments and create a new environment (e.g., `apim-lab`).
+2. Add the following environment variables (minimum required):
 
-	- `LOCATION`
-	- `RESOURCE_GROUP`
-	- `STORAGE_ACCOUNT`
-	- `STORAGE_ACCOUNT_ENCRYPTION_SERVICES`
-	- `STORAGE_ACCOUNT_MIN_TLS_VERSION`
-	- `STORAGE_ACCOUNT_PUBLIC_NETWORK_ACCESS`
-	- `STORAGE_ACCOUNT_SKU`
-	- `TERRAFORM_STATE_BLOB`
-	- `TERRAFORM_STATE_CONTAINER`
-	- `WORKING_DIRECTORY`
-
-
-5. Add new cloud playground folder name to `terraform-init-backend.yaml` and `terraform-plan-approve-apply.yaml` under `options`:
-```
-inputs:
-	environment:
-	description: 'Select environment'
-	required: true
-	default: apim-lab
-	type: choice
-	options:
-		- ai-foundry
-		- apim-lab
+```text
+LOCATION
+RESOURCE_GROUP
+STORAGE_ACCOUNT
+STORAGE_ACCOUNT_ENCRYPTION_SERVICES
+STORAGE_ACCOUNT_MIN_TLS_VERSION
+STORAGE_ACCOUNT_PUBLIC_NETWORK_ACCESS
+STORAGE_ACCOUNT_SKU
+TERRAFORM_STATE_BLOB
+TERRAFORM_STATE_CONTAINER
+WORKING_DIRECTORY
 ```
 
+3. Add required secrets (repository or environment level) for OIDC:
+
+```text
+AZURE_CLIENT_ID
+AZURE_SUBSCRIPTION_ID
+AZURE_TENANT_ID
+```
+
+4. Update workflow inputs if you add new environment names to the repository-level dropdowns (if used).
+
 ---
 
-## Terraform a new Cloud Playground
-You can now run the following pipelines:
+## Pipelines (order)
 
+1. Test OpenID Connect (`test-oidc.yaml`)
+2. Terraform Init Remote Backend (`terraform-init-backend.yaml`)
+3. Terraform Plan, Approve, Apply (`terraform-plan-approve-apply.yaml`)
 
-	1. Test OpenID Connect
-	2. Terraform Init Remote Backend
-	3. Terraform Plan, Approve, Apply
+The reusable plan workflow is `terraform-plan.yaml` and the apply workflow is `terraform-apply.yaml`.
 
 ---
 
-## Manual Approval in Cloud Playground Pipelines
+## Manual Approval
 
-The workflow **3. Terraform Plan, Approve, Apply** uses [trstringer/manual-approval@v1](https://github.com/trstringer/manual-approval) to require a manual check of the Terraform plan before applying changes. This is intended for cloud playground scenarios to allow review and approval of infrastructure changes.
-
-> **Note:** Generally, it is best practice to separate Terraform Plan and Terraform Apply into different workflows or pull requests (PRs) for better change management and review.
+Workflow "3. Terraform Plan, Approve, Apply" uses `trstringer/manual-approval@v1` to require a manual check of the Terraform plan before applying changes. For production, consider separating Plan and Apply into distinct workflows or PRs.
 
 ---
 
 ## About This Repository
 
-This repository is intended for training, proof-of-concept, and demo purposes. In a real-world production scenario:
-
-- There would typically be one repository per architecture or environment.
-- Reusable workflows could also be maintained in a dedicated repository and shared across projects.
+This repository is intended for training, proof-of-concept, and demo purposes. In production, you would usually maintain one repository per architecture and move reusable workflows to a dedicated repo.
