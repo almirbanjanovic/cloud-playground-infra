@@ -1,12 +1,12 @@
-resource "azurerm_api_management" "this" {
-  name                = "apim-lab-dev-centralus-01"
-  location            = "centralus"
-  resource_group_name = var.resource_group_name
-  publisher_name      = "MS"
-  publisher_email     = "company@terraform.io"
+# resource "azurerm_api_management" "this" {
+#   name                = "apim-lab-dev-centralus-01"
+#   location            = "centralus"
+#   resource_group_name = var.resource_group_name
+#   publisher_name      = "MS"
+#   publisher_email     = "company@terraform.io"
 
-  sku_name = "Standard_1"
-}
+#   sku_name = "Standard_1"
+# }
 
 # resource "azurerm_api_management_api" "colors" {
 #   name                = "colors-api"

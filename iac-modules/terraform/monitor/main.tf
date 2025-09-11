@@ -21,10 +21,10 @@ resource "azurerm_role_assignment" "diagnostics_services_trusted_storage_access"
 # Log Analytics Workspace
 #--------------------------------------------------------------------------------------------------------------------------------
 resource "azurerm_log_analytics_workspace" "this" {
-  name                       = local.log_analytics_name
-  resource_group_name        = var.resource_group_name
-  location                   = var.location
-  sku                        = "PerGB2018"
+  name                = local.log_analytics_name
+  resource_group_name = var.resource_group_name
+  location            = var.location
+  sku                 = "PerGB2018"
 
   tags = var.tags
 
@@ -78,11 +78,11 @@ resource "azurerm_log_analytics_linked_storage_account" "log_ingestion" {
 #--------------------------------------------------------------------------------------------------------------------------------
 
 resource "azurerm_application_insights" "this" {
-  name                       = local.app_insights_name
-  resource_group_name        = var.resource_group_name
-  location                   = var.location
-  workspace_id               = azurerm_log_analytics_workspace.this.id
-  application_type           = "web"
+  name                = local.app_insights_name
+  resource_group_name = var.resource_group_name
+  location            = var.location
+  workspace_id        = azurerm_log_analytics_workspace.this.id
+  application_type    = "web"
 
   tags = var.tags
 }

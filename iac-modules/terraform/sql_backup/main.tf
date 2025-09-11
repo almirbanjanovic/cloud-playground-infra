@@ -57,7 +57,7 @@ resource "kubernetes_manifest" "database_secrets" {
 
 resource "kubernetes_config_map" "database_cleanup" {
   metadata {
-    name = "sql-db-cleanup"
+    name      = "sql-db-cleanup"
     namespace = var.aks_namespace_name
   }
 

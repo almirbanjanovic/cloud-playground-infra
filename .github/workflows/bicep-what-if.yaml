@@ -42,5 +42,5 @@ jobs:
       run: |
         az deployment group what-if \
           --resource-group ${{ secrets.AZURE_RG }} \
-          --template-file ./main.bicep \
+          --template-file ./environments/apim-lab/bicep/main.bicep \
           --parameters storagePrefix=mystore storageSKU=Standard_LRS
