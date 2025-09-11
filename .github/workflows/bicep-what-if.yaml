@@ -1,0 +1,46 @@
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+    secrets:
+      azureClientId:
+        required: true
+      azureTenantId:
+        required: true
+      azureSubscriptionId:
+        required: true
+
+env:
+  TF_VAR_resource_group_name: ${{ vars.RESOURCE_GROUP }}
+
+jobs: 
+  bicep-what-if:
+    name: Bicep What-If
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment}}
+
+    defaults:
+        run:
+          shell: bash
+
+    steps:
+
+    - name: Checkout Repo
+      uses: actions/checkout@v3
+
+    - name: Login to Azure using OIDC
+      uses: azure/login@v2
+      with:
+        client-id: ${{ secrets.azureClientId }}
+        tenant-id: ${{ secrets.azureTenantId }}
+        subscription-id: ${{ secrets.azureSubscriptionId }}
+
+    
+    - name: What-If Deployment
+      run: |
+        az deployment group what-if \
+          --resource-group ${{ secrets.AZURE_RG }} \
+          --template-file ./main.bicep \
+          --parameters storagePrefix=mystore storageSKU=Standard_LRS
