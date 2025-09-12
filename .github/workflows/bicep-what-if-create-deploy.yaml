@@ -43,8 +43,10 @@ jobs:
           issue-body: "Please approve or deny the deployment."
           fail-on-denial: true
 
-  bicep-deploy:
+  
+  bicep-create-deploy:
     name: Bicep Create Deploy
+    needs: [manual-approval]
     uses: almirbanjanovic/cloud-playground-infra/.github/workflows/bicep-create-deploy.yaml@main
     with:
       environment: ${{ inputs.environment }}
