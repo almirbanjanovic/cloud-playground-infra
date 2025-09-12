@@ -1,4 +1,4 @@
-name: Bicep What-If, Deploy
+name: Bicep What-If, Create Deploy
 on: 
   workflow_dispatch:
     inputs:
@@ -44,7 +44,7 @@ jobs:
           fail-on-denial: true
 
   bicep-deploy:
-    name: Bicep Deploy
+    name: Bicep Create Deploy
     uses: almirbanjanovic/cloud-playground-infra/.github/workflows/bicep-create-deploy.yaml@main
     with:
       environment: ${{ inputs.environment }}

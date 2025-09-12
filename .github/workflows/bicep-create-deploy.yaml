@@ -14,7 +14,7 @@ on:
 
 jobs: 
   bicep-deploy:
-    name: Bicep Deploy
+    name: Bicep Create Deploy
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment}}
 
@@ -35,7 +35,7 @@ jobs:
         subscription-id: ${{ secrets.azureSubscriptionId }}
 
     
-    - name: Deployment
+    - name: Create Deployment
       run: |
         az deployment group create \
           --resource-group ${{ vars.RESOURCE_GROUP }} \
