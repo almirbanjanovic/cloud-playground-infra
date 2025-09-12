@@ -1,0 +1,54 @@
+name: 2b. Bicep What-If, Deploy
+on: 
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Select environment'
+        required: true
+        default: apim-lab
+        type: choice
+        options:
+          - ai-foundry
+          - apim-lab
+
+permissions:
+  id-token: write
+  contents: read
+  issues: write
+
+jobs:
+
+  bicep-what-if:
+    name: Bicep What-If
+    uses: almirbanjanovic/cloud-playground-infra/.github/workflows/bicep-what-if.yaml@main
+    with:
+      environment: ${{ inputs.environment }}
+    secrets:
+      azureClientId: ${{ secrets.AZURE_CLIENT_ID }}
+      azureTenantId: ${{ secrets.AZURE_TENANT_ID }}
+      azureSubscriptionId: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+  
+  manual-approval:
+    name: Manual Approval
+    needs: [bicep-what-if]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: trstringer/manual-approval@v1
+        with:
+          secret: ${{ github.TOKEN }}
+          approvers: almirbanjanovic
+          minimum-approvals: 1
+          issue-title: "Approve deployment to production"
+          issue-body: "Please approve or deny the deployment."
+          fail-on-denial: true
+
+  # bicep-deploy:
+  #   name: Bicep Deploy
+  #   uses: almirbanjanovic/cloud-playground-infra/.github/workflows/bicep-deploy.yaml@main
+  #   with:
+  #     environment: ${{ inputs.environment }}
+  #   secrets:
+  #     azureClientId: ${{ secrets.AZURE_CLIENT_ID }}
+  #     azureTenantId: ${{ secrets.AZURE_TENANT_ID }}
+  #     azureSubscriptionId: ${{ secrets.AZURE_SUBSCRIPTION_ID }}

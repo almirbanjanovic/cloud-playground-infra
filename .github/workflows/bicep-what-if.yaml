@@ -12,9 +12,6 @@ on:
       azureSubscriptionId:
         required: true
 
-env:
-  TF_VAR_resource_group_name: ${{ vars.RESOURCE_GROUP }}
-
 jobs: 
   bicep-what-if:
     name: Bicep What-If
@@ -41,6 +38,5 @@ jobs:
     - name: What-If Deployment
       run: |
         az deployment group what-if \
-          --resource-group ${{ secrets.AZURE_RG }} \
+          --resource-group ${{ vars.RESOURCE_GROUP }} \
           --template-file ./environments/apim-lab/bicep/main.bicep \
-          --parameters storagePrefix=mystore storageSKU=Standard_LRS
