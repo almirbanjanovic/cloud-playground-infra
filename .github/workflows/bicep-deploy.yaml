@@ -13,8 +13,8 @@ on:
         required: true
 
 jobs: 
-  bicep-what-if:
-    name: Bicep What-If
+  bicep-deploy:
+    name: Bicep Deploy
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment}}
 
@@ -35,7 +35,7 @@ jobs:
         subscription-id: ${{ secrets.azureSubscriptionId }}
 
     
-    - name: What-If Deployment
+    - name: Deployment
       run: |
         az deployment group create \
           --resource-group ${{ vars.RESOURCE_GROUP }} \

@@ -1,4 +1,4 @@
-name: 2b. Bicep What-If, Deploy
+name: Bicep What-If, Deploy
 on: 
   workflow_dispatch:
     inputs:

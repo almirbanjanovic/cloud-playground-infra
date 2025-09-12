@@ -79,6 +79,7 @@ To enable GitHub Actions to deploy to Azure using OIDC:
 2. Add the following environment variables (minimum required):
 
 ```text
+BICEP_WORKING_DIRECTORY
 LOCATION
 RESOURCE_GROUP
 STORAGE_ACCOUNT
@@ -88,7 +89,7 @@ STORAGE_ACCOUNT_PUBLIC_NETWORK_ACCESS
 STORAGE_ACCOUNT_SKU
 TERRAFORM_STATE_BLOB
 TERRAFORM_STATE_CONTAINER
-WORKING_DIRECTORY
+TERRAFORM_WORKING_DIRECTORY
 ```
 
 3. Add required secrets (repository or environment level) for OIDC:
@@ -103,19 +104,29 @@ AZURE_TENANT_ID
 
 ---
 
-## Pipelines (order)
+## Pipelines
 
 1. Test OpenID Connect (`test-oidc.yaml`)
-2. Terraform Init Remote Backend (`terraform-init-backend.yaml`)
-3. Terraform Plan, Approve, Apply (`terraform-plan-approve-apply.yaml`)
 
-The reusable plan workflow is `terraform-plan.yaml` and the apply workflow is `terraform-apply.yaml`.
+After a successful OIDC test you may choose one of two deployment paths:
+
+- Terraform deployment
+  1. Terraform Init Remote Backend (`terraform-init-backend.yaml`) — prepares storage backend and related resources
+  2. Terraform Plan, Approve, Apply (`terraform-plan-approve-apply.yaml`) — runs plan, requires manual approval, then applies
+  - The reusable plan workflow is `terraform-plan.yaml` and the apply workflow is `terraform-apply.yaml`.
+
+- Bicep deployment
+  1. Bicep What-If, Deploy (`bicep-deploy.yaml`) — runs the Bicep templates for environments that use Bicep modules. This workflow includes a manual approval step (same manual-approval action used by the Terraform workflow) to review changes before applying.
+
+Notes:
+- `Test OpenID Connect` should be run first to validate OIDC setup.
+- Choose the deployment path (`Terraform` or `Bicep`) that matches the IaC used for the target environment.
 
 ---
 
 ## Manual Approval
 
-Workflow "3. Terraform Plan, Approve, Apply" uses `trstringer/manual-approval@v1` to require a manual check of the Terraform plan before applying changes. For production, consider separating Plan and Apply into distinct workflows or PRs.
+Workflows "Bicep What-If, Deploy" and "Terraform Plan, Approve, Apply" uses `trstringer/manual-approval@v1` to require a manual check of the Terraform plan before applying changes. For production, consider separating Plan and Apply into distinct workflows or PRs.
 
 ---
 

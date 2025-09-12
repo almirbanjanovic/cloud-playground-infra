@@ -1,4 +1,4 @@
-name: 3. Terraform Plan, Approve, Apply
+name: Terraform Plan, Approve, Apply
 on: 
   workflow_dispatch:
     inputs:
