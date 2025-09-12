@@ -34,6 +34,7 @@ cloud-playground-infra/
 
 ## Requirements
 
+- Bicep
 - Terraform
 - Azure CLI
 - Access to an Azure subscription
