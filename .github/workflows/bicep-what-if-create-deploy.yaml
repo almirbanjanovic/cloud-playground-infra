@@ -45,7 +45,7 @@ jobs:
 
   bicep-deploy:
     name: Bicep Deploy
-    uses: almirbanjanovic/cloud-playground-infra/.github/workflows/bicep-deploy.yaml@main
+    uses: almirbanjanovic/cloud-playground-infra/.github/workflows/bicep-create-deploy.yaml@main
     with:
       environment: ${{ inputs.environment }}
     secrets:
