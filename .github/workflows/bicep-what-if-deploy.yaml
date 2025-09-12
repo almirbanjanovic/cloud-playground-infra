@@ -43,12 +43,12 @@ jobs:
           issue-body: "Please approve or deny the deployment."
           fail-on-denial: true
 
-  # bicep-deploy:
-  #   name: Bicep Deploy
-  #   uses: almirbanjanovic/cloud-playground-infra/.github/workflows/bicep-deploy.yaml@main
-  #   with:
-  #     environment: ${{ inputs.environment }}
-  #   secrets:
-  #     azureClientId: ${{ secrets.AZURE_CLIENT_ID }}
-  #     azureTenantId: ${{ secrets.AZURE_TENANT_ID }}
-  #     azureSubscriptionId: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  bicep-deploy:
+    name: Bicep Deploy
+    uses: almirbanjanovic/cloud-playground-infra/.github/workflows/bicep-deploy.yaml@main
+    with:
+      environment: ${{ inputs.environment }}
+    secrets:
+      azureClientId: ${{ secrets.AZURE_CLIENT_ID }}
+      azureTenantId: ${{ secrets.AZURE_TENANT_ID }}
+      azureSubscriptionId: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
