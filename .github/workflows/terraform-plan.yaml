@@ -63,7 +63,7 @@ jobs:
     - name: Terraform Init
       id: init
       run: |
-        terraform -chdir=${{ vars.WORKING_DIRECTORY }} init \
+        terraform -chdir=${{ vars.TERRAFORM_WORKING_DIRECTORY}} init \
         -backend-config="resource_group_name=${{ vars.RESOURCE_GROUP }}" \
         -backend-config="storage_account_name=${{ vars.STORAGE_ACCOUNT }}" \
         -backend-config="container_name=${{ vars.TERRAFORM_STATE_CONTAINER }}" \
@@ -87,7 +87,7 @@ jobs:
 
     - name: Terraform plan
       id: plan
-      run: terraform -chdir=${{ vars.WORKING_DIRECTORY }} plan --out=out.tfplan
+      run: terraform -chdir=${{ vars.TERRAFORM_WORKING_DIRECTORY}} plan --out=out.tfplan
       env:
         ARM_CLIENT_ID: ${{ secrets.azureClientId }}
         ARM_SUBSCRIPTION_ID: ${{ secrets.azureSubscriptionId }}
@@ -99,7 +99,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: tf-plan
-        path: ${{ vars.WORKING_DIRECTORY }}/out.tfplan
+        path: ${{ vars.TERRAFORM_WORKING_DIRECTORY}}/out.tfplan
 
     - name: Disable public access for backend storage account
       if: always()

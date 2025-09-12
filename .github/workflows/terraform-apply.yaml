@@ -55,7 +55,7 @@ jobs:
     - name: Terraform Init
       id: init
       run: |
-        terraform -chdir=${{ vars.WORKING_DIRECTORY }} init \
+        terraform -chdir=${{ vars.TERRAFORM_WORKING_DIRECTORY }} init \
         -backend-config="resource_group_name=${{ vars.RESOURCE_GROUP }}" \
         -backend-config="storage_account_name=${{ vars.STORAGE_ACCOUNT }}" \
         -backend-config="container_name=${{ vars.TERRAFORM_STATE_CONTAINER }}" \
@@ -71,11 +71,11 @@ jobs:
       uses: actions/download-artifact@v4
       with:
         name: tf-plan
-        path: ${{ vars.WORKING_DIRECTORY }}/
+        path: ${{ vars.TERRAFORM_WORKING_DIRECTORY }}/
 
     - name: Apply the plan
       id: apply
-      run: terraform -chdir=${{ vars.WORKING_DIRECTORY }} apply -auto-approve out.tfplan
+      run: terraform -chdir=${{ vars.TERRAFORM_WORKING_DIRECTORY }} apply -auto-approve out.tfplan
       env:
         ARM_CLIENT_ID: ${{ secrets.azureClientId }}
         ARM_SUBSCRIPTION_ID: ${{ secrets.azureSubscriptionId }}
