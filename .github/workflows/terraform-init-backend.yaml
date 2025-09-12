@@ -1,4 +1,4 @@
-name: 2. Terraform Init Remote Backend
+name: Terraform Init Remote Backend
 on: 
   workflow_dispatch:
     inputs:
