@@ -5,7 +5,7 @@ param storageAccountName string
 param functionAppName string 
 param appServicePlanName string 
 param appInsightsInstrumentationKey string
-
+param resourceTags object
 
 
 var functionTier = functionSku == 'Y1' ? 'Dynamic' : 'ElasticPremium'
@@ -14,6 +14,7 @@ var functionKind = functionSku == 'Y1' ? 'functionapp' : 'elastic'
 resource storageAccount 'Microsoft.Storage/storageAccounts@2021-06-01' = {
   name: storageAccountName
   location: location
+  tags: resourceTags
   sku: {
     name: 'Standard_LRS'
   }
@@ -37,10 +38,23 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2021-06-01' = {
   }
 }
 
+resource plan 'Microsoft.Web/serverFarms@2021-02-01' = {
+  name: appServicePlanName
+  location: location
+  kind: functionKind
+  tags: resourceTags
+  sku: {
+    name: functionSku
+    tier: functionTier
+  }
+  properties: {}
+}
+
 resource functionApp 'Microsoft.Web/sites@2021-02-01' = {
   name: functionAppName
   location: location
   kind: 'functionapp'
+  tags: resourceTags
   properties: {
     serverFarmId: plan.id
     siteConfig: {
@@ -59,7 +73,7 @@ resource functionApp 'Microsoft.Web/sites@2021-02-01' = {
         }
         {
           name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
-          value: 'InstrumentationKey=${appInsightsInstrumentationKey}'
+          value: 'InstrumentationKey=<instrumentationkey>'
         }
         {
           name: 'FUNCTIONS_WORKER_RUNTIME'
@@ -77,36 +91,5 @@ resource functionApp 'Microsoft.Web/sites@2021-02-01' = {
     type: 'SystemAssigned'
   }  
 }
-
-resource plan 'Microsoft.Web/serverFarms@2021-02-01' = {
-  name: appServicePlanName
-  location: location
-  kind: functionKind
-  sku: {
-    name: functionSku
-    tier: functionTier
-    size: functionSku
-    family: functionSku
-    capacity: 0
-  }
-  properties: {}
-}
-
-// resource httpTrigger1Resource 'Microsoft.Web/sites/functions@2021-02-01' = {
-//   parent: functionApp
-//   name: 'HttpTrigger1'
-//   properties: {
-//     script_root_path_href: 'https://${functionAppName}.azurewebsites.net/admin/vfs/site/wwwroot/HttpTrigger1/'
-//     script_href: 'https://${functionAppName}.azurewebsites.net/admin/vfs/site/wwwroot/HttpTrigger1/run.csx'
-//     config_href: 'https://${functionAppName}.azurewebsites.net/admin/vfs/site/wwwroot/HttpTrigger1/function.json'
-//     test_data_href: 'https://${functionAppName}.azurewebsites.net/admin/vfs/data/Functions/sampledata/HttpTrigger1.dat'
-//     href: 'https://${functionAppName}.azurewebsites.net/admin/functions/HttpTrigger1'
-//     config: {}
-//     test_data: '{"method":"get","queryStringParams":[{"name":"name","value":"Noemi"}],"headers":[],"body":{"body":""}}'
-//     invoke_url_template: 'https://${functionAppName}.azurewebsites.net/api/sayhello'
-//     language: 'CSharp'
-//     isDisabled: false
-//   }
-// }
 
 output functionAppName string = functionApp.name
