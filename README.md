@@ -111,12 +111,12 @@ AZURE_TENANT_ID
 
 After a successful OIDC test you may choose one of two deployment paths:
 
-- Terraform deployment
+2a. Terraform deployment
   1. Terraform Init Remote Backend (`terraform-init-backend.yaml`) — prepares storage backend and related resources
   2. Terraform Plan, Approve, Apply (`terraform-plan-approve-apply.yaml`) — runs plan, requires manual approval, then applies
   - The reusable plan workflow is `terraform-plan.yaml` and the apply workflow is `terraform-apply.yaml`.
 
-- Bicep deployment
+2b. Bicep deployment
   1. Bicep What-If, Deploy (`bicep-deploy.yaml`) — runs the Bicep templates for environments that use Bicep modules. This workflow includes a manual approval step (same manual-approval action used by the Terraform workflow) to review changes before applying.
 
 Notes:
