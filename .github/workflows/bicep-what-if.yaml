@@ -39,6 +39,6 @@ jobs:
       run: |
         az deployment group what-if \
           --resource-group ${{ vars.RESOURCE_GROUP }} \
-          --template-file ./environments/apim-lab/bicep/main.bicep \
+          --template-file ${{ vars.BICEP_WORKING_DIRECTORY}}/main.bicep \
           --parameters \
           jumpboxVmPassword=jumpboxVmPassword123456789 \
