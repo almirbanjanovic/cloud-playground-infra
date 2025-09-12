@@ -22,12 +22,14 @@ cloud-playground-infra/
 ├── assets/ (currently empty)
 ├── environments/
 │   ├── apim-lab/
+|   |   |__ bicep/
 │   │   └── terraform/
 │   └── ai-foundry/
+|       └── bicep/
 │       └── terraform/
 ├── iac-modules/
-│   ├── terraform/
-│   └── bicep/
+│   ├── bicep/
+│   └── terraform/
 ├── LICENSE
 └── README.md
 ```
