@@ -118,7 +118,7 @@ After a successful OIDC test you may choose one of two deployment paths:
   - The reusable plan workflow is `terraform-plan.yaml` and the apply workflow is `terraform-apply.yaml`.
 
 - Bicep deployment
-  1. Bicep What-If, Deploy (`bicep-what-if-deploy.yaml`) — runs the Bicep templates for environments that use Bicep modules. This workflow includes a manual approval step (same manual-approval action used by the Terraform workflow) to review changes before applying.
+  1. Bicep What-If, Deploy (`bicep-what-if-create-deploy.yaml`) — runs the Bicep templates for environments that use Bicep modules. This workflow includes a manual approval step (same manual-approval action used by the Terraform workflow) to review changes before applying.
 
 Notes:
 - `Test OpenID Connect` should be run first to validate OIDC setup.
