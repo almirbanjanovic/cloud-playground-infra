@@ -12,20 +12,19 @@ terraform {
       source  = "azure/azapi"
       version = "~>2.6.0"
     }
+
+    random = {
+      source  = "hashicorp/random"
+      version = "~>3.0"
+    }
+    
   }
 
   backend "azurerm" {}
 }
 
 provider "azurerm" {
-  features {
-    key_vault {
-      purge_soft_deleted_certificates_on_destroy = true
-      recover_soft_deleted_certificates          = true
-      purge_soft_deleted_secrets_on_destroy      = true
-      recover_soft_deleted_secrets               = true
-    }
-  }
+  features {}
 
   resource_provider_registrations = "none"
 }
