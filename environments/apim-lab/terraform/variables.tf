@@ -1,5 +1,6 @@
 variable "resource_group_name" {
   type        = string
+  default     = ""
   description = "The name of the Azure resource group. If blank, a random name will be generated."
 }
 
