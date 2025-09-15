@@ -1,120 +1,70 @@
-# variable "base_name" {
-#   description = "Application/Solution name which will be used to derive names for all of your resources"
-#   type        = string
-# }
-
-# variable "location" {
-#   description = "Location in which resources will be created"
-#   type        = string
-# }
-
-# variable "apim_sku" {
-#   description = "The edition of Azure API Management to use. This must be an edition that supports VNET Integration. This selection can have a significant impact on consumption cost and 'Developer' is recommended for non-production use."
-#   type = string
-# }
-
-# variable "apim_capacity" {
-#   description = "The number of Azure API Management capacity units to provision. For Developer edition, this must equal 1."
-#   type = string
-#   default = "1"
-# }
-
-# variable "app_gateway_capacity" {
-#   description = "The number of Azure Application Gateway capacity units to provision. This setting has a direct impact on consumption cost and is recommended to be left at the default value of 1"
-#   type        = number
-#   default     = 1
-# }
-
-# variable "vnet_address_prefix" {
-#   description = "The address space (in CIDR notation) to use for the VNET to be deployed in this solution. If integrating with other networked components, there should be no overlap in address space."
-#   type        = string
-#   default     = "10.0.0.0/16"
-# }
-
-# variable "app_gateway_subnet_prefix" {
-#   description = "The address space (in CIDR notation) to use for the subnet to be used by Azure Application Gateway. Must be contained in the VNET address space."
-#   type        = string
-#   default     = "10.0.0.0/24"
-# }
-
-# variable "apim_subnet_prefix" {
-#   description = "The address space (in CIDR notation) to use for the subnet to be used by Azure API Management. Must be contained in the VNET address space."
-#   type        = string
-#   default     = "10.0.1.0/24"
-# }
-
-# variable "apim_publisher_name" {
-#   description = "Descriptive name for publisher to be used in the portal"
-#   type        = string
-#   default     = "Contoso"
-# }
-
-# variable "apim_publisher_email" {
-#   description = "Email address associated with publisher"
-#   type        = string
-#   default     = "api@contoso.com"
-# }
-
-# variable "public_ip_sku" {
-#   description = "Public IP SKU"
-#   type = object({
-#     name = string
-#     tier = string
-#   })
-#   default = {
-#     name = "Standard"
-#     tier = "Regional"
-#   }
-# }
-
-# variable "functionSku" {
-#   description = "Function app SKU"
-#   type        = string
-#   default     = "EP1"
-# }
-
-# variable "base_name" {
-#   description = "Base name used for resource naming"
-#   type        = string
-# }
-
-# variable "storageAccountName" {
-#   description = "Storage account name"
-#   type        = string
-#   default     = lower("stor${var.base_name}")
-# }
-
-# variable "functionRuntime" {
-#   description = "Function runtime"
-#   type        = string
-#   default     = "dotnet"
-# }
-
-# variable "appServicePlanName" {
-#   description = "App Service plan name"
-#   type        = string
-#   default     = lower("asp-${var.base_name}")
-# }
-
-# variable "jumpboxVmUsername" {
-#   description = "Jumphost virtual machine username"
-#   type        = string
-#   default     = "svradmin"
-# }
-
-# variable "jumpboxVmPassword" {
-#   description = "Jumphost virtual machine password"
-#   type        = string
-#   sensitive   = true
-#   validation {
-#     condition     = length(var.jumpboxVmPassword) >= 8
-#     error_message = "Password must be at least 8 characters long."
-#   }
-# }
-
-
-
 variable "resource_group_name" {
-  description = "The name of the resource group"
   type        = string
+  description = "The name of the Azure resource group. If blank, a random name will be generated."
+}
+
+variable "resource_group_name_prefix" {
+  type        = string
+  default     = "rg"
+  description = "Prefix of the resource group name that's combined with a random ID so name is unique in your Azure subscription."
+}
+
+variable "resource_group_location" {
+  type        = string
+  default     = "eastus"
+  description = "Location of the resource group."
+}
+
+variable "sa_account_tier" {
+  description = "The tier of the storage account. Possible values are Standard and Premium."
+  type        = string
+  default     = "Standard"
+}
+
+variable "sa_account_replication_type" {
+  description = "The replication type of the storage account. Possible values are LRS, GRS, RAGRS, and ZRS."
+  type        = string
+  default     = "LRS"
+}
+
+variable "sa_name" {
+  description = "The name of the storage account. If blank, a random name will be generated."
+  type        = string
+  default     = ""
+}
+
+variable "ws_name" {
+  description = "The name of the Log Analytics workspace. If blank, a random name will be generated."
+  type        = string
+  default     = ""
+}
+
+variable "ai_name" {
+  description = "The name of the Application Insights instance. If blank, a random name will be generated."
+  type        = string
+  default     = ""
+}
+
+variable "asp_name" {
+  description = "The name of the App Service Plan. If blank, a random name will be generated."
+  type        = string
+  default     = ""
+}
+
+variable "fa_name" {
+  description = "The name of the Function App. If blank, a random name will be generated."
+  type        = string
+  default     = ""
+}
+
+variable "runtime_name" {
+  description = "The name of the language worker runtime."
+  type        = string
+  default     = "node" # Allowed: dotnet-isolated, java, node, powershell, python
+}
+
+variable "runtime_version" {
+  description = "The version of the language worker runtime."
+  type        = string
+  default     = "20" # Supported versions: see https://aka.ms/flexfxversions
 }
