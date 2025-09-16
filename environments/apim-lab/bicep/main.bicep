@@ -61,5 +61,14 @@ resource userAssignedIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@
 }
 
 
-
+module logAppi '../../../iac-modules/bicep/logAppi.bicep' = {
+  name: 'deploy-log-appi'
+  params: {
+    location: location
+    userAssignedIdentityId: userAssignedIdentity.id
+    userAssignedIdentityPrincipalId: userAssignedIdentity.properties.principalId
+    monitoringMetricsPublisherId: monitoringMetricsPublisherId
+    resourceToken: resourceToken
+  }
+}
 
