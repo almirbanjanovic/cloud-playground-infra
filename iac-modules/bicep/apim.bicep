@@ -1,5 +1,9 @@
-@description('The name of the API Management service instance')
-param apiManagementServiceName string = 'apiservice${uniqueString(resourceGroup().id)}'
+//********************************************
+// Parameters
+//********************************************
+@description('A unique token used for resource name generation.')
+@minLength(1)
+param resourceToken string
 
 @description('The email address of the owner of the service')
 @minLength(1)
@@ -31,6 +35,17 @@ param skuCount int = 1
 
 @description('Location for all resources.')
 param location string = resourceGroup().location
+
+//********************************************
+// Variables
+//********************************************
+var apiManagementServiceName = 'apim-${resourceToken}'
+
+//**************************************************
+// Log Analytics, Application Insights and RBAC
+//**************************************************
+
+
 
 resource apiManagementService 'Microsoft.ApiManagement/service@2023-05-01-preview' = {
   name: apiManagementServiceName

@@ -1,13 +1,10 @@
-/* This Bicep file creates a function app running in a Flex Consumption plan 
-that connects to Azure Storage by using managed identities with Microsoft Entra ID. */
-
-//********************************************
+//****************************************************************************************
 // Parameters
-//********************************************
+//****************************************************************************************
 
 @description('Primary region for all Azure resources.')
 @minLength(1)
-param location string = resourceGroup().location 
+param location string 
 
 @description('Language runtime used by the function app.')
 @allowed(['dotnet-isolated','python','java', 'node', 'powerShell'])
@@ -28,14 +25,39 @@ param instanceMemoryMB int = 2048
 
 @description('A unique token used for resource name generation.')
 @minLength(3)
-param resourceToken string = toLower(uniqueString(subscription().id, location))
+param resourceToken string
 
-@description('A globally unigue name for your deployed function app.')
-param appName string = 'func-${resourceToken}'
+@description('User assigned identity resource ID to be used for RBAC')
+@minLength(1)
+param userAssignedIdentityId string
 
-//********************************************
+@description('User assigned identity principal ID to be used for RBAC')
+@minLength(1)
+param userAssignedIdentityPrincipalId string
+
+@description('User assigned identity client ID to be used for the function app')
+param userAssignedIdentityClientId string
+
+@description('Application Insights instrumentation key to be used by the function app')
+param applicationInsightsInstrumentationKey string
+
+@description('Storage Blob Data Owner role definition ID to be assigned to the user assigned identity')
+param storageBlobDataOwnerRoleId string
+
+@description('Storage Blob Data Contributor role definition ID to be assigned to the user assigned identity')
+param storageBlobDataContributorRoleId string
+
+@description('Storage Queue Data Contributor role definition ID to be assigned to the user assigned identity')
+param storageQueueDataContributorId string
+
+@description('Storage Table Data Contributor role definition ID to be assigned to the user assigned identity')
+param storageTableDataContributorId string
+
+//****************************************************************************************
 // Variables
-//********************************************
+//****************************************************************************************
+
+var appName = 'func-${resourceToken}'
 
 // Generates a unique container name for deployments.
 var deploymentStorageContainerName = 'app-package-${take(appName, 32)}-${take(resourceToken, 7)}'
@@ -43,41 +65,9 @@ var deploymentStorageContainerName = 'app-package-${take(appName, 32)}-${take(re
 // Key access to the storage account is disabled by default 
 var storageAccountAllowSharedKeyAccess = false
 
-// Define the IDs of the roles we need to assign to our managed identities.
-var storageBlobDataOwnerRoleId  = 'b7e6dc6d-f1e8-4753-8033-0f276bb0955b'
-var storageBlobDataContributorRoleId = 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
-var storageQueueDataContributorId = '974c5e8b-45b9-4653-ba55-5f855dd0fb88'
-var storageTableDataContributorId = '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3'
-var monitoringMetricsPublisherId = '3913510d-42f4-4e42-8a64-420c390055eb'
-
-//********************************************
+//****************************************************************************************
 // Azure resources required by your function app.
-//********************************************
-
-resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
-  name: 'log-${resourceToken}'
-  location: location
-  properties: any({
-    retentionInDays: 30
-    features: {
-      searchVersion: 1
-    }
-    sku: {
-      name: 'PerGB2018'
-    }
-  })
-}
-
-resource applicationInsights 'Microsoft.Insights/components@2020-02-02' = {
-  name: 'appi-${resourceToken}'
-  location: location
-  kind: 'web'
-  properties: {
-    Application_Type: 'web'
-    WorkspaceResourceId: logAnalytics.id
-    DisableLocalAuth: true
-  }
-}
+//****************************************************************************************
 
 resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   name: 'st${resourceToken}'
@@ -110,64 +100,53 @@ resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   }
 }
 
-resource userAssignedIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
-  name: 'uai-data-owner-${resourceToken}'
-  location: location
-}
+//****************************************************************************************
+// RBAC role assignments for the user assigned identity.
+//****************************************************************************************
 
 resource roleAssignmentBlobDataOwner 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(subscription().id, storage.id, userAssignedIdentity.id, 'Storage Blob Data Owner')
+  name: guid(subscription().id, storage.id, userAssignedIdentityId, 'Storage Blob Data Owner')
   scope: storage
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageBlobDataOwnerRoleId)
-    principalId: userAssignedIdentity.properties.principalId
+    principalId: userAssignedIdentityPrincipalId
     principalType: 'ServicePrincipal'
   }
 }
 
 resource roleAssignmentBlob 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(subscription().id, storage.id, userAssignedIdentity.id, 'Storage Blob Data Contributor')
+  name: guid(subscription().id, storage.id, userAssignedIdentityId, 'Storage Blob Data Contributor')
   scope: storage
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageBlobDataContributorRoleId)
-    principalId: userAssignedIdentity.properties.principalId
+    principalId: userAssignedIdentityPrincipalId
     principalType: 'ServicePrincipal'
   }
 }
 
 resource roleAssignmentQueueStorage 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(subscription().id, storage.id, userAssignedIdentity.id, 'Storage Queue Data Contributor')
+  name: guid(subscription().id, storage.id, userAssignedIdentityId, 'Storage Queue Data Contributor')
   scope: storage
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageQueueDataContributorId)
-    principalId: userAssignedIdentity.properties.principalId
+    principalId: userAssignedIdentityPrincipalId
     principalType: 'ServicePrincipal'
   }
 }
 
 resource roleAssignmentTableStorage 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(subscription().id, storage.id, userAssignedIdentity.id, 'Storage Table Data Contributor')
+  name: guid(subscription().id, storage.id, userAssignedIdentityId, 'Storage Table Data Contributor')
   scope: storage
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageTableDataContributorId)
-    principalId: userAssignedIdentity.properties.principalId
+    principalId: userAssignedIdentityPrincipalId
     principalType: 'ServicePrincipal'
   }
 }
 
-resource roleAssignmentAppInsights 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(subscription().id, applicationInsights.id, userAssignedIdentity.id, 'Monitoring Metrics Publisher')
-  scope: applicationInsights
-  properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', monitoringMetricsPublisherId)
-    principalId: userAssignedIdentity.properties.principalId
-    principalType: 'ServicePrincipal'
-  }
-}
-
-//********************************************
+//****************************************************************************************
 // Function app and Flex Consumption plan definitions
-//********************************************
+//****************************************************************************************
 
 resource appServicePlan 'Microsoft.Web/serverfarms@2024-04-01' = {
   name: 'plan-${resourceToken}'
@@ -189,7 +168,7 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
   identity: {
     type: 'UserAssigned'
     userAssignedIdentities: {
-      '${userAssignedIdentity.id}':{}
+      '${userAssignedIdentityId}':{}
       }
     }
   properties: {
@@ -205,7 +184,7 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
           value: '${storage.properties.primaryEndpoints.blob}${deploymentStorageContainerName}'
           authentication: {
             type: 'UserAssignedIdentity'
-            userAssignedIdentityResourceId: userAssignedIdentity.id
+            userAssignedIdentityResourceId: userAssignedIdentityId
           }
         }
       }
@@ -224,9 +203,9 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
     properties: {
         AzureWebJobsStorage__accountName: storage.name
         AzureWebJobsStorage__credential : 'managedidentity'
-        AzureWebJobsStorage__clientId: userAssignedIdentity.properties.clientId
-        APPINSIGHTS_INSTRUMENTATIONKEY: applicationInsights.properties.InstrumentationKey
-        APPLICATIONINSIGHTS_AUTHENTICATION_STRING: 'ClientId=${userAssignedIdentity.properties.clientId};Authorization=AAD'
+        AzureWebJobsStorage__clientId: userAssignedIdentityClientId
+        APPINSIGHTS_INSTRUMENTATIONKEY: applicationInsightsInstrumentationKey
+        APPLICATIONINSIGHTS_AUTHENTICATION_STRING: 'ClientId=${userAssignedIdentityClientId};Authorization=AAD'
       }
   }
 }

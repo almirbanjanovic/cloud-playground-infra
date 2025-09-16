@@ -1,9 +1,6 @@
-/* This Bicep file creates a function app running in a Flex Consumption plan 
-that connects to Azure Storage by using managed identities with Microsoft Entra ID. */
-
-//********************************************
+//****************************************************************************************
 // Parameters
-//********************************************
+//****************************************************************************************
 
 @description('Primary region for all Azure resources.')
 @minLength(1)
@@ -24,19 +21,22 @@ param monitoringMetricsPublisherId string
 
 @description('A unique token used for resource name generation.')
 @minLength(1)
-param resourceToken string = toLower(uniqueString(subscription().id, location))
+param resourceToken string
 
-//********************************************
+//****************************************************************************************
 // Variables
-//********************************************
+//****************************************************************************************
+
+var logAnalyticsName = 'log-${resourceToken}'
+var applicationInsightsName = 'appi-${resourceToken}'
 
 
-//********************************************
-// Azure resources required by your function app.
-//********************************************
+//**********************************************************************************************
+// Log Analytics, Application Insights and RBAC
+//**********************************************************************************************
 
 resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
-  name: 'log-${resourceToken}'
+  name: logAnalyticsName
   location: location
   properties: any({
     retentionInDays: 30
@@ -50,7 +50,7 @@ resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
 }
 
 resource applicationInsights 'Microsoft.Insights/components@2020-02-02' = {
-  name: 'appi-${resourceToken}'
+  name: applicationInsightsName
   location: location
   kind: 'web'
   properties: {
@@ -59,6 +59,10 @@ resource applicationInsights 'Microsoft.Insights/components@2020-02-02' = {
     DisableLocalAuth: true
   }
 }
+
+//****************************************************************************************
+// RBAC role assignments for the user assigned identity.
+//****************************************************************************************
 
 resource roleAssignmentAppInsights 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(subscription().id, applicationInsights.id, userAssignedIdentityId, 'Monitoring Metrics Publisher')
@@ -69,3 +73,5 @@ resource roleAssignmentAppInsights 'Microsoft.Authorization/roleAssignments@2022
     principalType: 'ServicePrincipal'
   }
 }
+
+output applicationInsightsInstrumentationKey string = applicationInsights.properties.InstrumentationKey

@@ -72,3 +72,30 @@ module logAppi '../../../iac-modules/bicep/logAppi.bicep' = {
   }
 }
 
+module apim '../../../iac-modules/bicep/apim.bicep' = {
+  name: 'deploy-apim'
+  params: {
+    location: location
+    resourceToken: resourceToken
+  }
+}
+
+module functionApp '../../../iac-modules/bicep/function.bicep' = {
+  name: 'deploy-function-app'
+  params: {
+    location: location
+    instanceMemoryMB: instanceMemoryMB
+    maximumInstanceCount: maximumInstanceCount
+    functionAppRuntime: functionAppRuntime
+    functionAppRuntimeVersion: functionAppRuntimeVersion
+    resourceToken: resourceToken
+    userAssignedIdentityId: userAssignedIdentity.id
+    userAssignedIdentityPrincipalId: userAssignedIdentity.properties.principalId
+    userAssignedIdentityClientId: userAssignedIdentity.properties.clientId
+    applicationInsightsInstrumentationKey: logAppi.outputs.applicationInsightsInstrumentationKey
+    storageBlobDataOwnerRoleId: storageBlobDataOwnerRoleId
+    storageBlobDataContributorRoleId: storageBlobDataContributorRoleId
+    storageQueueDataContributorId: storageQueueDataContributorId
+    storageTableDataContributorId: storageTableDataContributorId
+  }
+}
