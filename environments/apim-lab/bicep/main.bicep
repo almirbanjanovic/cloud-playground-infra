@@ -1,6 +1,3 @@
-/* This Bicep file creates a function app running in a Flex Consumption plan 
-that connects to Azure Storage by using managed identities with Microsoft Entra ID. */
-
 //********************************************
 // Parameters
 //********************************************
@@ -30,18 +27,9 @@ param instanceMemoryMB int = 2048
 @minLength(3)
 param resourceToken string = toLower(uniqueString(subscription().id, location))
 
-@description('A globally unigue name for your deployed function app.')
-param appName string = 'func-${resourceToken}'
-
 //********************************************
 // Variables
 //********************************************
-
-// Generates a unique container name for deployments.
-var deploymentStorageContainerName = 'app-package-${take(appName, 32)}-${take(resourceToken, 7)}'
-
-// Key access to the storage account is disabled by default 
-var storageAccountAllowSharedKeyAccess = false
 
 // Define the IDs of the roles we need to assign to our managed identities.
 var storageBlobDataOwnerRoleId  = 'b7e6dc6d-f1e8-4753-8033-0f276bb0955b'
@@ -72,14 +60,6 @@ module logAppi '../../../iac-modules/bicep/logAppi.bicep' = {
   }
 }
 
-module apim '../../../iac-modules/bicep/apim.bicep' = {
-  name: 'deploy-apim'
-  params: {
-    location: location
-    resourceToken: resourceToken
-  }
-}
-
 module functionApp '../../../iac-modules/bicep/function.bicep' = {
   name: 'deploy-function-app'
   params: {
@@ -98,4 +78,15 @@ module functionApp '../../../iac-modules/bicep/function.bicep' = {
     storageQueueDataContributorId: storageQueueDataContributorId
     storageTableDataContributorId: storageTableDataContributorId
   }
+}
+
+module apim '../../../iac-modules/bicep/apim.bicep' = {
+  name: 'deploy-apim'
+  params: {
+    location: location
+    resourceToken: resourceToken
+  }
+  dependsOn: [
+    functionApp
+  ]
 }
