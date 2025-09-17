@@ -70,8 +70,12 @@ To enable GitHub Actions to deploy to Azure using OIDC:
 
 ### IAM role suggestions
 
-- Contributor (scope: subscription or resource group as needed)
-- Storage Blob Data Contributor (scope: storage account used for Terraform state)
+- Contributor
+  - Scope: Subscription or Resource Group as needed
+- Storage Blob Data Contributor 
+  - Scope: Storage Account used for Terraform state
+- User Access Administrator 
+  - Scope: Subscription or Resource Group as needed for managed and RBAC deplyed via IAC
 - Additional roles as required by the environment
 
 ---

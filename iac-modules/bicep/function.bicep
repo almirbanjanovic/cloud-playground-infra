@@ -209,3 +209,5 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
       }
   }
 }
+
+output functionDefaultHostname string = functionApp.properties.defaultHostName
