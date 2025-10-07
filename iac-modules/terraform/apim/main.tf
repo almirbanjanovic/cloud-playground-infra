@@ -1,5 +1,9 @@
+locals {
+  apim_name = "apim-${var.base_name}-${var.environment}-${var.location}"
+}
+
 resource "azurerm_api_management" "api" {
-  name                = "apiservice${random_string.azurerm_api_management_name.result}"
+  name                = local.apim_name
   location            = var.location
   resource_group_name = var.resource_group_name
   publisher_email     = var.publisher_email

@@ -3,6 +3,18 @@ variable "resource_group_name" {
   description = "The name of the Azure resource group."
 }
 
+variable "base_name" {
+  type = string
+  description = "Base name for resources"
+}
+
+variable "environment" {
+  type        = string
+  description = "The environment for all resources."
+  default = "dev"
+  
+}
+
 variable "location" {
   type        = string
   default     = "centralus"
