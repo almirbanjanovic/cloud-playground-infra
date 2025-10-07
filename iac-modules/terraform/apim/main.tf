@@ -2,7 +2,7 @@ locals {
   apim_name = "apim-${var.base_name}-${var.environment}-${var.location}"
 }
 
-resource "azurerm_api_management" "api" {
+resource "azurerm_api_management" "this" {
   name                = local.apim_name
   location            = var.location
   resource_group_name = var.resource_group_name
