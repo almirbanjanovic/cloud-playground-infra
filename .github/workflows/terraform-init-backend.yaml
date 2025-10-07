@@ -10,6 +10,7 @@ on:
         options:
           - ai-foundry
           - apim-lab
+          - apim-mcp
 
 permissions:
   id-token: write
