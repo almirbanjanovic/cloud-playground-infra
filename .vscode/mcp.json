@@ -4,7 +4,7 @@
 			"url": "https://apim-mcp-dev-centralus.azure-api.net/colors-mcp/mcp",
 			"type":"http",
             "headers": {
-                "Ocp-Apim-Subscription-Key": "55c653dedb0f483aaac82fc6b2068e56",
+                "Ocp-Apim-Subscription-Key": "XXXXXXXXXXXXXXXXXXX",
                 "Ocp-Apim-Trace": "true"
             }
         }
