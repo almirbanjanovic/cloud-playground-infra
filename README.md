@@ -13,7 +13,7 @@ Infrastructure-as-Code for cloud playground environments.
 - `assets/` — Supporting files (kubernetes manifests, scripts, SQL, etc.). Currently empty.
 - `LICENSE`, `README.md` — repository metadata and documentation
 
-Repository layout (top-level):
+Repository layout example (not representative of actual layout):
 
 ```text
 cloud-playground-infra/
@@ -22,11 +22,9 @@ cloud-playground-infra/
 ├── assets/ (currently empty)
 ├── environments/
 │   ├── apim-lab/
-|   |   |__ bicep/
 │   │   └── terraform/
 │   └── ai-foundry/
 |       └── bicep/
-│       └── terraform/
 ├── iac-modules/
 │   ├── bicep/
 │   └── terraform/
@@ -141,4 +139,5 @@ Workflows "Bicep What-If, Deploy" and "Terraform Plan, Approve, Apply" use `trst
 ## About This Repository
 
 This repository is intended for training, proof-of-concept, and demo purposes. In production, you would usually maintain one repository per architecture and move reusable workflows to a dedicated repo.
+
 
