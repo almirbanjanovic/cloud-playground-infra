@@ -134,10 +134,11 @@ Notes:
 
 ## Manual Approval
 
-Workflows "Bicep What-If, Deploy" and "Terraform Plan, Approve, Apply" uses `trstringer/manual-approval@v1` to require a manual check of the Terraform plan before applying changes. For production, consider separating Plan and Apply into distinct workflows or PRs.
+Workflows "Bicep What-If, Deploy" and "Terraform Plan, Approve, Apply" use `trstringer/manual-approval@v1` to require a manual check of the Terraform plan before applying changes. For production, consider separating Plan and Apply into distinct workflows or gated by PRs.
 
 ---
 
 ## About This Repository
 
 This repository is intended for training, proof-of-concept, and demo purposes. In production, you would usually maintain one repository per architecture and move reusable workflows to a dedicated repo.
+
