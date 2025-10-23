@@ -49,7 +49,7 @@ resource userAssignedIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@
 }
 
 
-module logAppi '../../../iac-modules/bicep/logAppi.bicep' = {
+module logAppi '../../../iac-modules/bicep/logAppi/v1/logAppi.bicep' = {
   name: 'deploy-log-appi'
   params: {
     location: location
@@ -60,7 +60,7 @@ module logAppi '../../../iac-modules/bicep/logAppi.bicep' = {
   }
 }
 
-module functionApp '../../../iac-modules/bicep/function.bicep' = {
+module functionApp '../../../iac-modules/bicep/function/v1/function.bicep' = {
   name: 'deploy-function-app'
   params: {
     location: location
@@ -80,7 +80,7 @@ module functionApp '../../../iac-modules/bicep/function.bicep' = {
   }
 }
 
-module apim '../../../iac-modules/bicep/apim.bicep' = {
+module apim '../../../iac-modules/bicep/apim/v1/apim.bicep' = {
   name: 'deploy-apim'
   params: {
     location: location
