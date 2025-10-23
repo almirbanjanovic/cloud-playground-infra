@@ -43,8 +43,10 @@ cloud-playground-infra/
 
 1. Fork the repo.
 2. Configure an App Registration in Microsoft Entra ID for OIDC (see below).
-3. Create a GitHub Environment for the cloud playground and set required variables.
-4. Run the GitHub Actions pipelines in order.
+3. Create a new Resource Group.
+4. Grant appropriate permissions to App Registration. See [IAM Role Suggestions](#iam-role-suggestions) below for details.
+5. Create a GitHub Environment for the cloud playground and set required variables.
+6. Run the GitHub Actions pipelines in order.
 
 ---
 
@@ -66,7 +68,7 @@ To enable GitHub Actions to deploy to Azure using OIDC:
    - `AZURE_TENANT_ID` (Directory/Tenant ID)
    - `AZURE_SUBSCRIPTION_ID`
 
-### IAM role suggestions
+### IAM Role Suggestions
 
 - Contributor
   - Scope: Subscription or Resource Group as needed
