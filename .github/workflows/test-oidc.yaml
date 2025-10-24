@@ -10,6 +10,8 @@ on:
         options:
           - ai-foundry
           - apim-lab
+          - apim-mcp
+          - backend-pool-load-balancing
 
 permissions:
   id-token: write
