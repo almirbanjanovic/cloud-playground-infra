@@ -32,11 +32,12 @@ param modelsConfig array = [
   }
 ]
 
-param apimSku string = 'BasicV2'
+param apimSku string = 'Basicv2'
 param apimSubscriptionsConfig array = []
 param inferenceAPIType string = 'AzureOpenAI'
 param inferenceAPIPath string = 'inference' // Path to the inference API in the APIM service
 param foundryProjectName string = 'default'
+
 // ------------------
 //    RESOURCES
 // ------------------
