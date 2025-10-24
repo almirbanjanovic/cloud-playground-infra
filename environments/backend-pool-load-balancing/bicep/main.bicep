@@ -2,9 +2,37 @@
 //    PARAMETERS
 // ------------------
 
-param aiServicesConfig array = []
-param modelsConfig array = []
-param apimSku string
+param aiServicesConfig array = [
+  {
+    name: 'foundry1'
+    location: 'eastus'
+    priority: 1
+  }
+  {
+    name: 'foundry2'
+    location: 'swedencentral'
+    priority: 2
+    weight: 50
+  }
+  {
+    name: 'foundry3'
+    location: 'westus'
+    priority: 2
+    weight: 50
+  }
+]
+
+param modelsConfig array = [
+  {
+    name: 'gpt-4o-mini'
+    publisher: 'OpenAI'
+    version: '2024-07-18'
+    sku: 'GlobalStandard'
+    capacity: 1
+  }
+]
+
+param apimSku string = 'BasicV2'
 param apimSubscriptionsConfig array = []
 param inferenceAPIType string = 'AzureOpenAI'
 param inferenceAPIPath string = 'inference' // Path to the inference API in the APIM service
