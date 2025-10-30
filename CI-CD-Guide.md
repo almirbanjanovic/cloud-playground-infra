@@ -156,7 +156,7 @@ The workflow consists of three sequential jobs:
 #### Job 2: `manual-approval`
 - **Purpose**: Require manual review and approval before deployment
 - **Steps**:
-  1. Create a GitHub issue for approval
+  1. GitHub issue automatically created for manual approval
   2. Wait for an authorized approver to comment `/approve` or `/deny`
   3. Fail deployment if denied
 - **Action**: `trstringer/manual-approval@v1`
@@ -272,9 +272,8 @@ policyXml: loadTextContent('../policy.xml')
 3. Commit changes:
 
 ```powershell
-git add environments/backend-pool-load-balancing/policy.xml
-git commit -m "feat: add rate limiting to APIM policy"
-git push origin main
+git commit -am "feat: add rate limiting to APIM policy"
+git push 
 ```
 
 4. Manually trigger the **Bicep What-If, Create Deploy** workflow from the Actions tab
@@ -292,7 +291,6 @@ git checkout -b feature/update-apim-policy
 3. Commit and push changes:
 
 ```powershell
-git add environments/backend-pool-load-balancing/policy.xml
 git commit -m "feat: add request throttling to AI gateway policy"
 git push origin feature/update-apim-policy
 ```
