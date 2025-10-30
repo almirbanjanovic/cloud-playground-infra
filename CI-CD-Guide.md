@@ -273,7 +273,7 @@ policyXml: loadTextContent('../policy.xml')
 
 ```powershell
 git commit -am "feat: add rate limiting to APIM policy"
-git push 
+git push origin main
 ```
 
 4. Manually trigger the **Bicep What-If, Create Deploy** workflow from the Actions tab
