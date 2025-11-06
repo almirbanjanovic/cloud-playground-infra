@@ -46,27 +46,34 @@ jobs:
 
     - name: Display Deployment Outputs
       run: |
-        echo "::notice::✅ Deployment completed successfully"
-        echo "::notice::� Resource Group: ${{ vars.RESOURCE_GROUP }}"
-        echo "::notice::🌐 Environment: ${{ inputs.environment }}"
+        echo "✅ Deployment completed successfully"
+        echo "📁 Resource Group: ${{ vars.RESOURCE_GROUP }}"
+        echo "🌐 Environment: ${{ inputs.environment }}"
+        echo "📦 Deployment Name: ${{ steps.deploy.outputs.deploymentName }}"
         echo ""
-        echo "Fetching deployment outputs..."
+        echo "Fetching all outputs from main.bicep deployment..."
         
-        # Get the latest deployment name
-        deploymentName=$(az deployment group list \
-          --resource-group ${{ vars.RESOURCE_GROUP }} \
-          --query "[0].name" -o tsv)
-        
-        echo "::notice::� Deployment Name: $deploymentName"
-        
-        # Get all outputs dynamically
+        # Get all outputs dynamically from the MAIN deployment (not child modules)
         outputs=$(az deployment group show \
-          --name "$deploymentName" \
+          --name "${{ steps.deploy.outputs.deploymentName }}" \
           --resource-group ${{ vars.RESOURCE_GROUP }} \
           --query "properties.outputs" -o json)
         
-        # Display outputs as annotations
-        echo "$outputs" | jq -r 'to_entries[] | "::notice::\(.key): \(.value.value)"'
+        echo ""
+        echo "📤 Outputs from main.bicep:"
+        echo "$outputs" | jq -r 'to_entries[] | "::notice::  \(.key) = \(.value.value)"'
         
-        # Dynamically add all outputs to the table
+        echo ""
+        echo "### 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+        echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Environment | \`${{ inputs.environment }}\` |" >> $GITHUB_STEP_SUMMARY
+        echo "| Resource Group | \`${{ vars.RESOURCE_GROUP }}\` |" >> $GITHUB_STEP_SUMMARY
+        echo "| Deployment Name | \`${{ steps.deploy.outputs.deploymentName }}\` |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📤 Outputs from main.bicep" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Output Name | Value |" >> $GITHUB_STEP_SUMMARY
+        echo "|-------------|-------|" >> $GITHUB_STEP_SUMMARY
         echo "$outputs" | jq -r 'to_entries[] | "| `\(.key)` | `\(.value.value)` |"' >> $GITHUB_STEP_SUMMARY
