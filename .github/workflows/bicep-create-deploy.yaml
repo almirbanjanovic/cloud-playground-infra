@@ -43,6 +43,7 @@ jobs:
 
       # Deploy Bicep file
     - name: Deploy Bicep file using Azure Action
+      id: deploy
       uses: azure/arm-deploy@v1
       with:
         subscriptionId: ${{ secrets.azureSubscriptionId }}
@@ -50,3 +51,30 @@ jobs:
         template: ${{ vars.BICEP_WORKING_DIRECTORY}}/main.bicep
         # parameters: 'storagePrefix=mystore storageSKU=Standard_LRS'
         failOnStdErr: false
+
+    - name: Display Deployment Outputs
+      run: |
+        echo "::notice::✅ Deployment completed successfully"
+        echo "::notice::� Resource Group: ${{ vars.RESOURCE_GROUP }}"
+        echo "::notice::🌐 Environment: ${{ inputs.environment }}"
+        echo ""
+        echo "Fetching deployment outputs..."
+        
+        # Get the latest deployment name
+        deploymentName=$(az deployment group list \
+          --resource-group ${{ vars.RESOURCE_GROUP }} \
+          --query "[0].name" -o tsv)
+        
+        echo "::notice::� Deployment Name: $deploymentName"
+        
+        # Get all outputs dynamically
+        outputs=$(az deployment group show \
+          --name "$deploymentName" \
+          --resource-group ${{ vars.RESOURCE_GROUP }} \
+          --query "properties.outputs" -o json)
+        
+        # Display outputs as annotations
+        echo "$outputs" | jq -r 'to_entries[] | "::notice::\(.key): \(.value.value)"'
+        
+        # Dynamically add all outputs to the table
+        echo "$outputs" | jq -r 'to_entries[] | "| `\(.key)` | `\(.value.value)` |"' >> $GITHUB_STEP_SUMMARY

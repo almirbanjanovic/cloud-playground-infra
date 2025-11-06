@@ -79,7 +79,9 @@ module inferenceAPIModule '../../../iac-modules/bicep/apim/v2/inference-api.bice
 //    OUTPUTS
 // ------------------
 
+output deploymentName string = deployment().name
+output resourceGroupName string = resourceGroup().name
+output resourceGroupLocation string = resourceGroup().location
 output apimServiceId string = apimModule.outputs.id
 output apimResourceGatewayURL string = apimModule.outputs.gatewayUrl
-
 output apimSubscriptions array = apimModule.outputs.apimSubscriptions
