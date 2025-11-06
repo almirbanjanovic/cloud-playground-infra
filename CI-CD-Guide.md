@@ -266,7 +266,69 @@ The workflow consists of three sequential jobs:
 
 ---
 
-## 7. Review Workflow Steps for Policy Updates
+## 7. Manual Approval Strategy
+
+### Issue-Based Approval (Current Implementation)
+
+This repository uses **issue-based manual approvals** for learning and demonstration purposes. After the what-if job completes, a GitHub issue is automatically created. An authorized approver must comment `/approve` or `/deny` to proceed or stop the deployment.
+
+**Typical Use Cases:**
+- Small teams (startups, proof-of-concepts)
+- Federated infrastructure teams with minimal governance
+- Lab/sandbox environments
+- Quick iteration workflows
+
+**How it works:**
+
+```yaml
+manual-approval:
+  name: Manual Approval
+  needs: [bicep-what-if]
+  runs-on: ubuntu-latest
+  steps:
+    - uses: trstringer/manual-approval@v1
+      with:
+        secret: ${{ github.TOKEN }}
+        approvers: almirbanjanovic  # Replace with your GitHub username
+        minimum-approvals: 1
+        issue-title: "Approve deployment to production"
+        issue-body: "Please approve or deny the deployment."
+        fail-on-denial: true
+```
+
+**To customize:** Edit [`.github/workflows/bicep-what-if-create-deploy.yaml`](.github/workflows/bicep-what-if-create-deploy.yaml) and update the `approvers` field with your GitHub username or use `${{ github.repository_owner }}`.
+
+### Pull Request-Based Approval (Enterprise Standard)
+
+For larger enterprises with established governance and compliance requirements, **Pull Request reviews** are the standard approach:
+
+**Benefits:**
+- Code review with inline comments
+- Required approvals from designated reviewers
+- Integration with branch protection rules
+- Audit trail and change history
+- CODEOWNERS file support
+- Integration with compliance tools
+
+**When to use Pull Requests:**
+- Regulated industries (finance, healthcare, government)
+- Large enterprises with change management boards
+- Teams requiring multiple levels of approval
+- Organizations with separation of duties requirements
+- Production environments with strict governance
+
+**To implement PR-based approvals:**
+
+1. Configure branch protection rules (`Settings → Branches`)
+2. Require pull request reviews before merging to `main`
+3. Set minimum number of approvals
+4. Use CODEOWNERS file to auto-assign reviewers
+5. Enable status checks (e.g., CI/CD tests must pass)
+6. Remove the manual approval job from the workflow (or trigger workflow only after PR merge)
+
+---
+
+## 8. Review Workflow Steps for Policy Updates
 
 Policy updates are deployed as part of the infrastructure deployment. APIM policies are embedded in Bicep templates using the `loadTextContent()` function.
 
