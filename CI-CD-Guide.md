@@ -264,6 +264,37 @@ The workflow consists of three sequential jobs:
 6. After approval, the **Bicep Create Deploy** job runs automatically
 7. Verify deployment success in the workflow logs and Azure Portal
 
+### View Deployment Outputs
+
+After a successful deployment, you can view the outputs from your `main.bicep` file in two locations:
+
+#### 1. Workflow Logs (Console Output)
+
+- Navigate to the workflow run in **Actions**
+- Click on the **bicep-create-deploy** job
+- Expand the **Display Deployment Outputs** step
+- You'll see all outputs listed in plain text format:
+
+```text
+Outputs from main.bicep:
+  deploymentName = main
+  resourceGroupName = rg-backend-pool-load-balancing-dev-centralus
+  resourceGroupLocation = centralus
+  apimServiceId = /subscriptions/.../providers/Microsoft.ApiManagement/service/apim-...
+  apimResourceGatewayURL = https://apim-....azure-api.net
+  apimSubscriptions = []
+```
+
+#### 2. Workflow Summary (Formatted Table)
+
+- Navigate to the workflow run in **Actions**
+- Scroll down to the **Summary** section at the bottom of the page
+- You'll see a formatted markdown table with:
+  - **Deployment Summary**: Environment, Resource Group, Deployment Name
+  - **Outputs from main.bicep**: All outputs in a clean table format
+
+The outputs are dynamically generated from your Bicep template. Any output you add to or remove from `main.bicep` will automatically appear in the workflow without requiring workflow file changes.
+
 ---
 
 ## 7. Manual Approval Strategy
@@ -543,63 +574,6 @@ done
 - **`renewal-period="60"`**: Time period in seconds (60 seconds = 1 minute)
 - **Behavior**: After 100 calls within 60 seconds, additional requests receive `429 Too Many Requests`
 - **Reset**: The counter resets after 60 seconds
-
-## 10. Additional Policy Change Examples
-
-### Example 1: Add Response Caching
-
-Cache responses for 1 hour to reduce backend load:
-
-```xml
-<policies>
-    <inbound>
-        <base />
-        <cache-lookup vary-by-developer="false" vary-by-developer-groups="false" />
-        <!-- existing policies -->
-    </inbound>
-    <backend>
-        <base />
-    </backend>
-    <outbound>
-        <base />
-        <cache-store duration="3600" />
-    </outbound>
-    <on-error>
-        <base />
-    </on-error>
-</policies>
-```
-
-### Example 2: Add Request Size Validation
-
-Prevent large payloads (max 100KB):
-
-```xml
-<inbound>
-    <base />
-    <validate-content unspecified-content-type-action="prevent" 
-                      max-size="102400" 
-                      size-exceeded-action="prevent" 
-                      errors-variable-name="validationErrors" />
-    <!-- existing policies -->
-</inbound>
-```
-
-### Example 3: Add Custom Response Headers
-
-Add security and tracking headers:
-
-```xml
-<outbound>
-    <base />
-    <set-header name="X-Powered-By" exists-action="override">
-        <value>Azure APIM</value>
-    </set-header>
-    <set-header name="X-Request-Id" exists-action="override">
-        <value>@(context.RequestId)</value>
-    </set-header>
-</outbound>
-```
 
 ---
 
