@@ -289,14 +289,14 @@ manual-approval:
     - uses: trstringer/manual-approval@v1
       with:
         secret: ${{ github.TOKEN }}
-        approvers: almirbanjanovic  # Replace with your GitHub username
+        approvers: ${{ github.repository_owner }}  # Automatically uses repository owner
         minimum-approvals: 1
         issue-title: "Approve deployment to production"
         issue-body: "Please approve or deny the deployment."
         fail-on-denial: true
 ```
 
-**To customize:** Edit [`.github/workflows/bicep-what-if-create-deploy.yaml`](.github/workflows/bicep-what-if-create-deploy.yaml) and update the `approvers` field with your GitHub username or use `${{ github.repository_owner }}`.
+**Note:** The workflow uses `${{ github.repository_owner }}` to automatically set the approver to the repository owner. This ensures the workflow works correctly when forked without requiring manual configuration changes.
 
 ### Pull Request-Based Approval (Enterprise Standard)
 
