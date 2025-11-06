@@ -490,11 +490,8 @@ Add the `<rate-limit>` policy **immediately after** the `<base />` tag in the `<
 ### Step 4: Commit and Push Changes
 
 ```powershell
-# Stage the policy file
-git add environments/backend-pool-load-balancing/policy.xml
-
 # Commit with descriptive message
-git commit -m "feat: add rate limiting (100 calls/min) to backend-pool-load-balancing policy"
+git commit -am "Add rate limiting (100 calls/min) to backend-pool-load-balancing policy"
 
 # Push to main branch
 git push origin main
