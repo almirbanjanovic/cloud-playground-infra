@@ -46,10 +46,10 @@ jobs:
 
     - name: Display Deployment Outputs
       run: |
-        echo "✅ Deployment completed successfully"
-        echo "📁 Resource Group: ${{ vars.RESOURCE_GROUP }}"
-        echo "🌐 Environment: ${{ inputs.environment }}"
-        echo "📦 Deployment Name: ${{ steps.deploy.outputs.deploymentName }}"
+        echo "Deployment completed successfully"
+        echo "Resource Group: ${{ vars.RESOURCE_GROUP }}"
+        echo "Environment: ${{ inputs.environment }}"
+        echo "Deployment Name: ${{ steps.deploy.outputs.deploymentName }}"
         echo ""
         echo "Fetching all outputs from main.bicep deployment..."
         
@@ -60,11 +60,11 @@ jobs:
           --query "properties.outputs" -o json)
         
         echo ""
-        echo "📤 Outputs from main.bicep:"
-        echo "$outputs" | jq -r 'to_entries[] | "::notice::  \(.key) = \(.value.value)"'
+        echo "Outputs from main.bicep:"
+        echo "$outputs" | jq -r 'to_entries[] | "  \(.key) = \(.value.value)"'
         
         echo ""
-        echo "### 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+        echo "### Deployment Summary" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
         echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
@@ -72,8 +72,8 @@ jobs:
         echo "| Resource Group | \`${{ vars.RESOURCE_GROUP }}\` |" >> $GITHUB_STEP_SUMMARY
         echo "| Deployment Name | \`${{ steps.deploy.outputs.deploymentName }}\` |" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 📤 Outputs from main.bicep" >> $GITHUB_STEP_SUMMARY
+        echo "### Outputs from main.bicep" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "| Output Name | Value |" >> $GITHUB_STEP_SUMMARY
         echo "|-------------|-------|" >> $GITHUB_STEP_SUMMARY
-        echo "$outputs" | jq -r 'to_entries[] | "| `\(.key)` | `\(.value.value)` |"' >> $GITHUB_STEP_SUMMARY
+        echo "$outputs" | jq -r 'to_entries[] | "| \(.key) | \(.value.value) |"' >> $GITHUB_STEP_SUMMARY
