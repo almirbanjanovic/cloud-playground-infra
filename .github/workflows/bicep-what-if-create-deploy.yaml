@@ -23,7 +23,6 @@ jobs:
   bicep-what-if:
     name: Bicep What-If
     uses: ./.github/workflows/bicep-what-if.yaml
-    # uses: almirbanjanovic/cloud-playground-infra/.github/workflows/bicep-what-if.yaml@main
     with:
       environment: ${{ inputs.environment }}
     secrets:

@@ -8,6 +8,53 @@ The CI/CD pipeline automates the deployment of APIM infrastructure and policy co
 
 ---
 
+## Understanding "Environments" in This Repository
+
+The term "environment" is used in three distinct ways in this repository. Understanding these differences is critical for proper configuration:
+
+### 1. GitHub Environments (Deployment Targets)
+
+**GitHub Environments** are configured in your repository settings (`Settings → Environments`) and serve as deployment targets for CI/CD workflows.
+
+**In this repository, each GitHub Environment corresponds to a specific lab/illustration project:**
+
+- `ai-foundry` — Deploys the AI Foundry lab
+- `apim-lab` — Deploys the general APIM learning environment
+- `apim-mcp` — Deploys APIM with Model Context Protocol integration
+- `backend-pool-load-balancing` — Deploys the APIM backend pool load balancing example
+
+Each GitHub Environment stores:
+- Environment-specific **variables** (e.g., `RESOURCE_GROUP`, `BICEP_WORKING_DIRECTORY`, `LOCATION`)
+- Environment-specific **secrets** (e.g., `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`)
+- **Protection rules** (optional: required reviewers, branch restrictions)
+
+### 2. Environment Lanes (Traditional SDLC Stages)
+
+**Environment Lanes** refer to traditional software development lifecycle stages:
+- Development
+- Test/Staging
+- Production
+
+**Important:** This repository does **NOT** currently use separate dev/test/prod lanes. All GitHub Environments (`ai-foundry`, `apim-lab`, `apim-mcp`, `backend-pool-load-balancing`) deploy to the same Azure subscription and resource group.
+
+To implement dev/test/prod lanes, you would need to:
+1. Create separate resource groups (e.g., `rg-apim-lab-dev`, `rg-apim-lab-test`, `rg-apim-lab-prod`)
+2. Create additional GitHub Environments (e.g., `apim-lab-dev`, `apim-lab-test`, `apim-lab-prod`)
+3. Configure environment-specific variables for each lane
+
+### 3. Environments Folder (Lab Projects)
+
+The [`environments/`](environments/) folder contains self-contained lab projects or illustration scenarios:
+
+- `ai-foundry/` — AI Foundry infrastructure with Terraform
+- `apim-lab/` — General APIM concepts and configurations (Bicep + Terraform)
+- `apim-mcp/` — APIM integrated with Model Context Protocol server
+- `backend-pool-load-balancing/` — APIM backend pool load balancing demonstration
+
+**Key Point:** Each folder in `environments/` should have a matching GitHub Environment with the same name to enable deployment via CI/CD.
+
+---
+
 ## Prerequisites
 
 - Azure subscription with appropriate permissions
@@ -45,7 +92,7 @@ To enable GitHub Actions to deploy to Azure using OIDC (no client secrets requir
    - **Directory (tenant) ID** → Use for `AZURE_TENANT_ID`
    - Your **Subscription ID** → Use for `AZURE_SUBSCRIPTION_ID`
 
-> **Note**: Repeat step 3-4 for each GitHub environment you plan to use (e.g., dev, staging, production).
+> **Note**: Repeat step 3-4 for each GitHub environment you plan to use (e.g., `ai-foundry`, `apim-lab`, `apim-mcp`, `backend-pool-load-balancing`).
 
 ---
 
