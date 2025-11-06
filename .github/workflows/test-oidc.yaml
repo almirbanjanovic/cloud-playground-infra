@@ -19,7 +19,7 @@ permissions:
       
 jobs: 
   test-oidc:
-    environment: ${{ inputs.envir onment }}
+    environment: ${{ inputs.environment }}
     runs-on: ubuntu-latest
     
     steps:
