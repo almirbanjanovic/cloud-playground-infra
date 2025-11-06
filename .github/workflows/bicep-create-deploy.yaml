@@ -34,13 +34,6 @@ jobs:
         tenant-id: ${{ secrets.azureTenantId }}
         subscription-id: ${{ secrets.azureSubscriptionId }}
 
-    
-    # - name: Deploy Bicep file using Azure CLI
-    #   run: |
-    #     az deployment group create \
-    #       --resource-group ${{ vars.RESOURCE_GROUP }} \
-    #       --template-file ${{ vars.BICEP_WORKING_DIRECTORY}}/main.bicep
-
       # Deploy Bicep file
     - name: Deploy Bicep file using Azure Action
       id: deploy
@@ -49,7 +42,6 @@ jobs:
         subscriptionId: ${{ secrets.azureSubscriptionId }}
         resourceGroupName: ${{ vars.RESOURCE_GROUP }}
         template: ${{ vars.BICEP_WORKING_DIRECTORY}}/main.bicep
-        # parameters: 'storagePrefix=mystore storageSKU=Standard_LRS'
         failOnStdErr: false
 
     - name: Display Deployment Outputs
