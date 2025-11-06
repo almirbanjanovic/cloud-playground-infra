@@ -372,76 +372,233 @@ policyXml: loadTextContent('../policy.xml')
 
 ---
 
-## 8. Make Changes to Policy and Submit via Commit/Pull Request
+## 9. Walkthrough: Adding Rate Limiting to Policy
 
-### Option A: Direct Commit (Fast Iteration)
+This section provides a step-by-step guide to making a common policy change: adding rate limiting to protect your backend AI services.
 
-1. Edit the policy file (e.g., [`environments/backend-pool-load-balancing/policy.xml`](environments/backend-pool-load-balancing/policy.xml))
-2. Make your changes (e.g., add rate limiting, modify headers, add caching)
-3. Commit changes:
+### Scenario
+
+You want to limit API requests to **100 calls per minute** to prevent abuse and protect your Azure OpenAI backend from being overwhelmed.
+
+### Step 1: Locate the Policy File
+
+Navigate to the policy file for your environment:
 
 ```powershell
-git commit -am "feat: add rate limiting to APIM policy"
+cd environments/backend-pool-load-balancing
+code policy.xml  # Or use your preferred editor
+```
+
+### Step 2: Review Current Policy
+
+Your current [`policy.xml`](environments/backend-pool-load-balancing/policy.xml) looks like this:
+
+```xml
+<policies>
+    <inbound>
+        <base />
+        <authentication-managed-identity resource="https://cognitiveservices.azure.com" output-token-variable-name="managed-id-access-token" ignore-error="false" /> 
+        <set-header name="Authorization" exists-action="override">  
+            <value>@("Bearer " + (string)context.Variables["managed-id-access-token"])</value>  
+        </set-header>
+        <set-backend-service backend-id="{backend-id}" />
+        <azure-openai-emit-token-metric namespace="openai">
+            <dimension name="Subscription ID" value="@(context.Subscription.Id)" />
+            <dimension name="Client IP" value="@(context.Request.IpAddress)" />
+            <dimension name="API ID" value="@(context.Api.Id)" />
+            <dimension name="User ID" value="@(context.Request.Headers.GetValueOrDefault("x-user-id", "N/A"))" />
+        </azure-openai-emit-token-metric>
+    </inbound>
+    <backend>
+        <base />
+    </backend>
+    <outbound>
+        <base />
+    </outbound>
+    <on-error>
+        <base />
+    </on-error>
+</policies>
+```
+
+### Step 3: Add Rate Limiting Policy
+
+Add the `<rate-limit>` policy **immediately after** the `<base />` tag in the `<inbound>` section:
+
+```xml
+<policies>
+    <inbound>
+        <base />
+        <!-- Add rate limiting: 100 calls per 60 seconds -->
+        <rate-limit calls="100" renewal-period="60" />
+        
+        <authentication-managed-identity resource="https://cognitiveservices.azure.com" output-token-variable-name="managed-id-access-token" ignore-error="false" /> 
+        <set-header name="Authorization" exists-action="override">  
+            <value>@("Bearer " + (string)context.Variables["managed-id-access-token"])</value>  
+        </set-header>
+        <set-backend-service backend-id="{backend-id}" />
+        <azure-openai-emit-token-metric namespace="openai">
+            <dimension name="Subscription ID" value="@(context.Subscription.Id)" />
+            <dimension name="Client IP" value="@(context.Request.IpAddress)" />
+            <dimension name="API ID" value="@(context.Api.Id)" />
+            <dimension name="User ID" value="@(context.Request.Headers.GetValueOrDefault("x-user-id", "N/A"))" />
+        </azure-openai-emit-token-metric>
+    </inbound>
+    <backend>
+        <base />
+    </backend>
+    <outbound>
+        <base />
+    </outbound>
+    <on-error>
+        <base />
+    </on-error>
+</policies>
+```
+
+### Step 4: Commit and Push Changes
+
+```powershell
+# Stage the policy file
+git add environments/backend-pool-load-balancing/policy.xml
+
+# Commit with descriptive message
+git commit -m "feat: add rate limiting (100 calls/min) to backend-pool-load-balancing policy"
+
+# Push to main branch
 git push origin main
 ```
 
-4. Manually trigger the **Bicep What-If, Create Deploy** workflow from the Actions tab
-5. Review what-if output, approve, and deploy
+### Step 5: Deploy the Policy Update
 
-### Option B: Pull Request (Recommended for Production)
+1. Navigate to **GitHub Actions** in your repository
+2. Select the **Bicep What-If, Create Deploy** workflow
+3. Click **Run workflow**
+4. Select:
+   - **Branch**: `main`
+   - **Environment**: `backend-pool-load-balancing`
+5. Click **Run workflow**
 
-1. Create a new branch:
+### Step 6: Review and Approve Deployment
 
-```powershell
-git checkout -b feature/update-apim-policy
+1. The **Bicep What-If** job runs and shows the policy change in the output
+2. A **GitHub issue** is created for approval
+3. Navigate to **Issues** and find the approval issue
+4. Review the what-if output (you should see the policy being updated)
+5. Comment `/approve` to proceed with deployment
+
+### Step 7: Verify Rate Limiting
+
+After deployment completes, test the rate limiting using a **Bash script**.
+
+**Prerequisites:**
+
+- Bash shell (Linux, macOS, WSL on Windows, or Git Bash)
+- `curl` command-line tool installed
+
+Open a Bash terminal and run these commands **one at a time**:
+
+```bash
+# Step 1: Set your APIM gateway URL (get this from Azure Portal → API Management → Overview → Gateway URL)
+# Example format: https://your-apim-name.azure-api.net/your-api-path
+apimUrl="YOUR_APIM_GATEWAY_URL_HERE"
+
+# Step 2: Set your APIM subscription key (get this from Azure Portal → API Management → Subscriptions)
+subscriptionKey="YOUR_SUBSCRIPTION_KEY_HERE"
+
+# Step 3: Test with a single request first
+echo "Testing single request..."
+curl -X GET "$apimUrl" \
+    -H "Ocp-Apim-Subscription-Key: $subscriptionKey" \
+    -w "\nHTTP Status: %{http_code}\n\n"
+
+# Step 4: Run the rate limit test (105 requests)
+echo "Starting rate limit test (105 requests)..."
+for i in {1..105}; do
+    echo "Request $i"
+    curl -s -X GET "$apimUrl" \
+        -H "Ocp-Apim-Subscription-Key: $subscriptionKey" \
+        -w "HTTP Status: %{http_code}\n"
+done
 ```
 
-2. Edit the policy file (e.g., [`policy.xml`](environments/backend-pool-load-balancing/policy.xml))
-3. Commit and push changes:
+**Expected Behavior:**
 
-```powershell
-git commit -m "feat: add request throttling to AI gateway policy"
-git push origin feature/update-apim-policy
+- Requests 1-100: `✓ Success (200 OK)`
+- Requests 101+: `✗ Rate Limited (429 Too Many Requests)`
+
+**Troubleshooting:**
+
+- If all requests return 401: Check your subscription key
+- If all requests return 404: Verify your APIM gateway URL
+- If no rate limiting occurs: Wait 60 seconds and try again (rate limit window may have reset)
+
+### Understanding the Rate Limit Policy
+
+```xml
+<rate-limit calls="100" renewal-period="60" />
 ```
 
-4. Create a **Pull Request** in GitHub
-5. Add reviewers and request approval
-6. After PR approval, merge to `main`
-7. Trigger the deployment workflow manually or configure automatic triggers on merge
+- **`calls="100"`**: Maximum number of allowed calls
+- **`renewal-period="60"`**: Time period in seconds (60 seconds = 1 minute)
+- **Behavior**: After 100 calls within 60 seconds, additional requests receive `429 Too Many Requests`
+- **Reset**: The counter resets after 60 seconds
 
-### Policy Change Examples
+## 10. Additional Policy Change Examples
 
-#### Example 1: Add Rate Limiting
+### Example 1: Add Response Caching
+
+Cache responses for 1 hour to reduce backend load:
+
+```xml
+<policies>
+    <inbound>
+        <base />
+        <cache-lookup vary-by-developer="false" vary-by-developer-groups="false" />
+        <!-- existing policies -->
+    </inbound>
+    <backend>
+        <base />
+    </backend>
+    <outbound>
+        <base />
+        <cache-store duration="3600" />
+    </outbound>
+    <on-error>
+        <base />
+    </on-error>
+</policies>
+```
+
+### Example 2: Add Request Size Validation
+
+Prevent large payloads (max 100KB):
 
 ```xml
 <inbound>
     <base />
-    <rate-limit calls="100" renewal-period="60" />
+    <validate-content unspecified-content-type-action="prevent" 
+                      max-size="102400" 
+                      size-exceeded-action="prevent" 
+                      errors-variable-name="validationErrors" />
     <!-- existing policies -->
 </inbound>
 ```
 
-#### Example 2: Add Response Caching
+### Example 3: Add Custom Response Headers
+
+Add security and tracking headers:
 
 ```xml
-<inbound>
-    <base />
-    <cache-lookup vary-by-developer="false" vary-by-developer-groups="false" />
-</inbound>
 <outbound>
     <base />
-    <cache-store duration="3600" />
+    <set-header name="X-Powered-By" exists-action="override">
+        <value>Azure APIM</value>
+    </set-header>
+    <set-header name="X-Request-Id" exists-action="override">
+        <value>@(context.RequestId)</value>
+    </set-header>
 </outbound>
-```
-
-#### Example 3: Add Request Validation
-
-```xml
-<inbound>
-    <base />
-    <validate-content unspecified-content-type-action="prevent" max-size="102400" size-exceeded-action="prevent" />
-    <validate-headers specified-header-action="prevent" unspecified-header-action="ignore" errors-variable-name="validationErrors" />
-</inbound>
 ```
 
 ---
