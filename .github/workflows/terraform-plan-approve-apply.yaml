@@ -21,7 +21,7 @@ jobs:
 
   terraform-plan:
     name: Terraform Plan
-    uses: almirbanjanovic/cloud-playground-infra/.github/workflows/terraform-plan.yaml@main
+    uses: ./.github/workflows/terraform-plan.yaml@main
     with:
       environment: ${{ inputs.environment }}
     secrets:
@@ -38,7 +38,7 @@ jobs:
       - uses: trstringer/manual-approval@v1
         with:
           secret: ${{ github.TOKEN }}
-          approvers: almirbanjanovic
+          approvers: ${{ github.repository_owner }}
           minimum-approvals: 1
           issue-title: "Approve deployment to production"
           issue-body: "Please approve or deny the deployment."
@@ -48,7 +48,7 @@ jobs:
   terraform-apply:
     name: Terraform Apply
     needs: [manual-approval]
-    uses: almirbanjanovic/cloud-playground-infra/.github/workflows/terraform-apply.yaml@main
+    uses: ./.github/workflows//terraform-apply.yaml@main
     with:
       environment: ${{ inputs.environment }}
     secrets:
