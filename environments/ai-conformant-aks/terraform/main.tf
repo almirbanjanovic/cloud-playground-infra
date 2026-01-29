@@ -18,17 +18,3 @@ resource "azurerm_resource_provider_registration" "mcs" {
     azapi_resource_action.gpu_feature
     ]
 }
-
-
-# 3. Read back the SFR to inspect state
-data "azapi_resource" "aks_gpu_feature_sfr_read" {
-  type        = azapi_resource.aks_gpu_feature_sfr.type
-  resource_id = azapi_resource.aks_gpu_feature_sfr.id
-
-  depends_on  = [
-    azapi_resource.aks_gpu_feature_sfr
-    ]
-}
-
-
-
