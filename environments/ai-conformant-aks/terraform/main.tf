@@ -1,7 +1,7 @@
 data "azurerm_client_config" "current" {}
 
-# 1. Register the ManagedGPUExperiencePreview feature, Subscription Feature Registration (SFR)
-resource "azapi_resource_action" "gpu_feature" {
+# Step 1: Register the ManagedGPUExperiencePreview feature, Subscription Feature Registration (SFR)
+resource "azapi_resource_action" "managed_gpu_experience_preview_sfr" {
   type                   = "Microsoft.Features/featureProviders/subscriptionFeatureRegistrations@2021-07-01"
   resource_id            = "/subscriptions/${data.azurerm_client_config.current.subscription_id}/providers/Microsoft.Features/featureProviders/Microsoft.ContainerService/subscriptionFeatureRegistrations/ManagedGPUExperiencePreview"
   method                 = "PUT"
@@ -9,12 +9,20 @@ resource "azapi_resource_action" "gpu_feature" {
   response_export_values = ["*"]
 }
 
+# Step 2: Register the ManagedGatewayAPIPreview feature
+resource "azapi_resource_action" "managed_gateway_api_preview_sfr" {
+  type                   = "Microsoft.Features/featureProviders/subscriptionFeatureRegistrations@2021-07-01"
+  resource_id            = "/subscriptions/${data.azurerm_client_config.current.subscription_id}/providers/Microsoft.Features/featureProviders/Microsoft.ContainerService/subscriptionFeatureRegistrations/ManagedGatewayAPIPreview"
+  method                 = "PUT"
+  body                   = {}
+  response_export_values = ["*"]
+}
 
-# 2. Re-register the Resource Provider (RP) so the feature takes effect
-resource "azurerm_resource_provider_registration" "mcs" {
-  name       = "Microsoft.ContainerService"
-
+# Step 3: Wait for feature registration to propagate (using time_sleep as a simple approach)
+resource "time_sleep" "wait_for_features" {
   depends_on = [
-    azapi_resource_action.gpu_feature
-    ]
+    azapi_resource_action.managed_gpu_experience_preview_sfr,
+    azapi_resource_action.managed_gateway_api_preview_sfr
+  ]
+  create_duration = "60s"
 }
