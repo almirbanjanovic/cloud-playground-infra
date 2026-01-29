@@ -5,7 +5,7 @@ resource "azapi_resource_action" "gpu_feature" {
   type                   = "Microsoft.Features/featureProviders/subscriptionFeatureRegistrations@2021-07-01"
   resource_id            = "/subscriptions/${data.azurerm_client_config.current.subscription_id}/providers/Microsoft.Features/featureProviders/Microsoft.ContainerService/subscriptionFeatureRegistrations/ManagedGPUExperiencePreview"
   method                 = "PUT"
-  body                   = jsonencode({})
+  body = {}
   response_export_values = ["*"]
 }
 
