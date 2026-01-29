@@ -8,10 +8,10 @@ on:
         default: apim-lab
         type: choice
         options:
+          - ai-conformant-aks
           - ai-foundry
           - apim-lab
           - apim-mcp
-          - ai-conformant-aks
           - backend-pool-load-balancing
 
 permissions:
