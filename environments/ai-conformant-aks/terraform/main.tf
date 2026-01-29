@@ -134,6 +134,6 @@ resource "azapi_update_resource" "gateway_api" {
   }
 
   depends_on = [
-    azurerm_kubernetes_cluster_extension.istio
+    azapi_update_resource.istio
   ]
 }
