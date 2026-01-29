@@ -55,7 +55,7 @@ resource "azurerm_kubernetes_cluster" "aks" {
   location            = local.location
   resource_group_name = var.resource_group_name
   dns_prefix          = local.cluster_name
-  kubernetes_version  = "1.35.0"
+  kubernetes_version  = "1.34.0"
 
   default_node_pool {
     name                        = local.default_nodepool
@@ -66,7 +66,7 @@ resource "azurerm_kubernetes_cluster" "aks" {
     max_count                   = 5
     type                        = "VirtualMachineScaleSets"
     zones                       = ["1", "2", "3"]  # Keep this for HA
-    orchestrator_version        = "1.35.0"
+    orchestrator_version        = "1.34.0"
 
     # Enabling this option will taint default node pool with "CriticalAddonsOnly=true:NoSchedule". 
     # This will designate this as a system node pool and prevent user application pods from running on it.
