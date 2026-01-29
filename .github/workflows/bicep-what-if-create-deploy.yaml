@@ -12,6 +12,7 @@ on:
           - apim-lab
           - apim-mcp
           - backend-pool-load-balancing
+          - ai-conformant-aks
 
 permissions:
   id-token: write

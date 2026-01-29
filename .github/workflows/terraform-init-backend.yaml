@@ -11,6 +11,8 @@ on:
           - ai-foundry
           - apim-lab
           - apim-mcp
+          - ai-conformant-aks
+          - backend-pool-load-balancing
 
 permissions:
   id-token: write
