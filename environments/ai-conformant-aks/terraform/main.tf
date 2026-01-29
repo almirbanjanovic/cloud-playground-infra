@@ -59,7 +59,7 @@ resource "azurerm_kubernetes_cluster" "aks" {
 
   default_node_pool {
     name                        = local.default_nodepool
-    temporary_name_for_rotation = "${local.default_nodepool}-temp"
+    temporary_name_for_rotation = "temp"
     vm_size                     = "Standard_D2s_v3"
     auto_scaling_enabled        = "true"
     min_count                   = 2
@@ -72,12 +72,6 @@ resource "azurerm_kubernetes_cluster" "aks" {
     # This will designate this as a system node pool and prevent user application pods from running on it.
     # See this for more info: https://learn.microsoft.com/en-us/azure/aks/use-system-pools?tabs=azure-cli#system-and-user-node-pools
     only_critical_addons_enabled = true
-
-    upgrade_settings {
-      drain_timeout_in_minutes      = 30
-      max_surge                     = 1
-      node_soak_duration_in_minutes = 60
-    }
 
     tags = local.common_tags
   }
