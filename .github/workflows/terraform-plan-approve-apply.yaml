@@ -21,7 +21,7 @@ jobs:
 
   terraform-plan:
     name: Terraform Plan
-    uses: ./.github/workflows/terraform-plan.yaml@main
+    uses: ./.github/workflows/terraform-plan.yaml
     with:
       environment: ${{ inputs.environment }}
     secrets:
@@ -48,7 +48,7 @@ jobs:
   terraform-apply:
     name: Terraform Apply
     needs: [manual-approval]
-    uses: ./.github/workflows//terraform-apply.yaml@main
+    uses: ./.github/workflows/terraform-apply.yaml
     with:
       environment: ${{ inputs.environment }}
     secrets:
