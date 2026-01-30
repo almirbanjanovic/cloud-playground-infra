@@ -104,7 +104,7 @@ resource "azurerm_kubernetes_cluster" "aks" {
 
   service_mesh_profile {
     mode = "Istio"
-    revisions = []
+    revisions = ["asm-1-28-0"] # Specify the ASM revision to use (https://learn.microsoft.com/en-us/azure/aks/istio-about)
 
     # Ingress gateways control *north-south* traffic (client/user -> cluster -> services).
     # - external_ingress_gateway_enabled=true provisions a managed Istio ingress gateway meant for traffic entering the cluster
