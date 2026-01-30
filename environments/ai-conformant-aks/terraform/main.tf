@@ -10,6 +10,7 @@ locals {
   
   # Resource names
   cluster_name                 = "${local.prefix}-${local.location}"
+  cluster_version              = "1.34.2"
   gpu_nodepool                 = "gpunp"
   default_nodepool             = "default"
   azure_monitor_workspace_name = "amw-${local.prefix}-${local.location}"
@@ -72,7 +73,7 @@ resource "azurerm_kubernetes_cluster" "aks" {
   location            = local.location
   resource_group_name = var.resource_group_name
   dns_prefix          = local.cluster_name
-  kubernetes_version  = "1.34.0"
+  kubernetes_version  = local.cluster_version
 
   # AKS cannot disable OIDC issuer once enabled; keep it explicitly on to avoid drift.
   oidc_issuer_enabled       = true
@@ -87,7 +88,7 @@ resource "azurerm_kubernetes_cluster" "aks" {
     max_count                   = 5
     type                        = "VirtualMachineScaleSets"
     zones                       = ["1", "2", "3"]  # Keep this for HA
-    orchestrator_version        = "1.34.0"
+    orchestrator_version        = local.cluster_version
 
     # Enabling this option will taint default node pool with "CriticalAddonsOnly=true:NoSchedule". 
     # This will designate this as a system node pool and prevent user application pods from running on it.
