@@ -74,6 +74,10 @@ resource "azurerm_kubernetes_cluster" "aks" {
   dns_prefix          = local.cluster_name
   kubernetes_version  = "1.34.0"
 
+  # AKS cannot disable OIDC issuer once enabled; keep it explicitly on to avoid drift.
+  oidc_issuer_enabled       = true
+  workload_identity_enabled = true
+
   default_node_pool {
     name                        = local.default_nodepool
     temporary_name_for_rotation = "temp"
