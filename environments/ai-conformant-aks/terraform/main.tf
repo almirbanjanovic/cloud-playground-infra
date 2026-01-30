@@ -132,7 +132,7 @@ resource "azurerm_kubernetes_cluster" "aks" {
 resource "azurerm_kubernetes_cluster_node_pool" "gpu" {
   name                  = local.gpu_nodepool
   kubernetes_cluster_id = azurerm_kubernetes_cluster.aks.id
-  vm_size               = "Standard_NC40ads_H100_v5"
+  vm_size               = "Standard_NC24ads_A100_v4"
   node_count            = 1
 
   auto_scaling_enabled = true
