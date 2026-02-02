@@ -29,7 +29,7 @@ This environment’s `terraform/main.tf` provisions the following capabilities t
 	- DCR/DCE associations to the AKS cluster
 	- Prometheus recording rule groups for **node** and **Kubernetes** metrics
 
-**Note**: `main.tf` also creates a second node pool (`gpunp`) using a **D-series (CPU-only)** VM size. This is intentional for this **POC**, since GPU VM quota/availability can be hard to obtain in many subscriptions/regions. GPU-specific conformance items (GPU drivers/device plugins, DRA/GPU resource requests, and any gang-scheduling operators) are not installed by this Terraform.
+<span style="color:red"><strong>Note</strong></span>: `main.tf` also creates a second node pool (`gpunp`) using a **D-series (CPU-only)** VM size. This is intentional for this **POC**, since GPU VM quota/availability can be hard to obtain in many subscriptions/regions. GPU-specific conformance items (GPU drivers/device plugins, DRA/GPU resource requests, and any gang-scheduling operators) are not installed by this Terraform.
 
 ## Resources
 
