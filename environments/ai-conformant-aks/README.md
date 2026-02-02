@@ -19,12 +19,17 @@ The [Kubernetes AI Conformance Program](https://github.com/cncf/k8s-ai-conforman
 
 ## Infrastructure
 
-This Terraform configuration provisions:
+This environment’s `terraform/main.tf` provisions the following capabilities that map to the Kubernetes AI Conformance spec:
 
-- Kubernetes 1.34+ (required for AI conformance)
-- GPU-enabled node pools with managed GPU experience
-- Azure Monitor integration for metrics and observability
-- Cluster autoscaling for cost-effective GPU management
+- **Kubernetes 1.34.2 AKS cluster** (AI Conformance requires Kubernetes 1.34+)
+- **Gateway API enabled** (registers `ManagedGatewayAPIPreview` and enables `gatewayAPIEnabled` on the cluster)
+- **Prometheus-compatible observability** via Azure Monitor
+	- Azure Monitor Workspace + Data Collection Endpoint (DCE)
+	- Data Collection Rule (DCR) streaming `Microsoft-PrometheusMetrics`
+	- DCR/DCE associations to the AKS cluster
+	- Prometheus recording rule groups for **node** and **Kubernetes** metrics
+
+Note: `main.tf` also creates a second node pool (`gpunp`) using a **D-series (CPU-only)** VM size. This is intentional for this **POC**, since GPU VM quota/availability can be hard to obtain in many subscriptions/regions. GPU-specific conformance items (GPU drivers/device plugins, DRA/GPU resource requests, and any gang-scheduling operators) are not installed by this Terraform.
 
 ## Resources
 
