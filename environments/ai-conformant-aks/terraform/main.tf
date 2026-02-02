@@ -27,6 +27,7 @@ data "azurerm_client_config" "current" {}
 
 #------------------------------------------------------------------------------------------------------------------------------
 # Step 1: Register the ManagedGPUExperiencePreview feature, Subscription Feature Registration (SFR)
+# Equivalent to running: az feature register --namespace Microsoft.ContainerService --name ManagedGPUExperiencePreview
 #------------------------------------------------------------------------------------------------------------------------------
 
 resource "azapi_resource_action" "managed_gpu_experience_preview_sfr" {
@@ -39,6 +40,7 @@ resource "azapi_resource_action" "managed_gpu_experience_preview_sfr" {
 
 #------------------------------------------------------------------------------------------------------------------------------
 # Step 2: Register the ManagedGatewayAPIPreview feature
+# Equivalent to running: az feature register --namespace "Microsoft.ContainerService" --name "ManagedGatewayAPIPreview"
 #------------------------------------------------------------------------------------------------------------------------------
 
 resource "azapi_resource_action" "managed_gateway_api_preview_sfr" {
