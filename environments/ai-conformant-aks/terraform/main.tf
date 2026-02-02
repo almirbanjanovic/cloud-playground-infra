@@ -2,13 +2,11 @@
 # General configuration
 #------------------------------------------------------------------------------------------------------------------------------
 locals {
-  # Naming convention
+
   prefix = "aks-ai-conformant-dev"
   
-  # Hard-coded values
   location = "centralus"
   
-  # Resource names
   cluster_name                 = "${local.prefix}-${local.location}"
   cluster_version              = "1.34.2"
   gpu_nodepool                 = "gpunp"
@@ -137,7 +135,7 @@ resource "azurerm_kubernetes_cluster" "aks" {
 resource "azurerm_kubernetes_cluster_node_pool" "gpu" {
   name                  = local.gpu_nodepool
   kubernetes_cluster_id = azurerm_kubernetes_cluster.aks.id
-  vm_size               = "Standard_D96as_v7"
+  vm_size               = "Standard_D8s_v5"
   node_count            = 1
 
   auto_scaling_enabled = true
