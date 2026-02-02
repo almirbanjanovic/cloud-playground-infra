@@ -41,7 +41,7 @@ jobs:
 
           if ! az group show --name ${{ vars.RESOURCE_GROUP }} &> /dev/null; then
             echo "Resource group ${{ vars.RESOURCE_GROUP }} does not exist. Creating..."
-            az group create --name ${{ vars.RESOURCE_GROUP }} --location ${{ vars.LOCATION }}
+            az group create --name ${{ vars.RESOURCE_GROUP }} --location ${{ vars.LOCATION }} --tags ${{ secrets.TAGS }}
           else
             echo "Resource group ${{ vars.RESOURCE_GROUP }} already exists..."
           fi
