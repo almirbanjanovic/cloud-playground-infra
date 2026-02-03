@@ -37,29 +37,11 @@ This environment's `terraform/main.tf` provisions the following capabilities tha
 
 ### KAITO (Kubernetes AI Toolchain Operator)
 
-[KAITO](https://github.com/kaito-project/kaito) is enabled via `ai_toolchain_operator_enabled = true`. KAITO simplifies running AI/ML inference workloads on Kubernetes by:
+[KAITO](https://github.com/kaito-project/kaito) is enabled via `ai_toolchain_operator_enabled = true`. KAITO simplifies running AI/ML inference workloads on Kubernetes.
 
 - Automatically provisioning GPU nodes based on model requirements
 - Managing model weights and inference server lifecycle
 - Supporting popular open-source models (Llama, Mistral, Falcon, Phi, etc.)
-
-**Deploying a KAITO Workspace**: A template workspace manifest is available at `assets/kubernetes/kaito_workspace.yaml`. Example usage:
-
-```yaml
-apiVersion: kaito.sh/v1beta1
-kind: Workspace
-metadata:
-  name: phi-3-mini
-  namespace: default
-resource:
-  instanceType: Standard_NC6s_v3
-  labelSelector:
-    matchLabels:
-      kubernetes.azure.com/agentpool: gpunp
-inference:
-  preset:
-    name: phi-3-mini-128k-instruct
-```
 
 See the [KAITO supported models](https://github.com/kaito-project/kaito/tree/main/presets/workspace/models) for available presets.
 
@@ -101,37 +83,6 @@ Full Prometheus-compatible monitoring stack:
 - Terraform 1.x installed
 - Azure CLI authenticated (`az login`)
 - For GPU workloads: Register for GPU VM quota in your region
-
-## Deployment
-
-```bash
-cd environments/ai-conformant-aks/terraform
-terraform init
-terraform plan -var="resource_group_name=<your-rg>"
-terraform apply -var="resource_group_name=<your-rg>"
-```
-
-## Post-Deployment: Deploying a KAITO Model
-
-1. Get AKS credentials:
-   ```bash
-   az aks get-credentials --resource-group <your-rg> --name aks-ai-conformant-dev-centralus
-   ```
-
-2. Verify KAITO operator is running:
-   ```bash
-   kubectl get pods -n kaito
-   ```
-
-3. Deploy a workspace (customize the template in `assets/kubernetes/`):
-   ```bash
-   kubectl apply -f assets/kubernetes/kaito_workspace.yaml
-   ```
-
-4. Monitor workspace provisioning:
-   ```bash
-   kubectl get workspace -w
-   ```
 
 ## Resources
 
