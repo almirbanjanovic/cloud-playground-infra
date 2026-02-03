@@ -1,0 +1,63 @@
+apiVersion: kaito.sh/v1beta1
+kind: Workspace
+metadata:
+  name: ${name}
+  namespace: ${namespace}
+
+resource:
+  instanceType: ${instanceType}   # e.g. Standard_D8s_v5 or Standard_D16s_v5
+  labelSelector:
+    matchLabels:
+      kubernetes.azure.com/agentpool: ${agentpool}
+
+inference:
+  template:
+    spec:
+      containers:
+        - name: custom-llm-container
+          image: mcr.microsoft.com/aks/kaito/kaito-base:0.0.8
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+              scheme: HTTP
+            initialDelaySeconds: 180
+            periodSeconds: 10
+            timeoutSeconds: 1
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+              scheme: HTTP
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 1
+
+          command:
+            - "accelerate"
+          args:
+            - "launch"
+            - "--num_processes"
+            - "1"
+            - "--num_machines"
+            - "1"
+            - "tfs/inference_api.py"
+            - "--pipeline"
+            - "text-generation"
+            - "--trust_remote_code"
+            - "--allow_remote_files"
+            - "--pretrained_model_name_or_path"
+            - "HuggingFaceTB/SmolLM2-1.7B-Instruct"
+            - "--torch_dtype"
+            - "float32"   # ✅ CPU-safe; required for D-series
+
+          volumeMounts:
+            - name: dshm
+              mountPath: /dev/shm
+
+      volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory

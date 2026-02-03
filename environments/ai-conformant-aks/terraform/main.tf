@@ -9,9 +9,9 @@ locals {
 
   cluster_name                     = "${local.prefix}-${local.location}"
   cluster_version                  = "1.34.2"
-  cluster_default_nodepool_vm_size = "Standard_D2s_v3"
+  cluster_default_nodepool_vm_size = "Standard_Ds_v3"
   gpu_nodepool                     = "gpunp"
-  gpu_nodepool_vm_size             = "Standard_D16s_v5"
+  gpu_nodepool_vm_size             = "Standard_D16s_v5" # NVads_A10 v5 series VM SKU with 1x A10 GPU
   default_nodepool                 = "default"
   azure_monitor_workspace_name     = "amw-${local.prefix}-${local.location}"
   aks_dce_name                     = "aks-dce-${local.prefix}-${local.location}"
@@ -524,7 +524,7 @@ resource "azapi_update_resource" "gateway_api" {
 #------------------------------------------------------------------------------------------------------------------------------
 # Step 8: Deploy KAITO models via Terraform Kubernetes Provider
 #------------------------------------------------------------------------------------------------------------------------------
-resource "kubernetes_namespace_v1" "phi_4" {
+resource "kubernetes_namespace_v1" "custom_cpu_model" {
   metadata {
     name = "phi-4"
   }
@@ -534,22 +534,21 @@ resource "kubernetes_namespace_v1" "phi_4" {
   ]
 }
 
-resource "kubernetes_manifest" "kaito_workspace_phi_4_mini" {
+resource "kubernetes_manifest" "custom_model" {
   manifest = yamldecode(
     templatefile(
-      "${path.module}/../assets/kubernetes/kaito_workspace.yaml",
+      "${path.module}/../assets/kubernetes/kaito_custom_cpu_model.yaml",
       {
-        name         = "workspace-phi-4-mini"
-        namespace    = kubernetes_namespace_v1.phi_4.metadata[0].name
+        name         = "SmolLM2-1.7B-Instruct-Workspace"
+        namespace    = kubernetes_namespace_v1.custom_cpu_model.metadata[0].name
         instanceType = local.gpu_nodepool_vm_size
         agentpool    = local.gpu_nodepool
-        presetName   = "phi-4-mini-instruct"
       }
     )
   )
 
   depends_on = [
     azurerm_kubernetes_cluster.aks,
-    kubernetes_namespace_v1.phi_4
+    kubernetes_namespace_v1.custom_cpu_model
   ]
 }

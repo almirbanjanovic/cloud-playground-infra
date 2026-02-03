@@ -1,0 +1,13 @@
+apiVersion: kaito.sh/v1beta1
+kind: Workspace
+metadata:
+  name: ${name}
+  namespace: ${namespace}
+resource:
+  instanceType: ${instanceType}
+  labelSelector:
+    matchLabels:
+      kubernetes.azure.com/agentpool: ${agentpool}
+inference:
+  preset:
+    name: ${presetName}
