@@ -124,6 +124,7 @@ resource "azurerm_kubernetes_cluster" "aks" {
   }
 
   # Enable KAITO
+  # See here for supported models: https://github.com/kaito-project/kaito/tree/main/presets/workspace/models
   ai_toolchain_operator_enabled = true
 
   tags = local.common_tags
@@ -147,8 +148,6 @@ resource "azurerm_kubernetes_cluster_node_pool" "gpu" {
   min_count            = 1
   max_count            = 3
 
-  node_taints = ["sku=gpu:NoSchedule"]
-
   tags = merge(
     local.common_tags,
     {
@@ -156,7 +155,9 @@ resource "azurerm_kubernetes_cluster_node_pool" "gpu" {
     }
   )
 
-  depends_on = [azurerm_kubernetes_cluster.aks]
+  depends_on = [
+    azurerm_kubernetes_cluster.aks
+    ]
 }
 
 #------------------------------------------------------------------------------------------------------------------------------
@@ -500,4 +501,24 @@ resource "azapi_update_resource" "gateway_api" {
   depends_on = [
     azurerm_kubernetes_cluster.aks
   ]
+}
+
+#------------------------------------------------------------------------------------------------------------------------------
+# Step 8: Deploy KAITO models via Terraform Kubernetes Provider
+#------------------------------------------------------------------------------------------------------------------------------
+resource "kubernetes_manifest" "kaito_workspace_phi_4_mini" {
+  manifest = yamldecode(
+    templatefile(
+      "${path.module}/../assets/kubernetes/kaito_workspace.yaml",
+      {
+        name        = "workspace-phi-4-mini"
+        agentpool   = local.gpu_nodepool
+        presetName  = "phi-4-mini-instruct"
+      }
+    )
+  )
+
+  depends_on = [
+    azurerm_kubernetes_cluster.aks
+    ]
 }

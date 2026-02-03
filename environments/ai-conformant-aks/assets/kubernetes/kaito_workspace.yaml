@@ -1,12 +1,11 @@
 apiVersion: kaito.sh/v1beta1
 kind: Workspace
 metadata:
-  name: ${name} # workspace-phi-4-mini
+  name: ${name} 
 resource:
-  instanceType: ${instanceType} # "Standard_NC24ads_A100_v4"
   labelSelector:
     matchLabels:
-      kubernetes.azure.com/agentpool: ${agentpool} # gpunp
+      kubernetes.azure.com/agentpool: ${agentpool}
 inference:
   preset:
-    name: ${presetName} # phi-4-mini-instruct 
+    name: ${presetName}
