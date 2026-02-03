@@ -51,7 +51,7 @@ inference:
             - "--pretrained_model_name_or_path"
             - "HuggingFaceTB/SmolLM2-1.7B-Instruct"
             - "--torch_dtype"
-            - "float32"   # ✅ CPU-safe; required for D-series
+            - "float32"   # CPU-safe; required for D-series
 
           volumeMounts:
             - name: dshm
