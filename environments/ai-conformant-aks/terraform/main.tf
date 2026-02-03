@@ -89,7 +89,7 @@ resource "azurerm_kubernetes_cluster" "aks" {
     temporary_name_for_rotation = "defaulttemp"
     vm_size                     = "Standard_D2s_v3"
     auto_scaling_enabled        = "true"
-    min_count                   = 2
+    min_count                   = 1
     max_count                   = 5
     type                        = "VirtualMachineScaleSets"
     zones                       = ["1", "2", "3"] # Keep this for HA
@@ -157,7 +157,7 @@ resource "azurerm_kubernetes_cluster_node_pool" "gpu" {
   node_count                  = 1
 
   auto_scaling_enabled = true
-  min_count            = 1
+  min_count            = 0
   max_count            = 3
 
   upgrade_settings {
