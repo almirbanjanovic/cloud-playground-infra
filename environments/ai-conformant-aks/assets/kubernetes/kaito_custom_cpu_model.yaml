@@ -5,7 +5,7 @@ metadata:
   namespace: ${namespace}
 
 resource:
-  instanceType: ${instanceType}   # e.g. Standard_D8s_v5 or Standard_D16s_v5
+  # instanceType: ${instanceType}   # e.g. Standard_D8s_v5 or Standard_D16s_v5
   # labelSelector:
   #   matchLabels:
   #     kubernetes.azure.com/agentpool: ${agentpool}
