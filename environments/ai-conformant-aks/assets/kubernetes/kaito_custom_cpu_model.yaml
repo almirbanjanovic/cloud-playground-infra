@@ -14,8 +14,8 @@ resource:
 inference:
   template:
     spec:
-      nodeSelector:
-        kubernetes.azure.com/agentpool: ${agentpool}
+      # nodeSelector:
+      #   kubernetes.azure.com/agentpool: ${agentpool}
 
       containers:
         - name: custom-llm-container
