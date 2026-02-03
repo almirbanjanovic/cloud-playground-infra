@@ -4,17 +4,15 @@ metadata:
   name: ${name}
   namespace: ${namespace}
 
-# resource:
-#   labelSelector:
-#     matchLabels:
-#       kubernetes.azure.com/agentpool: ${agentpool}
+resource:
+  instanceType: ${instanceType}   # e.g. Standard_D8s_v5 or Standard_D16s_v5
+  # labelSelector:
+  #   matchLabels:
+  #     kubernetes.azure.com/agentpool: ${agentpool}
 
 inference:
   template:
     spec:
-      nodeSelector:
-        kubernetes.azure.com/agentpool: ${agentpool}
-
       containers:
         - name: custom-llm-container
           image: mcr.microsoft.com/aks/kaito/kaito-base:0.0.8
