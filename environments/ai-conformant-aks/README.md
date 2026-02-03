@@ -57,7 +57,7 @@ The cluster includes an **Istio-based service mesh** (`asm-1-28` revision) with:
 | Pool | Purpose | VM Size | Scaling | Notes |
 |------|---------|---------|---------|-------|
 | `default` | System workloads | Standard_D2s_v3 | 2-5 nodes | Critical addons only, HA across 3 zones |
-| `gpunp` | GPU/AI workloads | Standard_D16s_v5 | 1-3 nodes | Tagged with `EnableManagedGPUExperience=true` |
+| `gpunp` | GPU/AI workloads | Standard_D16s_v5 | 0-3 nodes | Tagged with `EnableManagedGPUExperience=true` |
 
 **Note**: The GPU node pool uses a **D-series (CPU-only)** VM size for this POC since GPU VM quota/availability can be limited. For production AI workloads, replace with an actual GPU SKU (e.g., `Standard_NC6s_v3`, `Standard_NVads_A10_v5`).
 
