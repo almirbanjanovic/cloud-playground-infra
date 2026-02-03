@@ -75,6 +75,9 @@ resource "azurerm_kubernetes_cluster" "aks" {
   dns_prefix          = local.cluster_name
   kubernetes_version  = local.cluster_version
 
+  # Enable local admin account for kube_admin_config
+  local_account_disabled = false
+
   # AKS cannot disable OIDC issuer once enabled; keep it explicitly on to avoid drift.
   oidc_issuer_enabled       = true
   workload_identity_enabled = true
@@ -94,6 +97,12 @@ resource "azurerm_kubernetes_cluster" "aks" {
     # This will designate this as a system node pool and prevent user application pods from running on it.
     # See this for more info: https://learn.microsoft.com/en-us/azure/aks/use-system-pools?tabs=azure-cli#system-and-user-node-pools
     only_critical_addons_enabled = true
+
+    upgrade_settings {
+      drain_timeout_in_minutes      = 0
+      max_surge                     = "10%"
+      node_soak_duration_in_minutes = 0
+    }
 
     tags = local.common_tags
   }
@@ -147,6 +156,14 @@ resource "azurerm_kubernetes_cluster_node_pool" "gpu" {
   auto_scaling_enabled = true
   min_count            = 1
   max_count            = 3
+
+  node_taints = ["sku=gpu:NoSchedule"]
+
+  upgrade_settings {
+    drain_timeout_in_minutes      = 0
+    max_surge                     = "10%"
+    node_soak_duration_in_minutes = 0
+  }
 
   tags = merge(
     local.common_tags,
