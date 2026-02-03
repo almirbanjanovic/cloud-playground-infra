@@ -7,15 +7,16 @@ locals {
   
   location = "centralus"
   
-  cluster_name                 = "${local.prefix}-${local.location}"
-  cluster_version              = "1.34.2"
-  gpu_nodepool                 = "gpunp"
-  gpu_nodepool_vm_size         = "Standard_D2s_v3"
-  default_nodepool             = "default"
-  azure_monitor_workspace_name = "amw-${local.prefix}-${local.location}"
-  aks_dce_name                 = "aks-dce-${local.prefix}-${local.location}"
-  amdcr_name                   = "amdcr-prometheus-${local.prefix}-${local.location}"
-  amdca_name                   = "amdca-${local.prefix}-${local.location}"
+  cluster_name                     = "${local.prefix}-${local.location}"
+  cluster_version                  = "1.34.2"
+  cluster_default_nodepool_vm_size = "Standard_D2s_v3"
+  gpu_nodepool                     = "gpunp"
+  gpu_nodepool_vm_size             = "Standard_D16s_v5"
+  default_nodepool                 = "default"
+  azure_monitor_workspace_name     = "amw-${local.prefix}-${local.location}"
+  aks_dce_name                     = "aks-dce-${local.prefix}-${local.location}"
+  amdcr_name                       = "amdcr-prometheus-${local.prefix}-${local.location}"
+  amdca_name                       = "amdca-${local.prefix}-${local.location}"
   
   # Common tags
   common_tags = {
