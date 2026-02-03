@@ -526,7 +526,7 @@ resource "azapi_update_resource" "gateway_api" {
 #------------------------------------------------------------------------------------------------------------------------------
 resource "kubernetes_namespace_v1" "custom_cpu_model" {
   metadata {
-    name = "SmolLM2"
+    name = "smollm2"
   }
 
   depends_on = [
