@@ -86,7 +86,7 @@ resource "azurerm_kubernetes_cluster" "aks" {
 
   default_node_pool {
     name                        = local.default_nodepool
-    temporary_name_for_rotation = "default-temp"
+    temporary_name_for_rotation = "defaulttemp"
     vm_size                     = "Standard_D2s_v3"
     auto_scaling_enabled        = "true"
     min_count                   = 2
@@ -151,7 +151,7 @@ resource "azurerm_kubernetes_cluster" "aks" {
 
 resource "azurerm_kubernetes_cluster_node_pool" "gpu" {
   name                        = local.gpu_nodepool
-  temporary_name_for_rotation = "gpunp-temp"
+  temporary_name_for_rotation = "gpunptemp"
   kubernetes_cluster_id       = azurerm_kubernetes_cluster.aks.id
   vm_size                     = local.gpu_nodepool_vm_size
   node_count                  = 1
