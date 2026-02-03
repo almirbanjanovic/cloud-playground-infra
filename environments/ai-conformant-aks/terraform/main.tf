@@ -539,7 +539,7 @@ resource "kubernetes_manifest" "custom_model" {
     templatefile(
       "${path.module}/../assets/kubernetes/kaito_custom_cpu_model.yaml",
       {
-        name         = "SmolLM2-1.7B-Instruct-Workspace"
+        name         = "smollm2-workspace"
         namespace    = kubernetes_namespace_v1.custom_cpu_model.metadata[0].name
         instanceType = local.gpu_nodepool_vm_size
         agentpool    = local.gpu_nodepool
