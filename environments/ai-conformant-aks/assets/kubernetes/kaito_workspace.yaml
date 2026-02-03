@@ -4,6 +4,7 @@ metadata:
   name: ${name}
   namespace: ${namespace}
 resource:
+  instanceType: ${instanceType}
   labelSelector:
     matchLabels:
       kubernetes.azure.com/agentpool: ${agentpool}

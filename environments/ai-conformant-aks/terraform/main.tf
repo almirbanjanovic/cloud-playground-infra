@@ -10,6 +10,7 @@ locals {
   cluster_name                 = "${local.prefix}-${local.location}"
   cluster_version              = "1.34.2"
   gpu_nodepool                 = "gpunp"
+  gpu_nodepool_vm_size         = "Standard_D2s_v3"
   default_nodepool             = "default"
   azure_monitor_workspace_name = "amw-${local.prefix}-${local.location}"
   aks_dce_name                 = "aks-dce-${local.prefix}-${local.location}"
@@ -150,14 +151,12 @@ resource "azurerm_kubernetes_cluster" "aks" {
 resource "azurerm_kubernetes_cluster_node_pool" "gpu" {
   name                  = local.gpu_nodepool
   kubernetes_cluster_id = azurerm_kubernetes_cluster.aks.id
-  vm_size               = "Standard_D2s_v3"
+  vm_size               = local.gpu_nodepool_vm_size
   node_count            = 1
 
   auto_scaling_enabled = true
   min_count            = 1
   max_count            = 3
-
-  node_taints = ["sku=gpu:NoSchedule"]
 
   upgrade_settings {
     drain_timeout_in_minutes      = 0
@@ -538,10 +537,11 @@ resource "kubernetes_manifest" "kaito_workspace_phi_4_mini" {
     templatefile(
       "${path.module}/../assets/kubernetes/kaito_workspace.yaml",
       {
-        name        = "workspace-phi-4-mini"
-        namespace   = kubernetes_namespace_v1.phi_4.metadata[0].name
-        agentpool   = local.gpu_nodepool
-        presetName  = "phi-4-mini-instruct"
+        name         = "workspace-phi-4-mini"
+        namespace    = kubernetes_namespace_v1.phi_4.metadata[0].name
+        instanceType = local.gpu_nodepool_vm_size
+        agentpool    = local.gpu_nodepool
+        presetName   = "phi-4-mini-instruct"
       }
     )
   )
