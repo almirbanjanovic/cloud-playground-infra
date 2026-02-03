@@ -1,7 +1,8 @@
 apiVersion: kaito.sh/v1beta1
 kind: Workspace
 metadata:
-  name: ${name} 
+  name: ${name}
+  namespace: ${namespace}
 resource:
   labelSelector:
     matchLabels:
