@@ -498,3 +498,25 @@ resource "azapi_update_resource" "gateway_api" {
     azurerm_kubernetes_cluster.aks
   ]
 }
+
+#------------------------------------------------------------------------------------------------------------------------------
+# Step 8: Enable KAITO
+#------------------------------------------------------------------------------------------------------------------------------
+resource "azapi_update_resource" "ai_toolchain_operator" {
+  type        = "Microsoft.ContainerService/managedClusters@2024-02-01"
+  resource_id = azurerm_kubernetes_cluster.aks.id
+
+  body = {
+    properties = {
+      addonProfiles = {
+        aiToolchainOperator = {
+          enabled = true
+        }
+      }
+    }
+  }
+
+  depends_on = [
+    azurerm_kubernetes_cluster.aks
+  ]
+}
