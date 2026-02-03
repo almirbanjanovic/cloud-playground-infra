@@ -523,7 +523,7 @@ resource "azapi_update_resource" "gateway_api" {
 #------------------------------------------------------------------------------------------------------------------------------
 # Step 8: Deploy KAITO models via Terraform Kubernetes Provider
 #------------------------------------------------------------------------------------------------------------------------------
-resource "kubernetes_namespace" "phi_4" {
+resource "kubernetes_namespace_v1" "phi_4" {
   metadata {
     name = "phi-4"
   }
@@ -539,7 +539,7 @@ resource "kubernetes_manifest" "kaito_workspace_phi_4_mini" {
       "${path.module}/../assets/kubernetes/kaito_workspace.yaml",
       {
         name        = "workspace-phi-4-mini"
-        namespace   = kubernetes_namespace.phi_4.metadata[0].name
+        namespace   = kubernetes_namespace_v1.phi_4.metadata[0].name
         agentpool   = local.gpu_nodepool
         presetName  = "phi-4-mini-instruct"
       }
@@ -548,6 +548,6 @@ resource "kubernetes_manifest" "kaito_workspace_phi_4_mini" {
 
   depends_on = [
     azurerm_kubernetes_cluster.aks,
-    kubernetes_namespace.phi_4
+    kubernetes_namespace_v1.phi_4
     ]
 }
