@@ -4,15 +4,15 @@ variable "resource_group_name" {
 }
 
 variable "base_name" {
-  type = string
+  type        = string
   description = "Base name for resources"
 }
 
 variable "environment" {
   type        = string
   description = "The environment for all resources."
-  default = "dev"
-  
+  default     = "dev"
+
 }
 
 variable "location" {

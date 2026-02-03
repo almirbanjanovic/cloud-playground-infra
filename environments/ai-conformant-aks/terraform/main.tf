@@ -4,9 +4,9 @@
 locals {
 
   prefix = "aks-ai-conformant-dev"
-  
+
   location = "centralus"
-  
+
   cluster_name                     = "${local.prefix}-${local.location}"
   cluster_version                  = "1.34.2"
   cluster_default_nodepool_vm_size = "Standard_D2s_v3"
@@ -17,7 +17,7 @@ locals {
   aks_dce_name                     = "aks-dce-${local.prefix}-${local.location}"
   amdcr_name                       = "amdcr-prometheus-${local.prefix}-${local.location}"
   amdca_name                       = "amdca-${local.prefix}-${local.location}"
-  
+
   # Common tags
   common_tags = {
     ManagedBy = "Terraform"
@@ -36,7 +36,7 @@ resource "azapi_resource_action" "managed_gpu_experience_preview_sfr" {
   type                   = "Microsoft.Features/featureProviders/subscriptionFeatureRegistrations@2021-07-01"
   resource_id            = "/subscriptions/${data.azurerm_client_config.current.subscription_id}/providers/Microsoft.Features/featureProviders/Microsoft.ContainerService/subscriptionFeatureRegistrations/ManagedGPUExperiencePreview"
   method                 = "PUT"
-  body = {}
+  body                   = {}
   response_export_values = ["*"]
 }
 
@@ -86,13 +86,13 @@ resource "azurerm_kubernetes_cluster" "aks" {
 
   default_node_pool {
     name                        = local.default_nodepool
-    temporary_name_for_rotation = "temp"
+    temporary_name_for_rotation = "default-temp"
     vm_size                     = "Standard_D2s_v3"
     auto_scaling_enabled        = "true"
     min_count                   = 2
     max_count                   = 5
     type                        = "VirtualMachineScaleSets"
-    zones                       = ["1", "2", "3"]  # Keep this for HA
+    zones                       = ["1", "2", "3"] # Keep this for HA
     orchestrator_version        = local.cluster_version
 
     # Enabling this option will taint default node pool with "CriticalAddonsOnly=true:NoSchedule". 
@@ -114,12 +114,12 @@ resource "azurerm_kubernetes_cluster" "aks" {
   }
 
   monitor_metrics {
-    labels_allowed      = "true" # Enable to collect labels for filtering. Useful for filtering by app, nodepool, etc.
+    labels_allowed      = "true"  # Enable to collect labels for filtering. Useful for filtering by app, nodepool, etc.
     annotations_allowed = "false" # Disable, not needed at this time.
   }
 
   service_mesh_profile {
-    mode = "Istio"
+    mode      = "Istio"
     revisions = ["asm-1-28"] # Specify the ASM revision to use (https://learn.microsoft.com/en-us/azure/aks/istio-about)
 
     # Ingress gateways control *north-south* traffic (client/user -> cluster -> services).
@@ -142,7 +142,7 @@ resource "azurerm_kubernetes_cluster" "aks" {
 
   depends_on = [
     time_sleep.wait_for_features
-    ]
+  ]
 }
 
 #------------------------------------------------------------------------------------------------------------------------------
@@ -150,10 +150,11 @@ resource "azurerm_kubernetes_cluster" "aks" {
 #------------------------------------------------------------------------------------------------------------------------------
 
 resource "azurerm_kubernetes_cluster_node_pool" "gpu" {
-  name                  = local.gpu_nodepool
-  kubernetes_cluster_id = azurerm_kubernetes_cluster.aks.id
-  vm_size               = local.gpu_nodepool_vm_size
-  node_count            = 1
+  name                        = local.gpu_nodepool
+  temporary_name_for_rotation = "gpunp-temp"
+  kubernetes_cluster_id       = azurerm_kubernetes_cluster.aks.id
+  vm_size                     = local.gpu_nodepool_vm_size
+  node_count                  = 1
 
   auto_scaling_enabled = true
   min_count            = 1
@@ -174,7 +175,7 @@ resource "azurerm_kubernetes_cluster_node_pool" "gpu" {
 
   depends_on = [
     azurerm_kubernetes_cluster.aks
-    ]
+  ]
 }
 
 #------------------------------------------------------------------------------------------------------------------------------
@@ -550,5 +551,5 @@ resource "kubernetes_manifest" "kaito_workspace_phi_4_mini" {
   depends_on = [
     azurerm_kubernetes_cluster.aks,
     kubernetes_namespace_v1.phi_4
-    ]
+  ]
 }

@@ -17,8 +17,8 @@ resource "azurerm_api_management_api" "colors-api" {
   revision            = "1"
   display_name        = "Colors API"
   protocols           = ["https"]
-  service_url = "https://colors-api.azurewebsites.net/"
-  path = "colors"
+  service_url         = "https://colors-api.azurewebsites.net/"
+  path                = "colors"
 
   import {
     content_format = "openapi+json-link"
