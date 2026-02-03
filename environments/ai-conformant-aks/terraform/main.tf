@@ -541,7 +541,6 @@ resource "kubernetes_manifest" "custom_model" {
       {
         name         = "smollm2-workspace"
         namespace    = kubernetes_namespace_v1.custom_cpu_model.metadata[0].name
-        instanceType = local.gpu_nodepool_vm_size
         agentpool    = local.gpu_nodepool
       }
     )
