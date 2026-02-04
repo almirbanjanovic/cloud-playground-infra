@@ -120,7 +120,7 @@ accelerate launch
               └── Loads bigscience/bloomz-560m in float32
                    └── Starts HTTP server on port 5000
                         ├── GET  /health       → Health check for probes
-                        ├── GET  /metrics      → Prometheus metrics endpoint
+                        ├── GET  /metrics      → JSON system metrics (CPU/GPU info, memory usage)
                         ├── POST /chat         → Text generation endpoint
                         └── GET  /openapi.json → OpenAPI specification
 ```
