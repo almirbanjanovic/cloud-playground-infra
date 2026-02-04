@@ -119,8 +119,115 @@ accelerate launch
          └── Runs tfs/inference_api.py
               └── Loads bigscience/bloomz-560m in float32
                    └── Starts HTTP server on port 5000
-                        ├── GET  /health   → Health check for probes
-                        └── POST /generate → Text generation endpoint
+                        ├── GET  /health       → Health check for probes
+                        ├── GET  /metrics      → Prometheus metrics endpoint
+                        ├── POST /chat         → Text generation endpoint
+                        └── GET  /openapi.json → OpenAPI specification
+```
+
+> **Tip**: View the full API specification with:
+> ```bash
+> curl -s http://cpu-only-workspace:80/openapi.json | head
+> ```
+
+#### Testing the Model
+
+Once the workspace is deployed and ready, you can test the inference endpoint using a curl pod.
+
+**1. Create a debug pod in the same namespace:**
+
+```bash
+kubectl run curl-debug \
+  -n bloomz \
+  -it --restart=Never \
+  --image=curlimages/curl \
+  -- sh
+```
+
+**2. Check the API schema:**
+
+```bash
+curl -s http://cpu-only-workspace:80/openapi.json | head
+```
+
+**3. Sample prompts:**
+
+```bash
+# Question answering
+curl --max-time 60 -X POST http://cpu-only-workspace/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "What sport should I play in rainy weather?",
+    "return_full_text": false,
+    "generate_kwargs": {
+      "max_length": 64,
+      "do_sample": false
+    }
+  }'
+
+# Factual question
+curl --max-time 60 -X POST http://cpu-only-workspace/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "Is a tomato a fruit or a vegetable?",
+    "return_full_text": false,
+    "generate_kwargs": {
+      "max_length": 64,
+      "do_sample": false
+    }
+  }'
+
+# List generation
+curl --max-time 60 -X POST http://cpu-only-workspace/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "Name three indoor activities suitable for rainy weather.",
+    "return_full_text": false,
+    "generate_kwargs": {
+      "max_length": 64,
+      "do_sample": false
+    }
+  }'
+
+# Explanation request
+curl --max-time 60 -X POST http://cpu-only-workspace/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "Can electric cars reduce air pollution? Explain briefly.",
+    "return_full_text": false,
+    "generate_kwargs": {
+      "max_length": 64,
+      "do_sample": false
+    }
+  }'
+
+# Brief definition
+curl --max-time 60 -X POST http://cpu-only-workspace/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "Answer briefly: What is cloud computing?",
+    "return_full_text": false,
+    "generate_kwargs": {
+      "max_length": 64,
+      "do_sample": false
+    }
+  }'
+```
+
+**Request Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `prompt` | The input text/question for the model |
+| `return_full_text` | If `false`, returns only the generated text (not the prompt) |
+| `generate_kwargs.max_length` | Maximum number of tokens to generate |
+| `generate_kwargs.do_sample` | If `false`, uses greedy decoding (deterministic). If `true`, uses sampling (more creative). |
+
+**4. Exit the debug pod:**
+
+```bash
+exit
+kubectl delete pod curl-debug -n bloomz
 ```
 
 ### Istio Service Mesh
