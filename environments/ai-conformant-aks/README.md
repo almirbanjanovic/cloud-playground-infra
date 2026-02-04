@@ -55,13 +55,13 @@ The `assets/kubernetes/kaito_custom_cpu_model.yaml` manifest deploys a custom KA
 |----------|-------------|---------------|
 | `${name}` | Workspace name | `bloomz-workspace` |
 | `${namespace}` | Kubernetes namespace | `bloomz` |
-| `${instanceType}` | Azure VM size for the node | `Standard_D4ds_v6` |
+| `${instanceType}` | Azure VM size for the node | `Standard_D16s_v5` |
 
 #### Resource Configuration
 
 | Setting | Value | Purpose |
 |---------|-------|---------|
-| `instanceType` | `Standard_D4ds_v6` | Intel Emerald Rapids with local NVMe, 4 vCPUs, 16GB RAM |
+| `instanceType` | `Standard_D16s_v5` | Intel Ice Lake, 16 vCPUs, 64GB RAM |
 | `labelSelector` | `apps: bloomz-560m` | Label for node affinity matching |
 
 #### Container Resources

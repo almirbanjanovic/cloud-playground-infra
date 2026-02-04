@@ -5,7 +5,7 @@ metadata:
   namespace: ${namespace}
 
 resource:
-  instanceType: ${instanceType}   # Standard_D4s_v5 recommended for bloomz-560m (~2.2GB model)
+  instanceType: ${instanceType}   # Standard_D16s_v5 used for bloomz-560m CPU inference
   labelSelector:
     matchLabels:
       apps: bloomz-560m 
