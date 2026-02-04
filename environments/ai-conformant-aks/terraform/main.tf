@@ -12,7 +12,7 @@ locals {
   cluster_default_nodepool_vm_size = "Standard_Ds_v3"
   gpu_nodepool                     = "gpunp"
   gpu_nodepool_vm_size             = "Standard_D16s_v5" 
-  kaito_vm_size                    = "Standard_D4ds_v6" # Intel Emerald Rapids with local NVMe
+  kaito_vm_size                    = "Standard_D16s_v5" # Intel Emerald Rapids with local NVMe
   default_nodepool                 = "default"
   azure_monitor_workspace_name     = "amw-${local.prefix}-${local.location}"
   aks_dce_name                     = "aks-dce-${local.prefix}-${local.location}"
