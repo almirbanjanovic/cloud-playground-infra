@@ -50,7 +50,7 @@ inference:
             - "--trust_remote_code"
             - "--allow_remote_files"
             - "--pretrained_model_name_or_path"
-            - "bigscience/bloomz-560m"
+            - "bigscience/bloomz-560m" # Find additional info at https://huggingface.co/bigscience/bloomz-560m
             - "--torch_dtype"
             - "float32"   # CPU-safe; required for D-series
 
