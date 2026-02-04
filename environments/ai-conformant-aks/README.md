@@ -45,6 +45,84 @@ This environment's `terraform/main.tf` provisions the following capabilities tha
 
 See the [KAITO supported models](https://github.com/kaito-project/kaito/tree/main/presets/workspace/models) for available presets.
 
+### KAITO Custom CPU Model Manifest
+
+The `assets/kubernetes/kaito_custom_cpu_model.yaml` manifest deploys a custom KAITO Workspace for CPU-based inference. This is a template file that gets populated via Terraform's `templatefile()` function.
+
+#### Template Variables
+
+| Variable | Description | Example Value |
+|----------|-------------|---------------|
+| `${name}` | Workspace name | `bloomz-workspace` |
+| `${namespace}` | Kubernetes namespace | `bloomz` |
+| `${instanceType}` | Azure VM size for the node | `Standard_D4ds_v6` |
+
+#### Resource Configuration
+
+| Setting | Value | Purpose |
+|---------|-------|---------|
+| `instanceType` | `Standard_D4ds_v6` | Intel Emerald Rapids with local NVMe, 4 vCPUs, 16GB RAM |
+| `labelSelector` | `apps: bloomz-560m` | Label for node affinity matching |
+
+#### Container Resources
+
+| Resource | Request | Limit | Notes |
+|----------|---------|-------|-------|
+| Memory | 8Gi | 16Gi | Model ~2.2GB + overhead for inference |
+| CPU | 2 | 4 | 4 cores for parallel tensor operations |
+
+#### Environment Variables
+
+| Variable | Value | Purpose |
+|----------|-------|---------|
+| `OMP_NUM_THREADS` | `4` | OpenMP thread count - matches CPU limit to prevent thread over-subscription. Without this, OpenMP spawns threads based on node CPU count, causing contention. |
+| `TOKENIZERS_PARALLELISM` | `false` | Disables HuggingFace tokenizer multi-threading to prevent deadlocks when combined with PyTorch multiprocessing. Safe for inference. |
+
+#### Health Probes
+
+| Probe | Initial Delay | Period | Timeout | Failure Threshold |
+|-------|---------------|--------|---------|-------------------|
+| Liveness | 300s | 30s | 5s | 3 |
+| Readiness | 60s | 10s | 5s | 3 |
+
+> **Note**: Liveness probe has a 300s initial delay because CPU model loading is slower than GPU.
+
+#### Command & Arguments
+
+The container uses [HuggingFace Accelerate](https://huggingface.co/docs/accelerate) to launch the inference server.
+
+**Command**: `accelerate`
+
+| Argument | Value | Purpose |
+|----------|-------|---------|
+| `launch` | - | Subcommand to launch a script with distributed configuration |
+| `--num_processes` | `1` | Number of Python processes. Use 1 for CPU inference - parallelization happens via threads (OMP_NUM_THREADS), not processes. |
+| `--num_machines` | `1` | Number of nodes in cluster. Use 1 for single-node deployment. |
+| `tfs/inference_api.py` | - | KAITO's Transformer Serving API. Starts HTTP server on port 5000 with `/health` and `/generate` endpoints. |
+| `--pipeline` | `text-generation` | HuggingFace pipeline type. Options: `text-generation` (GPT-style), `text2text-generation` (T5/FLAN), `fill-mask` (BERT) |
+| `--trust_remote_code` | - | Allows executing custom Python code from model repo. Required for some models (Phi, Qwen, Falcon). |
+| `--allow_remote_files` | - | Permits downloading model weights from HuggingFace Hub. Models cached in `~/.cache/huggingface/` after download. |
+| `--pretrained_model_name_or_path` | `bigscience/bloomz-560m` | HuggingFace model ID. BLOOMZ 560M is a multilingual instruction-tuned model (~2.2GB in float32). |
+| `--torch_dtype` | `float32` | Tensor precision. CPU requires `float32` (no native float16 support). Use `float16`/`bfloat16` for GPU. |
+
+#### Shared Memory Volume
+
+| Mount Path | Type | Purpose |
+|------------|------|---------|
+| `/dev/shm` | `emptyDir` (Memory-backed) | PyTorch uses `/dev/shm` for inter-process communication. Docker's default is only 64MB, which causes errors with large tensors. RAM-backed emptyDir provides unlimited shared memory. |
+
+#### Inference Flow
+
+```
+accelerate launch
+    └── Configures distributed runtime (1 process, 1 machine)
+         └── Runs tfs/inference_api.py
+              └── Loads bigscience/bloomz-560m in float32
+                   └── Starts HTTP server on port 5000
+                        ├── GET  /health   → Health check for probes
+                        └── POST /generate → Text generation endpoint
+```
+
 ### Istio Service Mesh
 
 The cluster includes an **Istio-based service mesh** (`asm-1-28` revision) with:

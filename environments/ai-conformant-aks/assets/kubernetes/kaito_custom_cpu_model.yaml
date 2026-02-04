@@ -27,10 +27,17 @@ inference:
               cpu: "4"
 
           env:
+            # OpenMP thread count for parallelized tensor operations.
+            # Set to match container CPU limit to prevent thread over-subscription.
+            # Without this, OpenMP may spawn threads based on node CPU count (not container limit),
+            # causing thread contention and degraded performance.
             - name: OMP_NUM_THREADS
-              value: "4"  # Match CPU limit for optimal threading
+              value: "4"
+            # HuggingFace tokenizers use Rust-based multi-threading by default.
+            # When combined with PyTorch multiprocessing, this can cause deadlocks.
+            # Disabling is safe for inference since tokenization is a small fraction of total time.
             - name: TOKENIZERS_PARALLELISM
-              value: "false"  # Avoids deadlock warnings with HuggingFace tokenizers
+              value: "false"
 
           livenessProbe:
             httpGet:
@@ -53,23 +60,47 @@ inference:
             failureThreshold: 3
 
           command:
-            - "accelerate"
+            - "accelerate"            # HuggingFace Accelerate CLI - simplifies running PyTorch
+                                      # across different hardware (CPU, GPU, multi-GPU, TPU)
+                                      # Docs: https://huggingface.co/docs/accelerate
           args:
-            - "launch"
-            - "--num_processes"
-            - "1"
-            - "--num_machines"
-            - "1"
-            - "tfs/inference_api.py"
-            - "--pipeline"
-            - "text-generation"
-            - "--trust_remote_code"
-            - "--allow_remote_files"
-            - "--pretrained_model_name_or_path"
-            - "bigscience/bloomz-560m" # Find additional info at https://huggingface.co/bigscience/bloomz-560m
-            - "--torch_dtype"
-            - "float32"   # CPU-safe; required for D-series
+            # --- Accelerate Launch Configuration ---
+            - "launch"                # Subcommand to launch a script with distributed config
+            - "--num_processes"       # Number of parallel Python processes to spawn
+            - "1"                     # Use 1 for single-node CPU inference. Parallelization
+                                      # happens via threads (OMP_NUM_THREADS), not processes.
+            - "--num_machines"        # Number of nodes in distributed cluster
+            - "1"                     # Use 1 for single-node deployment
 
+            # --- KAITO Inference Server ---
+            - "tfs/inference_api.py"  # KAITO's Transformer Serving API. Starts HTTP server
+                                      # on port 5000 with /health and /generate endpoints.
+
+            # --- HuggingFace Pipeline Configuration ---
+            - "--pipeline"            # HuggingFace pipeline type
+            - "text-generation"       # Causal LM (GPT-style). Other options:
+                                      #   text2text-generation (T5/FLAN), fill-mask (BERT)
+
+            # --- Model Loading Options ---
+            - "--trust_remote_code"   # Allow custom Python code from model repo.
+                                      # Required for some models (Phi, Qwen, Falcon).
+            - "--allow_remote_files"  # Permit downloading weights from HuggingFace Hub.
+                                      # Models cached in ~/.cache/huggingface/ after download.
+
+            # --- Model Selection ---
+            - "--pretrained_model_name_or_path"  # HuggingFace model ID or local path
+            - "bigscience/bloomz-560m"           # BLOOMZ 560M multilingual model (~2.2GB)
+                                                 # https://huggingface.co/bigscience/bloomz-560m
+
+            # --- Tensor Precision ---
+            - "--torch_dtype"         # Data type for weights and computations
+            - "float32"               # CPU requires float32 (no native float16 support).
+                                      # Use float16/bfloat16 for GPU inference.
+
+          # --- Shared Memory Volume ---
+          # PyTorch uses /dev/shm for inter-process communication (IPC).
+          # Docker's default is only 64MB, causing errors with large tensors.
+          # RAM-backed emptyDir provides unlimited shared memory.
           volumeMounts:
             - name: dshm
               mountPath: /dev/shm
@@ -77,4 +108,4 @@ inference:
       volumes:
         - name: dshm
           emptyDir:
-            medium: Memory
+            medium: Memory            # RAM-backed (tmpfs), not disk

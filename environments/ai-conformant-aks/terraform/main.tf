@@ -540,7 +540,7 @@ resource "kubernetes_manifest" "custom_model" {
     templatefile(
       "${path.module}/../assets/kubernetes/kaito_custom_cpu_model.yaml",
       {
-        name         = "smollm2-workspace"
+        name         = "cpu-only-workspace"
         namespace    = kubernetes_namespace_v1.custom_cpu_model.metadata[0].name
         instanceType = local.kaito_vm_size
       }
