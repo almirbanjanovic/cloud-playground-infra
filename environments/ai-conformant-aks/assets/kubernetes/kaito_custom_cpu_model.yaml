@@ -5,9 +5,9 @@ metadata:
   namespace: ${namespace}
 
 resource:
-  instanceType: ${instanceType}   # e.g. Standard_D8s_v5 or Standard_D16s_v5
+  instanceType: ${instanceType}   # Standard_D4s_v5 recommended for bloomz-560m (~2.2GB model)
   labelSelector:
-    matchLabels: # a label is rquired 
+    matchLabels:
       apps: bloomz-560m 
 
 inference:
@@ -18,23 +18,39 @@ inference:
         - name: custom-llm-container
           image: mcr.microsoft.com/aks/kaito/kaito-base:0.0.8
 
+          resources:
+            requests:
+              memory: "4Gi"
+              cpu: "2"
+            limits:
+              memory: "8Gi"
+              cpu: "4"
+
+          env:
+            - name: OMP_NUM_THREADS
+              value: "4"  # Match CPU limit for optimal threading
+            - name: TOKENIZERS_PARALLELISM
+              value: "false"  # Avoids deadlock warnings with HuggingFace tokenizers
+
           livenessProbe:
             httpGet:
               path: /health
               port: 5000
               scheme: HTTP
-            initialDelaySeconds: 180
-            periodSeconds: 10
-            timeoutSeconds: 1
+            initialDelaySeconds: 300  # Increased - model loading can take time on CPU
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
 
           readinessProbe:
             httpGet:
               path: /health
               port: 5000
               scheme: HTTP
-            initialDelaySeconds: 30
+            initialDelaySeconds: 60
             periodSeconds: 10
-            timeoutSeconds: 1
+            timeoutSeconds: 5
+            failureThreshold: 3
 
           command:
             - "accelerate"
