@@ -131,7 +131,7 @@ resource "azurerm_kubernetes_cluster" "aks" {
     #
     # Note: These flags do NOT control *east-west* traffic (service-to-service inside the cluster). East-west traffic management
     # (mTLS, retries, timeouts, circuit breaking, etc.) is handled by the mesh sidecars/control plane once Istio is enabled.
-    internal_ingress_gateway_enabled = false
+    internal_ingress_gateway_enabled = true
     external_ingress_gateway_enabled = true
   }
 
