@@ -7,8 +7,8 @@ This environment demonstrates running [KAITO (Kubernetes AI Toolchain Operator)]
 - [What is KAITO?](#what-is-kaito)
   - [KAITO vs Microsoft Foundry](#kaito-vs-microsoft-foundry)
   - [Architecture](#architecture)
-- [KAITO Preset Models](#kaito-preset-models)
-- [Custom Model Manifests](#custom-model-manifests)
+  - [KAITO Preset Models](#kaito-preset-models)
+  - [Custom Model Manifests](#custom-model-manifests)
 - [Infrastructure Overview](#infrastructure-overview)
   - [POC Model Details](#poc-model-details)
   - [Architecture Diagram](#architecture-diagram)
@@ -61,7 +61,7 @@ KAITO follows the classic Kubernetes CRD/controller pattern. Its major component
 
 KAITO is enabled on this cluster via `ai_toolchain_operator_enabled = true` in Terraform.
 
-## KAITO Preset Models
+### KAITO Preset Models
 
 KAITO includes built-in support for popular open-source models that can be deployed with minimal configuration. Instead of defining a custom inference template, you simply specify the preset name in your workspace manifest.
 
@@ -82,7 +82,7 @@ See the full list: [KAITO Supported Models](https://github.com/kaito-project/kai
 
 An example preset manifest is available at `assets/kubernetes/kaito_preset_model.yaml`.
 
-## Custom Model Manifests
+### Custom Model Manifests
 
 For more advanced deployments, see the example manifests in `assets/kubernetes/`:
 
