@@ -90,36 +90,6 @@ The Terraform configuration (`terraform/main.tf`) provisions:
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-## Deployment
-
-### Prerequisites
-
-- Azure subscription with sufficient VM quota
-- Terraform 1.x installed
-- Azure CLI authenticated (`az login`)
-
-### Deploy
-
-```bash
-cd environments/kaito-on-aks/terraform
-terraform init
-terraform apply
-```
-
-### Get External IP
-
-After deployment, get the LoadBalancer external IP (KAITO creates the service automatically with the workspace name):
-
-```bash
-kubectl get svc bloomz-560m-workspace -n kaito-custom-cpu-inference -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
-```
-
-Or via Terraform output:
-
-```bash
-terraform output get_external_ip_command
-```
-
 ## Testing the Model
 
 Once deployed, you can test the inference endpoint directly from your machine using curl:
@@ -200,9 +170,30 @@ This POC uses **bigscience/bloomz-560m**, a small multilingual instruction-tuned
 | Setting | Value |
 |---------|-------|
 | Model | bigscience/bloomz-560m |
-| VM Size | Standard_D4s_v3 (4 vCPU, 16GB RAM) |
+| VM Size | Standard_D16s_v5 (16 vCPU, 64GB RAM) |
 | Precision | float32 (CPU) |
 | Port | 5000 |
+
+## KAITO Preset Models
+
+KAITO includes built-in support for popular open-source models that can be deployed with minimal configuration. Instead of defining a custom inference template, you simply specify the preset name in your workspace manifest.
+
+**Note:** Preset models require GPU-enabled node pools. Ensure your Azure subscription has sufficient GPU quota.
+
+| Model Family | Examples |
+|--------------|----------|
+| DeepSeek | deepseek-r1 |
+| Falcon | falcon-7b, falcon-40b |
+| Gemma 3 | gemma-3-4b, gemma-3-12b, gemma-3-27b |
+| Llama 3 | llama-3-8b, llama-3-70b, llama-3.1-8b, llama-3.1-70b, llama-3.1-405b |
+| Mistral | mistral-7b, mistral-nemo-12b, mistral-large-2-123b |
+| Phi 3 | phi-3-mini, phi-3-medium |
+| Phi 4 | phi-4 |
+| Qwen | qwen-2.5-7b, qwen-2.5-72b, qwen-2.5-coder-32b |
+
+See the full list: [KAITO Supported Models](https://github.com/kaito-project/kaito/tree/main/presets/workspace/models)
+
+An example preset manifest is available at `assets/kubernetes/kaito_preset_model.yaml`.
 
 ## Custom Model Manifests
 
