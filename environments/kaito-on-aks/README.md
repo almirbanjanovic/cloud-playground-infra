@@ -66,12 +66,7 @@ The Terraform configuration (`terraform/main.tf`) provisions:
   │  (External) │  -d '{"prompt": "What is cloud computing?"}'
   └──────┬──────┘
          │
-         │ HTTP Request
-         ▼
-┌──────────────────────────────────────────────────────────────────────────────┐
-│  Azure Load Balancer (Public IP)                                             │
-└──────────────────────────────────────────────────────────────────────────────┘
-         │
+         │ HTTP Request (port 80)
          ▼
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │  AKS Cluster (kaito-custom-cpu-inference namespace)                          │
@@ -79,6 +74,7 @@ The Terraform configuration (`terraform/main.tf`) provisions:
 │                                                                              │
 │    ┌──────────────────────────────────────────────────────────────────────┐  │
 │    │  bloomz-560m-workspace Service (LoadBalancer via kaito.sh/enablelb)  │  │
+│    │  Creates Azure Load Balancer with Public IP                          │  │
 │    │  Port: 80 -> 5000                                                    │  │
 │    └──────────────────────────────────────────────────────────────────────┘  │
 │                   │                                                          │

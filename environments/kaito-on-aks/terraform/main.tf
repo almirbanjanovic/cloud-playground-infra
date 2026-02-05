@@ -14,15 +14,15 @@ locals {
   cluster_name = "aks-${local.workload}-${local.env}-${local.location}"
 
   # AKS configuration
-  cluster_version        = "1.34.2"
-  default_nodepool_name  = "system"
-  default_nodepool_vm    = "Standard_D2s_v3"
-  kaito_nodepool_vm      = "Standard_D16s_v5"
+  cluster_version           = "1.34.2"
+  default_nodepool_name     = "system"
+  default_nodepool_vm       = "Standard_D2s_v3"
+  custom_cpu_inference_vm   = "Standard_D16s_v5"
 
   # Kubernetes resource names
-  kaito_namespace    = "kaito-custom-cpu-inference"
-  kaito_workspace    = "bloomz-560m-workspace"
-  kaito_app_label    = "bloomz-560m"
+  custom_cpu_inference_namespace = "kaito-custom-cpu-inference"
+  bloomz_560m_workspace          = "bloomz-560m-workspace"
+  bloomz_560m_app_label          = "bloomz-560m"
 
   # Common tags
   common_tags = {
@@ -81,8 +81,10 @@ resource "azurerm_kubernetes_cluster" "this" {
 # Step 2: Create namespace for KAITO workloads
 #------------------------------------------------------------------------------------------------------------------------------
 resource "kubernetes_namespace_v1" "custom_cpu_inference" {
+  count = var.first_run ? 0 : 1
+
   metadata {
-    name = local.kaito_namespace
+    name = local.custom_cpu_inference_namespace
   }
 
   depends_on = [azurerm_kubernetes_cluster.this]
@@ -92,18 +94,23 @@ resource "kubernetes_namespace_v1" "custom_cpu_inference" {
 # Step 3: Deploy KAITO custom model workspace
 #------------------------------------------------------------------------------------------------------------------------------
 resource "kubernetes_manifest" "bloomz_560m" {
+  count = var.first_run ? 0 : 1
+
   manifest = yamldecode(
     templatefile(
       "${path.module}/../assets/kubernetes/kaito_custom_cpu_model.yaml",
       {
-        name         = local.kaito_workspace
-        namespace    = kubernetes_namespace_v1.custom_cpu_inference.metadata[0].name
-        instanceType = local.kaito_nodepool_vm
-        appLabel     = local.kaito_app_label
+        name         = local.bloomz_560m_workspace
+        namespace    = local.custom_cpu_inference_namespace
+        instanceType = local.custom_cpu_inference_vm
+        appLabel     = local.bloomz_560m_app_label
       }
     )
   )
 
-  depends_on = [kubernetes_namespace_v1.custom_cpu_inference]
+  depends_on = [
+    azurerm_kubernetes_cluster.this,
+    kubernetes_namespace_v1.custom_cpu_inference
+  ]
 }
 

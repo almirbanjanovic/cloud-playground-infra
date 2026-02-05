@@ -13,17 +13,17 @@ output "kube_config_command" {
   value       = "az aks get-credentials --resource-group ${var.resource_group_name} --name ${azurerm_kubernetes_cluster.this.name}"
 }
 
-output "kaito_namespace" {
-  description = "Namespace where KAITO workloads are deployed"
-  value       = kubernetes_namespace_v1.custom_cpu_inference.metadata[0].name
+output "custom_cpu_inference_namespace" {
+  description = "Namespace where KAITO custom CPU inference workloads are deployed"
+  value       = var.first_run ? null : kubernetes_namespace_v1.custom_cpu_inference[0].metadata[0].name
 }
 
-output "kaito_workspace" {
-  description = "Name of the KAITO workspace (also the LoadBalancer service name)"
-  value       = local.kaito_workspace
+output "bloomz_560m_workspace" {
+  description = "Name of the BLOOMZ 560M workspace (also the LoadBalancer service name)"
+  value       = local.bloomz_560m_workspace
 }
 
 output "get_external_ip_command" {
   description = "Command to get the external IP of the KAITO LoadBalancer"
-  value       = "kubectl get svc ${local.kaito_workspace} -n ${kubernetes_namespace_v1.custom_cpu_inference.metadata[0].name} -o jsonpath='{.status.loadBalancer.ingress[0].ip}'"
+  value       = "kubectl get svc ${local.bloomz_560m_workspace} -n ${local.custom_cpu_inference_namespace} -o jsonpath='{.status.loadBalancer.ingress[0].ip}'"
 }
