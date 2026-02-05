@@ -10,12 +10,42 @@ For this POC, we use the AI-conformant cluster as the foundation for running KAI
 
 ## What is KAITO?
 
-[KAITO](https://github.com/kaito-project/kaito) simplifies running AI/ML inference on Kubernetes by:
+[KAITO (Kubernetes AI Toolchain Operator)](https://github.com/kaito-project/kaito) is an operator that automates AI/ML model inference and tuning workloads in Kubernetes. It simplifies running AI/ML inference by:
 
 - **Automatic node provisioning** - Spins up GPU/CPU nodes based on model requirements
 - **Model lifecycle management** - Downloads weights, manages inference server lifecycle
 - **Preset models** - Built-in support for popular models (Llama, Mistral, Falcon, Phi, etc.)
 - **Custom models** - Deploy your own models from HuggingFace, Azure Blob Storage, Azure Files, or Azure ML Model Registry
+- **OpenAI-compatible API** - Provides a standard interface for inference calls
+- **Multiple inference runtimes** - Supports vLLM and transformers
+
+### Architecture
+
+![KAITO Architecture](https://raw.githubusercontent.com/kaito-project/kaito/main/website/static/img/arch.png)
+
+KAITO follows the classic Kubernetes CRD/controller pattern. Its major components are:
+
+- **Workspace controller** - Reconciles the Workspace custom resource, triggers node provisioning via NodeClaim CRDs, and creates inference/tuning workloads based on model preset configurations
+- **Node provisioner controller (gpu-provisioner)** - Uses Karpenter-core NodeClaim CRD to integrate with Azure Resource Manager APIs, automatically adding GPU nodes to AKS clusters
+
+*Source: [KAITO GitHub](https://github.com/kaito-project/kaito)*
+
+### KAITO vs Azure AI Foundry
+
+You might wonder: why use KAITO when [Azure AI Foundry](https://ai.azure.com) offers thousands of models for inference?
+
+| Consideration | KAITO | Azure AI Foundry |
+|---------------|-------|------------------|
+| **Data sovereignty** | Models run in your cluster, data never leaves your network | Data sent to Microsoft-managed endpoints |
+| **Cost model** | Pay for VM compute only, no per-token charges | Pay-per-token or provisioned throughput |
+| **Customization** | Full control over inference parameters, batching, quantization | Limited to provider-exposed options |
+| **Latency** | In-cluster inference, minimal network hops | Network round-trip to external endpoint |
+| **Compliance** | Easier to meet strict regulatory requirements (HIPAA, FedRAMP, etc.) | Depends on service compliance certifications |
+| **Model selection** | Any HuggingFace or custom model | Curated catalog of supported models |
+
+**Use KAITO when**: You need data to stay in your environment, want predictable costs at scale, require custom model configurations, or have strict compliance requirements.
+
+**Use Azure AI Foundry when**: You want managed infrastructure, need access to proprietary models (GPT-4, Claude), prefer pay-per-use pricing, or don't want to manage GPU infrastructure.
 
 KAITO is enabled on this cluster via `ai_toolchain_operator_enabled = true` in Terraform.
 
