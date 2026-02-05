@@ -18,6 +18,7 @@ You might wonder: why use KAITO when [Microsoft Foundry](https://ai.azure.com) o
 
 | Consideration | KAITO | Microsoft Foundry |
 |---------------|-------|------------------|
+| **Service model** | PaaS - you manage cluster and model deployments | PaaS - you consume models via APIs |
 | **Data sovereignty** | Models run in your cluster, data never leaves your network | Data sent to Microsoft-managed endpoints |
 | **Cost model** | Pay for VM compute only, no per-token charges | Pay-per-token or provisioned throughput |
 | **Customization** | Full control over inference parameters, batching, quantization | Limited to provider-exposed options |
