@@ -23,7 +23,7 @@ You might wonder: why use KAITO when [Microsoft Foundry](https://ai.azure.com) o
 | **Customization** | Full control over inference parameters, batching, quantization | Limited to provider-exposed options |
 | **Latency** | In-cluster inference, minimal network hops | Network round-trip to external endpoint |
 | **Compliance** | Easier to meet strict regulatory requirements (HIPAA, FedRAMP, etc.) | Depends on service compliance certifications |
-| **Model selection** | Any HuggingFace or custom model | Curated catalog of supported models |
+| **Model selection** | Full control - any model from HuggingFace, Azure Blob/Files, Azure ML Registry, or private registries | Curated catalog with regional availability limitations (not all models available in all regions) |
 
 **Use KAITO when**: You need data to stay in your environment, want predictable costs at scale, require custom model configurations, or have strict compliance requirements.
 
