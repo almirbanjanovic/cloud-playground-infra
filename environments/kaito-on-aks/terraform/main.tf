@@ -111,25 +111,19 @@ resource "kubernetes_manifest" "kaito_workspace" {
 #------------------------------------------------------------------------------------------------------------------------------
 # Step 4: Create LoadBalancer service for external access (no curl-pod needed)
 #------------------------------------------------------------------------------------------------------------------------------
-resource "kubernetes_service_v1" "kaito_external" {
-  metadata {
-    name      = local.kaito_service
-    namespace = kubernetes_namespace_v1.kaito.metadata[0].name
-  }
-
-  spec {
-    selector = {
-      app = local.kaito_app_label
-    }
-
-    port {
-      port        = 80
-      target_port = 5000
-      protocol    = "TCP"
-    }
-
-    type = "LoadBalancer"
-  }
+resource "kubernetes_manifest" "kaito_external" {
+  manifest = yamldecode(
+    templatefile(
+      "${path.module}/../assets/kubernetes/kaito_external_service.yaml",
+      {
+        name       = local.kaito_service
+        namespace  = kubernetes_namespace_v1.kaito.metadata[0].name
+        appLabel   = local.kaito_app_label
+        port       = 80
+        targetPort = 5000
+      }
+    )
+  )
 
   depends_on = [kubernetes_manifest.kaito_workspace]
 }
