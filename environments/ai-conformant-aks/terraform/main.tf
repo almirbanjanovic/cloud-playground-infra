@@ -31,6 +31,9 @@ data "azurerm_client_config" "current" {}
 #------------------------------------------------------------------------------------------------------------------------------
 # Step 1: Register the ManagedGPUExperiencePreview feature, Subscription Feature Registration (SFR)
 # Equivalent to running: az feature register --namespace Microsoft.ContainerService --name ManagedGPUExperiencePreview
+#
+# Required for: AI Conformance (GPU workloads)
+# Optional for: KAITO (only needed if using GPU-based models; CPU-only models don't require this)
 #------------------------------------------------------------------------------------------------------------------------------
 
 resource "azapi_resource_action" "managed_gpu_experience_preview_sfr" {
@@ -44,6 +47,9 @@ resource "azapi_resource_action" "managed_gpu_experience_preview_sfr" {
 #------------------------------------------------------------------------------------------------------------------------------
 # Step 2: Register the ManagedGatewayAPIPreview feature
 # Equivalent to running: az feature register --namespace "Microsoft.ContainerService" --name "ManagedGatewayAPIPreview"
+#
+# Required for: AI Conformance (advanced traffic routing for inference endpoints)
+# Optional for: KAITO (not required, but useful for canary deployments and A/B testing models)
 #------------------------------------------------------------------------------------------------------------------------------
 
 resource "azapi_resource_action" "managed_gateway_api_preview_sfr" {
@@ -56,6 +62,8 @@ resource "azapi_resource_action" "managed_gateway_api_preview_sfr" {
 
 #------------------------------------------------------------------------------------------------------------------------------
 # Step 3: Wait for feature registration to propagate (using time_sleep as a simple approach)
+#
+# Required for: Both (ensures feature flags are active before cluster creation)
 #------------------------------------------------------------------------------------------------------------------------------
 
 resource "time_sleep" "wait_for_features" {
@@ -68,6 +76,12 @@ resource "time_sleep" "wait_for_features" {
 
 #------------------------------------------------------------------------------------------------------------------------------
 # Step 4: Create AKS Cluster with Kubernetes 1.34
+#
+# Required for: Both
+#   - AI Conformance: Requires Kubernetes 1.34+ for DRA, Gang Scheduling, and GPU features
+#   - KAITO: Enabled via ai_toolchain_operator_enabled = true
+#   - Istio: Optional, enables service mesh for mTLS and traffic management
+#   - Workload Identity: Optional, enables secure pod-to-Azure authentication (used by KAITO custom model options)
 #------------------------------------------------------------------------------------------------------------------------------
 
 
@@ -123,16 +137,13 @@ resource "azurerm_kubernetes_cluster" "aks" {
     mode      = "Istio"
     revisions = ["asm-1-28"] # Specify the ASM revision to use (https://learn.microsoft.com/en-us/azure/aks/istio-about)
 
-    # Ingress gateways control *north-south* traffic (client/user -> cluster -> services).
-    # - external_ingress_gateway_enabled=true provisions a managed Istio ingress gateway for traffic entering the cluster
-    #   from outside (typically via a Public LB). Use this when you want Istio to be your primary external entry point.
-    # - internal_ingress_gateway_enabled=true provisions a separate managed *internal/private* ingress gateway
-    #   (typically backed by an Internal LB) for private/VNet-only entry. Use this for internal services not exposed publicly.
+    # Pre-provisioned ingress gateways are NOT needed when using Gateway API.
+    # Gateway API with gatewayClassName: istio uses "automated deployment" - Istio creates
+    # new gateway pods dynamically when you apply a Gateway CR.
     #
-    # Note: These flags do NOT control *east-west* traffic (service-to-service inside the cluster). East-west traffic management
-    # (mTLS, retries, timeouts, circuit breaking, etc.) is handled by the mesh sidecars/control plane once Istio is enabled.
-    internal_ingress_gateway_enabled = true
-    external_ingress_gateway_enabled = true
+    # Only enable these if you need Istio-native Gateway/VirtualService CRDs instead of Gateway API.
+    internal_ingress_gateway_enabled = false
+    external_ingress_gateway_enabled = false
   }
 
   # Enable KAITO
@@ -147,7 +158,45 @@ resource "azurerm_kubernetes_cluster" "aks" {
 }
 
 #------------------------------------------------------------------------------------------------------------------------------
-# Step 5: Add GPU Node Pool
+# Step 5: Gateway API Gateway - Configures the ingress gateway to accept traffic
+# Uses Kubernetes-standard Gateway API (required for AI Conformance) instead of Istio-native CRDs.
+#
+# IMPORTANT: With gatewayClassName: istio, Istio's "automated deployment" model creates NEW gateway
+# pods dynamically (named <gateway-name>-istio). This is DIFFERENT from the AKS-managed ingress
+# gateways (aks-istio-ingressgateway-external) which are used with Istio-native Gateway CRDs.
+#
+# The automated model creates: Deployment, Service (LoadBalancer), HPA, and PDB for the gateway.
+#
+# Required for: AI Conformance (Gateway API is part of the conformance spec)
+# Optional for: KAITO (provides external access to inference endpoints)
+#
+# Docs: https://learn.microsoft.com/en-us/azure/aks/istio-gateway-api
+#------------------------------------------------------------------------------------------------------------------------------
+resource "kubernetes_manifest" "gateway_api_gateway" {
+  manifest = yamldecode(
+    templatefile(
+      "${path.module}/../assets/kubernetes/gateway_api_gateway.yaml",
+      {
+        name      = "inference-gateway"
+        namespace = kubernetes_namespace_v1.custom_cpu_model.metadata[0].name
+        port      = 80
+      }
+    )
+  )
+
+  depends_on = [
+    azurerm_kubernetes_cluster.aks,
+    azapi_update_resource.gateway_api,
+    kubernetes_namespace_v1.custom_cpu_model
+  ]
+}
+
+#------------------------------------------------------------------------------------------------------------------------------
+# Step 6: Add GPU Node Pool
+#
+# Required for: AI Conformance (GPU workloads, DRA, GPU autoscaling)
+# Optional for: KAITO (required for GPU models, not needed for CPU-only inference like this POC)
+# Note: This POC uses D-series (CPU-only) VMs. For production GPU workloads, use NC/ND-series SKUs.
 #------------------------------------------------------------------------------------------------------------------------------
 
 resource "azurerm_kubernetes_cluster_node_pool" "gpu" {
@@ -180,7 +229,10 @@ resource "azurerm_kubernetes_cluster_node_pool" "gpu" {
 }
 
 #------------------------------------------------------------------------------------------------------------------------------
-# Step 6. Enable Prometheus metrics
+# Step 7: Enable Prometheus metrics
+#
+# Required for: AI Conformance (observability requirement for GPU and cluster metrics)
+# Optional for: KAITO (useful for monitoring inference workloads, but not required)
 #------------------------------------------------------------------------------------------------------------------------------
 
 resource "azurerm_monitor_workspace" "this" {
@@ -502,7 +554,10 @@ EOF
 }
 
 #------------------------------------------------------------------------------------------------------------------------------
-# Step 7: Enable Gateway API
+# Step 8: Enable Gateway API
+#
+# Required for: AI Conformance (advanced traffic routing for AI inference endpoints)
+# Optional for: KAITO (not required, but enables canary deployments and header-based routing)
 #------------------------------------------------------------------------------------------------------------------------------
 
 resource "azapi_update_resource" "gateway_api" {
@@ -523,7 +578,10 @@ resource "azapi_update_resource" "gateway_api" {
 }
 
 #------------------------------------------------------------------------------------------------------------------------------
-# Step 8: Deploy KAITO models via Terraform Kubernetes Provider
+# Step 9: Deploy KAITO models via Terraform Kubernetes Provider
+#
+# Required for: KAITO
+# Optional for: AI Conformance (KAITO is one of many AI operators supported by AI Conformance)
 #------------------------------------------------------------------------------------------------------------------------------
 resource "kubernetes_namespace_v1" "custom_cpu_model" {
   metadata {
@@ -532,6 +590,35 @@ resource "kubernetes_namespace_v1" "custom_cpu_model" {
 
   depends_on = [
     azurerm_kubernetes_cluster.aks
+  ]
+}
+
+#------------------------------------------------------------------------------------------------------------------------------
+# Gateway API HTTPRoute - Routes traffic from the Gateway to the KAITO service
+# Uses Kubernetes-standard HTTPRoute (required for AI Conformance) instead of Istio VirtualService.
+#
+# Required for: AI Conformance (Gateway API routing is part of the conformance spec)
+# Optional for: KAITO (provides external HTTP access to inference endpoint)
+#------------------------------------------------------------------------------------------------------------------------------
+resource "kubernetes_manifest" "gateway_api_httproute" {
+  manifest = yamldecode(
+    templatefile(
+      "${path.module}/../assets/kubernetes/gateway_api_httproute.yaml",
+      {
+        name           = "kaito-httproute"
+        namespace      = kubernetes_namespace_v1.custom_cpu_model.metadata[0].name
+        gatewayName    = "inference-gateway"
+        pathPrefix     = "/"
+        backendService = "cpu-only-workspace"
+        backendPort    = 80
+        requestTimeout = "120s"
+      }
+    )
+  )
+
+  depends_on = [
+    kubernetes_manifest.gateway_api_gateway,
+    kubernetes_manifest.custom_model
   ]
 }
 

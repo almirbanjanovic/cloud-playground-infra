@@ -263,6 +263,73 @@ The Terraform configuration (`terraform/main.tf`) provisions:
 - **Gateway API** - Advanced routing for inference endpoints
 - **Prometheus Monitoring** - Azure Monitor with recording rules
 
+### Gateway API + Istio Traffic Flow
+
+This cluster uses **Gateway API** (the Kubernetes standard for AI Conformance) with **Istio** as the implementation. See [terraform/main.tf](terraform/main.tf) for the full configuration.
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                     GATEWAY API WITH ISTIO IMPLEMENTATION                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ┌────────────────────────────────────────────────────────────────────────┐  │
+│  │                            CONTROL PLANE                               │  │
+│  │                                                                        │  │
+│  │   You Create (Gateway API CRDs)            Istio Control Plane         │  │
+│  │   ┌───────────────────────────┐           ┌───────────────────────┐    │  │
+│  │   │ Gateway CR                │           │ istiod                │    │  │
+│  │   │ (Kubernetes standard)     │---------->│ - Watches Gateway     │    │  │
+│  │   │                           │           │ - Creates Envoy pods  │    │  │
+│  │   │ HTTPRoute CR              │           │ - Configures routing  │    │  │
+│  │   │ (Kubernetes standard)     │           └───────────────────────┘    │  │
+│  │   └───────────────────────────┘                     │                  │  │
+│  │                                                     │                  │  │
+│  │   gatewayClassName: istio  ◄────────────────────────┘                  │  │
+│  │   (tells K8s to use Istio as the implementation)                       │  │
+│  │                                                                        │  │
+│  └────────────────────────────────────────────────────────────────────────┘  │
+│                                          │                                   │
+│                                          │ Istio auto-creates                │
+│                                          ▼                                   │
+│  ┌────────────────────────────────────────────────────────────────────────┐  │
+│  │                             DATA PLANE                                 │  │
+│  │                                                                        │  │
+│  │   External Traffic                                                     │  │
+│  │        │                                                               │  │
+│  │        ▼                                                               │  │
+│  │   ┌───────────────────────────────────┐  (Auto-created by Istio)       │  │
+│  │   │ inference-gateway-istio           │                                │  │
+│  │   │ ├─ Deployment (Envoy proxy)       │                                │  │
+│  │   │ ├─ Service (LoadBalancer)         │  ◄── Gets external IP          │  │
+│  │   │ ├─ HPA (2-5 replicas)             │                                │  │
+│  │   │ └─ PDB (minAvailable: 1)          │                                │  │
+│  │   └───────────────────────────────────┘                                │  │
+│  │                    │                                                   │  │
+│  │                    │ Routes: /  →  cpu-only-workspace:80               │  │
+│  │                    ▼                                                   │  │
+│  │   ┌───────────────────────────────────┐                                │  │
+│  │   │ cpu-only-workspace Service        │  (bloomz namespace)            │  │
+│  │   │ KAITO inference endpoint          │                                │  │
+│  │   └───────────────────────────────────┘                                │  │
+│  │                                                                        │  │
+│  └────────────────────────────────────────────────────────────────────────┘  │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+**How it works:**
+1. **Gateway API** provides the Kubernetes-standard CRDs (`Gateway`, `HTTPRoute`)
+2. **Istio** is the implementation that watches these CRDs
+3. When you create a `Gateway` with `gatewayClassName: istio`, Istio automatically creates Envoy proxy pods
+4. `HTTPRoute` defines routing rules that Istio configures into the Envoy proxies
+
+**Why this approach?**
+- ✅ **AI Conformance** - Uses Kubernetes-standard Gateway API
+- ✅ **Portable** - Gateway/HTTPRoute specs work with any Gateway API implementation
+- ✅ **Istio features** - Still get mTLS, observability, and traffic management
+
+*Docs: [AKS Istio Gateway API](https://learn.microsoft.com/en-us/azure/aks/istio-gateway-api)*
+
 ### Node Pools
 
 | Pool | Purpose | VM Size | Scaling | Notes |
