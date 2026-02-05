@@ -20,9 +20,8 @@ locals {
   kaito_nodepool_vm      = "Standard_D16s_v5"
 
   # Kubernetes resource names
-  kaito_namespace    = "kaito"
-  kaito_workspace    = "bloomz-workspace"
-  kaito_service      = "bloomz-external"
+  kaito_namespace    = "kaito-custom-cpu-inference"
+  kaito_workspace    = "bloomz-560m-workspace"
   kaito_app_label    = "bloomz-560m"
 
   # Common tags
@@ -108,22 +107,3 @@ resource "kubernetes_manifest" "kaito_workspace" {
   depends_on = [kubernetes_namespace_v1.kaito]
 }
 
-#------------------------------------------------------------------------------------------------------------------------------
-# Step 4: Create LoadBalancer service for external access (no curl-pod needed)
-#------------------------------------------------------------------------------------------------------------------------------
-resource "kubernetes_manifest" "kaito_external" {
-  manifest = yamldecode(
-    templatefile(
-      "${path.module}/../assets/kubernetes/kaito_external_service.yaml",
-      {
-        name       = local.kaito_service
-        namespace  = kubernetes_namespace_v1.kaito.metadata[0].name
-        appLabel   = local.kaito_app_label
-        port       = 80
-        targetPort = 5000
-      }
-    )
-  )
-
-  depends_on = [kubernetes_manifest.kaito_workspace]
-}

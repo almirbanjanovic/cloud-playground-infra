@@ -47,8 +47,9 @@ KAITO is enabled on this cluster via `ai_toolchain_operator_enabled = true` in T
 The Terraform configuration (`terraform/main.tf`) provisions:
 
 - **AKS Cluster** - Kubernetes 1.31 with KAITO enabled
-- **KAITO Workspace** - Custom model deployment (bigscience/bloomz-560m)
-- **LoadBalancer Service** - External access to the inference endpoint
+- **KAITO Workspace** - Custom model deployment (bigscience/bloomz-560m) with `kaito.sh/enablelb: "True"` annotation for automatic LoadBalancer creation
+
+> **Note:** The `kaito.sh/enablelb` annotation automatically creates a LoadBalancer service with a public IP. This is for **testing only** and is NOT recommended for production. For production, use an Ingress Controller to safely expose the service.
 
 ### Architecture Diagram
 
@@ -70,17 +71,17 @@ The Terraform configuration (`terraform/main.tf`) provisions:
          │
          ▼
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│  AKS Cluster (kaito namespace)                                               │
+│  AKS Cluster (kaito-custom-cpu-inference namespace)                          │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │    ┌──────────────────────────────────────────────────────────────────────┐  │
-│    │  kaito-external Service (LoadBalancer)                               │  │
+│    │  bloomz-560m-workspace Service (LoadBalancer via kaito.sh/enablelb)  │  │
 │    │  Port: 80 -> 5000                                                    │  │
 │    └──────────────────────────────────────────────────────────────────────┘  │
 │                   │                                                          │
 │                   ▼                                                          │
 │    ┌──────────────────────────────────────────────────────────────────────┐  │
-│    │  bloomz-workspace Pod (KAITO Inference)                              │  │
+│    │  bloomz-560m-workspace Pod (KAITO Inference)                         │  │
 │    │  ├─ Model: bigscience/bloomz-560m                                    │  │
 │    │  ├─ Runtime: HuggingFace Accelerate + PyTorch                        │  │
 │    │  └─ Endpoints: /chat, /health, /metrics                              │  │
@@ -107,10 +108,10 @@ terraform apply
 
 ### Get External IP
 
-After deployment, get the LoadBalancer external IP:
+After deployment, get the LoadBalancer external IP (KAITO creates the service automatically with the workspace name):
 
 ```bash
-kubectl get svc bloomz-external -n kaito -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+kubectl get svc bloomz-560m-workspace -n kaito-custom-cpu-inference -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
 ```
 
 Or via Terraform output:
@@ -126,8 +127,8 @@ Once deployed, you can test the inference endpoint directly from your machine us
 **1. Set the external IP:**
 
 ```bash
-# Get the external IP
-KAITO_IP=$(kubectl get svc bloomz-external -n kaito -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+# Get the external IP (service name matches workspace name)
+KAITO_IP=$(kubectl get svc bloomz-560m-workspace -n kaito-custom-cpu-inference -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
 echo "KAITO endpoint: http://$KAITO_IP"
 ```
 
