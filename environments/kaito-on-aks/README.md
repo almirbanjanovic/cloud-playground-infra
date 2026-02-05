@@ -8,12 +8,12 @@ This environment demonstrates running [KAITO (Kubernetes AI Toolchain Operator)]
   - [KAITO vs Microsoft Foundry](#kaito-vs-microsoft-foundry)
   - [Architecture](#architecture)
 - [Infrastructure Overview](#infrastructure-overview)
+  - [POC Model Details](#poc-model-details)
   - [Architecture Diagram](#architecture-diagram)
 - [Configure kubectl](#configure-kubectl)
 - [Testing the Model](#testing-the-model)
   - [Testing with LoadBalancer](#testing-with-loadbalancer)
   - [Testing without LoadBalancer](#testing-without-loadbalancer)
-- [Model Details](#model-details)
 - [KAITO Preset Models](#kaito-preset-models)
 - [Custom Model Manifests](#custom-model-manifests)
 - [Resources](#resources)
@@ -69,6 +69,17 @@ The Terraform configuration (`terraform/main.tf`) provisions:
 - **KAITO Workspace** - Custom model deployment (bigscience/bloomz-560m) with `kaito.sh/enablelb: "True"` annotation for automatic LoadBalancer creation
 
 > **Note:** The `kaito.sh/enablelb` annotation automatically creates a LoadBalancer service with a public IP. This is for **testing only** and is NOT recommended for production. For production, use an Ingress Controller to safely expose the service.
+
+### POC Model Details
+
+This POC uses **bigscience/bloomz-560m**, a small multilingual instruction-tuned model (~2.2GB). It runs on CPU for simplicity (no GPU quota required).
+
+| Setting | Value |
+|---------|-------|
+| Model | bigscience/bloomz-560m |
+| VM Size | Standard_D16s_v5 (16 vCPU, 64GB RAM) |
+| Precision | float32 (CPU) |
+| Port | 5000 |
 
 ### Architecture Diagram
 
@@ -224,17 +235,6 @@ curl -X POST http://bloomz-560m-workspace:80/chat \
 exit
 kubectl delete pod curl-debug -n kaito-custom-cpu-inference
 ```
-
-## Model Details
-
-This POC uses **bigscience/bloomz-560m**, a small multilingual instruction-tuned model (~2.2GB). It runs on CPU for simplicity (no GPU quota required).
-
-| Setting | Value |
-|---------|-------|
-| Model | bigscience/bloomz-560m |
-| VM Size | Standard_D16s_v5 (16 vCPU, 64GB RAM) |
-| Precision | float32 (CPU) |
-| Port | 5000 |
 
 ## KAITO Preset Models
 
