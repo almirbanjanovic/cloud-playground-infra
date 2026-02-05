@@ -7,7 +7,7 @@ resource:
   instanceType: ${instanceType}
   labelSelector:
     matchLabels:
-      kubernetes.azure.com/agentpool: ${agentpool}
+      apps: ${appLabel}
 inference:
   preset:
     name: ${presetName}

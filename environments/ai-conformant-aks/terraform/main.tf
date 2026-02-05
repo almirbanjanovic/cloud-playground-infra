@@ -124,10 +124,10 @@ resource "azurerm_kubernetes_cluster" "aks" {
     revisions = ["asm-1-28"] # Specify the ASM revision to use (https://learn.microsoft.com/en-us/azure/aks/istio-about)
 
     # Ingress gateways control *north-south* traffic (client/user -> cluster -> services).
-    # - external_ingress_gateway_enabled=true provisions a managed Istio ingress gateway meant for traffic entering the cluster
+    # - external_ingress_gateway_enabled=true provisions a managed Istio ingress gateway for traffic entering the cluster
     #   from outside (typically via a Public LB). Use this when you want Istio to be your primary external entry point.
-    # - internal_ingress_gateway_enabled=false means we are NOT provisioning a separate managed *internal/private* ingress gateway
-    #   (typically backed by an Internal LB) for private/VNet-only entry.
+    # - internal_ingress_gateway_enabled=true provisions a separate managed *internal/private* ingress gateway
+    #   (typically backed by an Internal LB) for private/VNet-only entry. Use this for internal services not exposed publicly.
     #
     # Note: These flags do NOT control *east-west* traffic (service-to-service inside the cluster). East-west traffic management
     # (mTLS, retries, timeouts, circuit breaking, etc.) is handled by the mesh sidecars/control plane once Istio is enabled.
@@ -543,6 +543,7 @@ resource "kubernetes_manifest" "custom_model" {
         name         = "cpu-only-workspace"
         namespace    = kubernetes_namespace_v1.custom_cpu_model.metadata[0].name
         instanceType = local.kaito_vm_size
+        appLabel     = "bloomz-560m"
       }
     )
   )

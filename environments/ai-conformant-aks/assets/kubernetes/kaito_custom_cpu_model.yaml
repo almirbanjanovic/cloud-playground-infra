@@ -5,10 +5,10 @@ metadata:
   namespace: ${namespace}
 
 resource:
-  instanceType: ${instanceType}   # Standard_D16s_v5 used for bloomz-560m CPU inference
+  instanceType: ${instanceType}   # Standard_D16s_v5 used for CPU inference
   labelSelector:
     matchLabels:
-      apps: bloomz-560m 
+      apps: ${appLabel}
 
 inference:
   template:
