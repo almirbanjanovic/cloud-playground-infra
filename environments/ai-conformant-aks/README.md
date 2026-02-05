@@ -17,7 +17,7 @@ For this POC, we use the AI-conformant cluster as the foundation for running KAI
 - **Preset models** - Built-in support for popular models (Llama, Mistral, Falcon, Phi, etc.)
 - **Custom models** - Deploy your own models from HuggingFace, Azure Blob Storage, Azure Files, or Azure ML Model Registry
 - **OpenAI-compatible API** - Provides a standard interface for inference calls
-- **Multiple inference runtimes** - Supports vLLM and transformers
+
 
 ### KAITO vs Microsoft Foundry
 
@@ -51,13 +51,9 @@ KAITO is enabled on this cluster via `ai_toolchain_operator_enabled = true` in T
 
 ## Preset Model Manifests
 
-KAITO includes **preset models** - pre-configured Workspace definitions for popular open-source models. These presets handle all the complexity for you:
+KAITO offers preset models - pre-configured Workspace definitions for popular open-source models like Llama, Mistral, Falcon, and Phi. See [kaito_preset_model.yaml](assets/kubernetes/kaito_preset_model.yaml) for an example.
 
-- **Optimized configurations** - Correct VM sizes, memory limits, and GPU requirements
-- **Model-specific settings** - Proper tensor precision, tokenizer configs, and inference parameters
-- **Automatic node provisioning** - KAITO provisions the right node type based on the preset
-
-See the full list of supported presets and example manifests: [KAITO Supported Models](https://github.com/kaito-project/kaito/tree/main/presets/workspace/models)
+Full list of supported presets: [KAITO Supported Models](https://github.com/kaito-project/kaito/tree/main/presets/workspace/models)
 
 ## Custom Model Manifests
 
