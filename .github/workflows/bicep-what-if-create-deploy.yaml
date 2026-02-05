@@ -5,10 +5,9 @@ on:
       environment:
         description: 'Select environment'
         required: true
-        default: ai-conformant-aks
+        default: apim-lab
         type: choice
         options:
-          - ai-conformant-aks
           - ai-foundry
           - apim-lab
           - apim-mcp

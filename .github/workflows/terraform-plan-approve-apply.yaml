@@ -5,10 +5,10 @@ on:
       environment:
         description: 'Select environment'
         required: true
-        default: ai-conformant-aks
+        default: kaito-on-aks
         type: choice
         options:
-          - ai-conformant-aks
+          - kaito-on-aks
           - ai-foundry
           - apim-lab
           - apim-mcp

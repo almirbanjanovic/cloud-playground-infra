@@ -8,7 +8,7 @@ resource:
   instanceType: ${instanceType}   # Standard_D16s_v5 used for CPU inference
   labelSelector:
     matchLabels:
-      apps: ${appLabel}
+      app: ${appLabel}
 
 inference:
   template:
