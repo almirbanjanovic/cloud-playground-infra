@@ -66,6 +66,7 @@ KAITO is enabled on this cluster via `ai_toolchain_operator_enabled = true` in T
 The Terraform configuration (`terraform/main.tf`) provisions:
 
 - **AKS Cluster** - Kubernetes 1.31 with KAITO enabled
+- **Kubernetes Namespace** - `kaito-custom-cpu-inference` for isolating KAITO workloads
 - **KAITO Workspace** - Custom model deployment (bigscience/bloomz-560m) with `kaito.sh/enablelb: "True"` annotation for automatic LoadBalancer creation
 
 > **Note:** The `kaito.sh/enablelb` annotation automatically creates a LoadBalancer service with a public IP. This is for **testing only** and is NOT recommended for production. For production, use an Ingress Controller to safely expose the service.
