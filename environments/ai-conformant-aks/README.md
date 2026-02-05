@@ -330,6 +330,96 @@ This cluster uses **Gateway API** (the Kubernetes standard for AI Conformance) w
 
 *Docs: [AKS Istio Gateway API](https://learn.microsoft.com/en-us/azure/aks/istio-gateway-api)*
 
+### End-to-End Inference Flow
+
+This diagram shows the complete request flow from an external client to the KAITO model and back:
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                         END-TO-END INFERENCE FLOW                            │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+  ┌─────────────┐
+  │   Client    │  curl -X POST http://<EXTERNAL-IP>/chat
+  │  (External) │  -d '{"prompt": "What is cloud computing?"}'
+  └──────┬──────┘
+         │
+         │ 1. HTTP Request
+         ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  Azure Load Balancer                                                         │
+│  (Public IP: <EXTERNAL-IP>)                                                  │
+└──────────────────────────────────────────────────────────────────────────────┘
+         │
+         │ 2. Routes to NodePort
+         ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  AKS Cluster (bloomz namespace)                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│    ┌──────────────────────────────────────────────────────────────────────┐  │
+│    │  inference-gateway-istio Service (LoadBalancer)                      │  │
+│    │  Port: 80                                                            │  │
+│    └──────────────────────────────────────────────────────────────────────┘  │
+│                   │                                                          │
+│                   │ 3. Forward to Envoy pods                                 │
+│                   ▼                                                          │
+│    ┌──────────────────────────────────────────────────────────────────────┐  │
+│    │  inference-gateway-istio Pods (Envoy Proxy)                          │  │
+│    │  ├─ Receives HTTP request                                            │  │
+│    │  ├─ Matches HTTPRoute rule: PathPrefix "/"                           │  │
+│    │  ├─ Applies timeout: 120s                                            │  │
+│    │  └─ Routes to backend: cpu-only-workspace:80                         │  │
+│    └──────────────────────────────────────────────────────────────────────┘  │
+│                   │                                                          │
+│                   │ 4. Proxy to KAITO service                                │
+│                   ▼                                                          │
+│    ┌──────────────────────────────────────────────────────────────────────┐  │
+│    │  cpu-only-workspace Service (ClusterIP)                              │  │
+│    │  Port: 80 -> 5000                                                    │  │
+│    └──────────────────────────────────────────────────────────────────────┘  │
+│                   │                                                          │
+│                   │ 5. Forward to inference pod                              │
+│                   ▼                                                          │
+│    ┌──────────────────────────────────────────────────────────────────────┐  │
+│    │  cpu-only-workspace-0 Pod (KAITO Inference)                          │  │
+│    │  ├─ Container: inference-api (port 5000)                             │  │
+│    │  ├─ Model: bigscience/bloomz-560m                                    │  │
+│    │  ├─ Runtime: HuggingFace Accelerate + PyTorch                        │  │
+│    │  └─ Endpoint: POST /chat                                             │  │
+│    │                                                                      │  │
+│    │  ┌────────────────────────────────────────────────────────────────┐  │  │
+│    │  │  6. Model Inference                                            │  │  │
+│    │  │  ├─ Tokenize input prompt                                      │  │  │
+│    │  │  ├─ Forward pass through BLOOMZ-560M                           │  │  │
+│    │  │  ├─ Generate tokens (max_length: 64)                           │  │  │
+│    │  │  └─ Decode tokens to text                                      │  │  │
+│    │  └────────────────────────────────────────────────────────────────┘  │  │
+│    │                                                                      │  │
+│    └──────────────────────────────────────────────────────────────────────┘  │
+│                   │                                                          │
+│                   │ 7. Response bubbles back up                              │
+│                   ▼                                                          │
+└──────────────────────────────────────────────────────────────────────────────┘
+         │
+         │ 8. HTTP Response
+         ▼
+  ┌─────────────┐
+  │   Client    │  {"Result": "Cloud computing is a model for enabling..."}
+  │  (External) │
+  └─────────────┘
+```
+
+**Request path:** Client → Load Balancer → Gateway Service → Envoy Pods → KAITO Service → Inference Pod
+
+**Key components:**
+| Component                      | Type         | Purpose                                    |
+|--------------------------------|--------------|--------------------------------------------|
+| inference-gateway-istio        | Service (LB) | External entry point with public IP        |
+| inference-gateway-istio pods   | Envoy Proxy  | HTTP routing, timeouts, load balancing     |
+| cpu-only-workspace             | Service (CI) | Internal service discovery for KAITO       |
+| cpu-only-workspace-0           | Pod          | Runs the actual model inference            |
+
 ### Node Pools
 
 | Pool | Purpose | VM Size | Scaling | Notes |
