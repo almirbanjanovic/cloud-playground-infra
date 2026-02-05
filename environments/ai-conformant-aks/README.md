@@ -1,55 +1,41 @@
-# AI Conformant AKS Cluster
+# KAITO on AI-Conformant AKS
 
-This environment provisions an AI-conformant Azure Kubernetes Service (AKS) cluster using Terraform.
+This environment demonstrates running [KAITO (Kubernetes AI Toolchain Operator)](https://github.com/kaito-project/kaito) on an AI-conformant AKS cluster.
 
-## What is Kubernetes AI Conformance?
+## What is AI Conformance?
 
-The [Kubernetes AI Conformance Program](https://github.com/cncf/k8s-ai-conformance) defines a standard set of capabilities, APIs, and configurations that a Kubernetes cluster must offer to reliably and efficiently run AI and ML workloads. AKS is among the first platforms certified for Kubernetes AI Conformance.
+The [Kubernetes AI Conformance Program](https://github.com/cncf/k8s-ai-conformance) defines a standard set of capabilities that Kubernetes clusters need to reliably run AI/ML workloads. This includes GPU resource allocation, gang scheduling for distributed training, and observability for AI metrics. AKS is among the first platforms certified for AI Conformance.
 
-**Why it matters**: AI workloads have unique challenges around GPU driver compatibility, distributed training scheduling, and inference endpoint scaling. AI Conformance establishes a verified baseline ensuring predictable scaling, hardware optimization, workload portability, and ecosystem compatibility.
+For this POC, we use the AI-conformant cluster as the foundation for running KAITO workloads.
 
-## Key AI Conformance Capabilities
+## What is KAITO?
 
-- **Dynamic Resource Allocation (DRA)**: Flexible GPU resource requests with device-specific characteristics
-- **Gateway API**: Advanced traffic routing for AI inference (canary deployments, header-based routing)
-- **Gang Scheduling**: All-or-nothing pod scheduling for distributed training jobs
-- **GPU Autoscaling**: Intelligent cluster and pod autoscaling based on GPU metrics
-- **Observability**: GPU performance metrics and Prometheus-compatible monitoring
-- **AI Operators**: Support for Kubernetes operators managing training jobs and model servers
+[KAITO](https://github.com/kaito-project/kaito) simplifies running AI/ML inference on Kubernetes by:
 
-## Infrastructure
+- **Automatic node provisioning** - Spins up GPU/CPU nodes based on model requirements
+- **Model lifecycle management** - Downloads weights, manages inference server lifecycle
+- **Preset models** - Built-in support for popular models (Llama, Mistral, Falcon, Phi, etc.)
+- **Custom models** - Deploy your own models from HuggingFace, Azure Blob Storage, Azure Files, or Azure ML Model Registry
 
-This environment's `terraform/main.tf` provisions the following capabilities that map to the Kubernetes AI Conformance spec:
+KAITO is enabled on this cluster via `ai_toolchain_operator_enabled = true` in Terraform.
 
-### Core AKS Configuration
+## Custom Model Manifests
 
-- **Kubernetes 1.34.2 AKS cluster** (AI Conformance requires Kubernetes 1.34+)
-- **Gateway API enabled** (registers `ManagedGatewayAPIPreview` and enables `gatewayAPIEnabled` on the cluster)
-- **Workload Identity enabled** for secure pod-to-Azure-service authentication
-- **OIDC Issuer enabled** for federated identity scenarios
-- **Prometheus-compatible observability** via Azure Monitor
-  - Azure Monitor Workspace + Data Collection Endpoint (DCE)
-  - Data Collection Rule (DCR) streaming `Microsoft-PrometheusMetrics`
-  - DCR/DCE associations to the AKS cluster
-  - Prometheus recording rule groups for **node** and **Kubernetes** metrics
+This environment includes several KAITO Workspace manifests for deploying custom models:
 
-**Note**: `main.tf` also creates a second node pool (`gpunp`) using a **D-series (CPU-only)** VM size. This is intentional for this **POC**, since GPU VM quota/availability can be hard to obtain in many subscriptions/regions. GPU-specific conformance items (GPU drivers/device plugins, DRA/GPU resource requests, and any gang-scheduling operators) are not installed by this Terraform.
+| Manifest | Use Case |
+|----------|----------|
+| [kaito_custom_cpu_model.yaml](assets/kubernetes/kaito_custom_cpu_model.yaml) | Base template for public HuggingFace models |
+| [kaito_option1_hf_private.yaml](assets/kubernetes/kaito_option1_hf_private.yaml) | Private/gated HuggingFace models with HF_TOKEN |
+| [kaito_option2_azure_volume.yaml](assets/kubernetes/kaito_option2_azure_volume.yaml) | Models pre-loaded on Azure Blob/Files storage |
+| [kaito_option3_init_container_blob.yaml](assets/kubernetes/kaito_option3_init_container_blob.yaml) | Download from Azure Blob at startup (workload identity) |
+| [kaito_option4_azureml.yaml](assets/kubernetes/kaito_option4_azureml.yaml) | Download from Azure ML Model Registry |
 
-### KAITO (Kubernetes AI Toolchain Operator)
+## Base Manifest Reference
 
-[KAITO](https://github.com/kaito-project/kaito) is enabled via `ai_toolchain_operator_enabled = true`. KAITO simplifies running AI/ML inference workloads on Kubernetes.
+The base manifest (`kaito_custom_cpu_model.yaml`) is a template populated via Terraform's `templatefile()`.
 
-- Automatically provisioning GPU nodes based on model requirements
-- Managing model weights and inference server lifecycle
-- Supporting popular open-source models (Llama, Mistral, Falcon, Phi, etc.)
-
-See the [KAITO supported models](https://github.com/kaito-project/kaito/tree/main/presets/workspace/models) for available presets.
-
-### KAITO Custom CPU Model Manifest
-
-The `assets/kubernetes/kaito_custom_cpu_model.yaml` manifest deploys a custom KAITO Workspace for CPU-based inference. This is a template file that gets populated via Terraform's `templatefile()` function.
-
-#### Template Variables
+### Template Variables
 
 | Variable | Description | Example Value |
 |----------|-------------|---------------|
@@ -57,28 +43,28 @@ The `assets/kubernetes/kaito_custom_cpu_model.yaml` manifest deploys a custom KA
 | `${namespace}` | Kubernetes namespace | `bloomz` |
 | `${instanceType}` | Azure VM size for the node | `Standard_D16s_v5` |
 
-#### Resource Configuration
+### Resource Configuration
 
 | Setting | Value | Purpose |
 |---------|-------|---------|
 | `instanceType` | `Standard_D16s_v5` | Intel Ice Lake, 16 vCPUs, 64GB RAM |
 | `labelSelector` | `apps: bloomz-560m` | Label for node affinity matching |
 
-#### Container Resources
+### Container Resources
 
 | Resource | Request | Limit | Notes |
 |----------|---------|-------|-------|
 | Memory | 8Gi | 16Gi | Model ~2.2GB + overhead for inference |
 | CPU | 2 | 4 | 4 cores for parallel tensor operations |
 
-#### Environment Variables
+### Environment Variables
 
 | Variable | Value | Purpose |
 |----------|-------|---------|
 | `OMP_NUM_THREADS` | `4` | OpenMP thread count - matches CPU limit to prevent thread over-subscription. Without this, OpenMP spawns threads based on node CPU count, causing contention. |
 | `TOKENIZERS_PARALLELISM` | `false` | Disables HuggingFace tokenizer multi-threading to prevent deadlocks when combined with PyTorch multiprocessing. Safe for inference. |
 
-#### Health Probes
+### Health Probes
 
 | Probe | Initial Delay | Period | Timeout | Failure Threshold |
 |-------|---------------|--------|---------|-------------------|
@@ -87,7 +73,7 @@ The `assets/kubernetes/kaito_custom_cpu_model.yaml` manifest deploys a custom KA
 
 > **Note**: Liveness probe has a 300s initial delay because CPU model loading is slower than GPU.
 
-#### Command & Arguments
+### Command & Arguments
 
 The container uses [HuggingFace Accelerate](https://huggingface.co/docs/accelerate) to launch the inference server.
 
@@ -105,13 +91,13 @@ The container uses [HuggingFace Accelerate](https://huggingface.co/docs/accelera
 | `--pretrained_model_name_or_path` | `bigscience/bloomz-560m` | HuggingFace model ID. BLOOMZ 560M is a multilingual instruction-tuned model (~2.2GB in float32). |
 | `--torch_dtype` | `float32` | Tensor precision. CPU requires `float32` (no native float16 support). Use `float16`/`bfloat16` for GPU. |
 
-#### Shared Memory Volume
+### Shared Memory Volume
 
 | Mount Path | Type | Purpose |
 |------------|------|---------|
 | `/dev/shm` | `emptyDir` (Memory-backed) | PyTorch uses `/dev/shm` for inter-process communication. Docker's default is only 64MB, which causes errors with large tensors. RAM-backed emptyDir provides unlimited shared memory. |
 
-#### Inference Flow
+### Inference Flow
 
 ```
 accelerate launch
@@ -130,7 +116,7 @@ accelerate launch
 > curl -s http://cpu-only-workspace:80/openapi.json | head
 > ```
 
-#### Testing the Model
+## Testing the Model
 
 Once the workspace is deployed and ready, you can test the inference endpoint using a curl pod.
 
@@ -230,50 +216,35 @@ exit
 kubectl delete pod curl-debug -n bloomz
 ```
 
-### Istio Service Mesh
+## Infrastructure Overview
 
-The cluster includes an **Istio-based service mesh** (`asm-1-28` revision) with:
+The Terraform configuration (`terraform/main.tf`) provisions:
 
-- **External Ingress Gateway enabled**: Managed Istio ingress for north-south traffic (external clients → cluster)
-- **mTLS and traffic management**: East-west traffic between services benefits from automatic mTLS, retries, timeouts, and circuit breaking
+- **AKS Cluster** - Kubernetes 1.34.2 with AI Conformance features
+- **KAITO** - Enabled via `ai_toolchain_operator_enabled = true`
+- **Workload Identity** - For secure pod-to-Azure authentication
+- **Istio Service Mesh** - mTLS and traffic management
+- **Gateway API** - Advanced routing for inference endpoints
+- **Prometheus Monitoring** - Azure Monitor with recording rules
 
 ### Node Pools
 
 | Pool | Purpose | VM Size | Scaling | Notes |
 |------|---------|---------|---------|-------|
-| `default` | System workloads | Standard_D2s_v3 | 2-5 nodes | Critical addons only, HA across 3 zones |
-| `gpunp` | GPU/AI workloads | Standard_D16s_v5 | 0-3 nodes | Tagged with `EnableManagedGPUExperience=true` |
+| `default` | System workloads | Standard_D2s_v3 | 2-5 nodes | Critical addons only |
+| `gpunp` | AI workloads | Standard_D16s_v5 | 0-3 nodes | CPU-only for this POC |
 
-**Note**: The GPU node pool uses a **D-series (CPU-only)** VM size for this POC since GPU VM quota/availability can be limited. For production AI workloads, replace with an actual GPU SKU (e.g., `Standard_NC6s_v3`, `Standard_NVads_A10_v5`).
-
-### Gateway API
-
-Gateway API is enabled via the `ManagedGatewayAPIPreview` feature registration. This provides:
-
-- Advanced traffic routing for AI inference endpoints
-- Canary deployments with weighted routing
-- Header-based routing for A/B testing models
-
-### Prometheus Observability
-
-Full Prometheus-compatible monitoring stack:
-
-- **Azure Monitor Workspace** for metric storage
-- **Data Collection Endpoint (DCE)** and **Data Collection Rule (DCR)** streaming `Microsoft-PrometheusMetrics`
-- **Prometheus recording rule groups** for node and Kubernetes metrics (CPU, memory, disk I/O, network)
+> **Note**: The "GPU" node pool uses D-series (CPU-only) VMs for this POC since GPU quota can be limited. For production, use actual GPU SKUs (e.g., `Standard_NC6s_v3`).
 
 ## Prerequisites
 
-- Azure subscription with sufficient quota for the selected VM sizes
+- Azure subscription with sufficient VM quota
 - Terraform 1.x installed
 - Azure CLI authenticated (`az login`)
-- For GPU workloads: Register for GPU VM quota in your region
 
 ## Resources
 
-- [AKS AI Conformance Blog Post](https://blog.aks.azure.com/2025/12/05/kubernetes-ai-conformance-aks)
-- [CNCF AI Conformance Repository](https://github.com/cncf/k8s-ai-conformance)
-- [AKS AI/ML Documentation](https://learn.microsoft.com/azure/aks/ai-ml-overview)
 - [KAITO GitHub Repository](https://github.com/kaito-project/kaito)
 - [KAITO Supported Models](https://github.com/kaito-project/kaito/tree/main/presets/workspace/models)
-- [Istio on AKS Documentation](https://learn.microsoft.com/azure/aks/istio-about)
+- [AKS AI/ML Documentation](https://learn.microsoft.com/azure/aks/ai-ml-overview)
+- [CNCF AI Conformance Repository](https://github.com/cncf/k8s-ai-conformance)

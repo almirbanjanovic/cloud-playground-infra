@@ -1,0 +1,114 @@
+# ============================================================================
+# KAITO Custom Model - Option 2: Azure Blob Storage / Azure Files Volume Mount
+# ============================================================================
+# Use this manifest when your model is pre-downloaded to Azure storage and
+# you want to mount it directly as a volume (no download at startup).
+#
+# Prerequisites:
+#   1. Upload your model files to Azure Blob Storage or Azure Files
+#   2. Enable the appropriate CSI driver on your AKS cluster
+#   3. Create a PVC or configure inline CSI volume
+#
+# Docs:
+#   - Azure Blob CSI: https://learn.microsoft.com/en-us/azure/aks/azure-blob-csi
+#   - Azure Files CSI: https://learn.microsoft.com/en-us/azure/aks/azure-files-csi
+#   - HuggingFace Accelerate: https://huggingface.co/docs/accelerate
+# ============================================================================
+
+apiVersion: kaito.sh/v1beta1
+kind: Workspace
+metadata:
+  name: ${name}
+  namespace: ${namespace}
+
+resource:
+  instanceType: ${instanceType}
+  labelSelector:
+    matchLabels:
+      apps: ${appLabel}
+
+inference:
+  template:
+    spec:
+      containers:
+        - name: custom-llm-container
+          image: mcr.microsoft.com/aks/kaito/kaito-base:0.0.8
+
+          resources:
+            requests:
+              memory: "8Gi"
+              cpu: "2"
+            limits:
+              memory: "16Gi"
+              cpu: "4"
+
+          env:
+            - name: OMP_NUM_THREADS
+              value: "4"
+            - name: TOKENIZERS_PARALLELISM
+              value: "false"
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+              scheme: HTTP
+            initialDelaySeconds: 300
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+              scheme: HTTP
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          command:
+            - "accelerate"
+          args:
+            - "launch"
+            - "--num_processes"
+            - "1"
+            - "--num_machines"
+            - "1"
+            - "tfs/inference_api.py"
+            - "--pipeline"
+            - "text-generation"
+            - "--trust_remote_code"
+            - "--pretrained_model_name_or_path"
+            - "/models/my-custom-model"   # Local path where volume is mounted
+            - "--torch_dtype"
+            - "float32"
+
+          volumeMounts:
+            - name: dshm
+              mountPath: /dev/shm
+            - name: model-volume
+              mountPath: /models/my-custom-model
+
+      volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory
+
+        # --- OPTION A: Azure Files PVC (good for smaller models, easy setup) ---
+        - name: model-volume
+          persistentVolumeClaim:
+            claimName: model-pvc
+
+        # --- OPTION B: Azure Blob CSI (good for large models, better performance) ---
+        # Uncomment below and comment out Option A above
+        # - name: model-volume
+        #   csi:
+        #     driver: blob.csi.azure.com
+        #     volumeAttributes:
+        #       containerName: models
+        #       storageAccount: <your-storage-account>
+        #     nodeStageSecretRef:
+        #       name: azure-storage-secret
+        #       namespace: <namespace>

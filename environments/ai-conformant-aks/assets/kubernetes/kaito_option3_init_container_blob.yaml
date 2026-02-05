@@ -1,0 +1,138 @@
+# ============================================================================
+# KAITO Custom Model - Option 3: Init Container with Azure Blob Download
+# ============================================================================
+# Use this manifest when you want to download models from Azure Blob Storage
+# at pod startup using workload identity for authentication.
+#
+# Prerequisites:
+#   1. Enable workload identity on your AKS cluster
+#   2. Create a managed identity with Storage Blob Data Reader role
+#   3. Create a federated credential linking the managed identity to a K8s service account
+#   4. Create the service account with the workload identity annotation
+#
+# Setup Commands:
+#   # Create service account with workload identity
+#   kubectl create serviceaccount kaito-model-loader -n <namespace>
+#   kubectl annotate serviceaccount kaito-model-loader -n <namespace> \
+#     azure.workload.identity/client-id="<managed-identity-client-id>"
+#
+# Docs:
+#   - AKS Workload Identity: https://learn.microsoft.com/en-us/azure/aks/workload-identity-overview
+#   - Workload Identity Tutorial: https://learn.microsoft.com/en-us/azure/aks/learn/tutorial-kubernetes-workload-identity
+#   - Azure CLI in Containers: https://learn.microsoft.com/en-us/cli/azure/run-azure-cli-docker
+#   - HuggingFace Accelerate: https://huggingface.co/docs/accelerate
+# ============================================================================
+
+apiVersion: kaito.sh/v1beta1
+kind: Workspace
+metadata:
+  name: ${name}
+  namespace: ${namespace}
+
+resource:
+  instanceType: ${instanceType}
+  labelSelector:
+    matchLabels:
+      apps: ${appLabel}
+
+inference:
+  template:
+    metadata:
+      labels:
+        azure.workload.identity/use: "true"    # Required for workload identity
+    spec:
+      serviceAccountName: kaito-model-loader   # Service account with workload identity
+
+      initContainers:
+        - name: download-model
+          image: mcr.microsoft.com/azure-cli:latest
+          command: ["sh", "-c"]
+          args:
+            - |
+              # Authenticate using workload identity (env vars auto-injected by AKS)
+              az login --federated-token "$(cat $AZURE_FEDERATED_TOKEN_FILE)" \
+                --service-principal -u $AZURE_CLIENT_ID -t $AZURE_TENANT_ID
+
+              # Download model from Azure Blob Storage
+              az storage blob download-batch \
+                --destination /models \
+                --source models \
+                --account-name <storage-account>
+
+              # Alternative: Use azcopy for large files (faster for big models)
+              # azcopy copy "https://<account>.blob.core.windows.net/models/*" "/models/" --recursive
+
+              echo "Model downloaded successfully"
+          volumeMounts:
+            - name: model-volume
+              mountPath: /models
+          # Note: AZURE_CLIENT_ID, AZURE_TENANT_ID, and AZURE_FEDERATED_TOKEN_FILE
+          # are automatically injected when using workload identity.
+
+      containers:
+        - name: custom-llm-container
+          image: mcr.microsoft.com/aks/kaito/kaito-base:0.0.8
+
+          resources:
+            requests:
+              memory: "8Gi"
+              cpu: "2"
+            limits:
+              memory: "16Gi"
+              cpu: "4"
+
+          env:
+            - name: OMP_NUM_THREADS
+              value: "4"
+            - name: TOKENIZERS_PARALLELISM
+              value: "false"
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+              scheme: HTTP
+            initialDelaySeconds: 300
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+              scheme: HTTP
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          command:
+            - "accelerate"
+          args:
+            - "launch"
+            - "--num_processes"
+            - "1"
+            - "--num_machines"
+            - "1"
+            - "tfs/inference_api.py"
+            - "--pipeline"
+            - "text-generation"
+            - "--trust_remote_code"
+            - "--pretrained_model_name_or_path"
+            - "/models/my-custom-model"   # Path where init container downloads model
+            - "--torch_dtype"
+            - "float32"
+
+          volumeMounts:
+            - name: dshm
+              mountPath: /dev/shm
+            - name: model-volume
+              mountPath: /models
+
+      volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory
+        - name: model-volume
+          emptyDir: {}    # Ephemeral - model re-downloads on pod restart

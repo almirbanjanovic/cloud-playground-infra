@@ -74,7 +74,7 @@ inference:
 
             # --- KAITO Inference Server ---
             - "tfs/inference_api.py"  # KAITO's Transformer Serving API. Starts HTTP server
-                                      # on port 5000 with /health and /generate endpoints.
+                                      # on port 5000 with /health, /metrics, /chat, and /openapi.json endpoints.
 
             # --- HuggingFace Pipeline Configuration ---
             - "--pipeline"            # HuggingFace pipeline type
@@ -88,6 +88,8 @@ inference:
                                       # Models cached in ~/.cache/huggingface/ after download.
 
             # --- Model Selection ---
+            # HuggingFace Hub (huggingface.co) is a platform for sharing ML models.
+            # Think of it like GitHub, but for AI models instead of code.
             - "--pretrained_model_name_or_path"  # HuggingFace model ID or local path
             - "bigscience/bloomz-560m"           # BLOOMZ 560M multilingual model (~2.2GB)
                                                  # https://huggingface.co/bigscience/bloomz-560m

@@ -1,0 +1,130 @@
+# ============================================================================
+# KAITO Custom Model - Option 1: Private HuggingFace Model
+# ============================================================================
+# Use this manifest when your model is hosted on HuggingFace Hub but requires
+# authentication (private or gated models).
+#
+# Prerequisites:
+#   1. Create a HuggingFace access token at https://huggingface.co/settings/tokens
+#   2. Create a Kubernetes secret with your token:
+#      kubectl create secret generic hf-secret --from-literal=token=hf_xxxxx -n <namespace>
+#
+# Docs:
+#   - HuggingFace Token Auth: https://huggingface.co/docs/huggingface_hub/guides/hf_file_system#authentication
+#   - Kubernetes Secrets: https://kubernetes.io/docs/concepts/configuration/secret/
+#   - HuggingFace Accelerate: https://huggingface.co/docs/accelerate
+# ============================================================================
+
+apiVersion: kaito.sh/v1beta1
+kind: Workspace
+metadata:
+  name: ${name}
+  namespace: ${namespace}
+
+resource:
+  instanceType: ${instanceType}
+  labelSelector:
+    matchLabels:
+      apps: ${appLabel}
+
+inference:
+  template:
+    spec:
+      containers:
+        - name: custom-llm-container
+          image: mcr.microsoft.com/aks/kaito/kaito-base:0.0.8
+
+          resources:
+            requests:
+              memory: "8Gi"
+              cpu: "2"
+            limits:
+              memory: "16Gi"
+              cpu: "4"
+
+          env:
+            - name: OMP_NUM_THREADS
+              value: "4"
+            - name: TOKENIZERS_PARALLELISM
+              value: "false"
+            # -------------------------------------------------------------------------
+            # HF_TOKEN - HuggingFace Hub Access Token
+            # -------------------------------------------------------------------------
+            # HuggingFace Hub (huggingface.co) is a platform for sharing ML models.
+            # Think of it like GitHub, but for AI models instead of code.
+            #
+            # HF_TOKEN is an API key that proves your identity to HuggingFace.
+            # It's a string like "hf_aBcDeFgHiJkLmNoPqRsTuVwXyZ123456"
+            #
+            # Why you need it:
+            #   - Private models: Models you uploaded and marked as private
+            #   - Gated models: Popular models (Llama, Mistral, Gemma) that require
+            #     you to accept a license agreement on the HuggingFace website first
+            #   - Rate limits: Authenticated requests get higher download limits
+            #
+            # How it works:
+            #   The HuggingFace transformers library automatically checks for this
+            #   environment variable when downloading models. It sends the token
+            #   in the HTTP Authorization header to the HuggingFace API.
+            #
+            # How to get one:
+            #   1. Create account at https://huggingface.co
+            #   2. Go to Settings → Access Tokens → New Token
+            #   3. Choose "Read" permission (sufficient for downloads)
+            #   4. Copy the token (starts with "hf_")
+            #
+            # Security note:
+            #   Never commit tokens to git! Use Kubernetes secrets as shown below.
+            # -------------------------------------------------------------------------
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hf-secret
+                  key: token
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+              scheme: HTTP
+            initialDelaySeconds: 300
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+              scheme: HTTP
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          command:
+            - "accelerate"
+          args:
+            - "launch"
+            - "--num_processes"
+            - "1"
+            - "--num_machines"
+            - "1"
+            - "tfs/inference_api.py"
+            - "--pipeline"
+            - "text-generation"
+            - "--trust_remote_code"
+            - "--allow_remote_files"
+            - "--pretrained_model_name_or_path"
+            - "<your-private-model>"      # e.g., "meta-llama/Llama-2-7b-hf"
+            - "--torch_dtype"
+            - "float32"
+
+          volumeMounts:
+            - name: dshm
+              mountPath: /dev/shm
+
+      volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory
