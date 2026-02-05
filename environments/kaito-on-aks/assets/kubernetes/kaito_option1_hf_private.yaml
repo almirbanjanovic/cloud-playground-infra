@@ -45,8 +45,10 @@ inference:
               cpu: "4"
 
           env:
-            - name: OMP_NUM_THREADS
-              value: "4"
+            # Please refer to the documentation for more information.
+            # https://huggingface.co/docs/transformers/main/en/main_classes/text_generation
+            #
+            # HuggingFace tokenizers parallelism - disable to prevent potential deadlocks
             - name: TOKENIZERS_PARALLELISM
               value: "false"
             # -------------------------------------------------------------------------
@@ -112,6 +114,8 @@ inference:
             - "1"
             - "--num_machines"
             - "1"
+            - "--gpu_ids"
+            - "all"
             - "tfs/inference_api.py"
             - "--pipeline"
             - "text-generation"
@@ -120,7 +124,7 @@ inference:
             - "--pretrained_model_name_or_path"
             - "<your-private-model>"      # e.g., "meta-llama/Llama-2-7b-hf"
             - "--torch_dtype"
-            - "float32"
+            - "float16"                    # Use "float16" for V100 GPUs; use "bfloat16" for A100, H100 or newer
 
           volumeMounts:
             - name: dshm

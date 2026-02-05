@@ -29,6 +29,12 @@ inference:
               cpu: "4"
 
           env:
+            # Please refer to the documentation for more information.
+            # https://huggingface.co/docs/transformers/main/en/main_classes/text_generation
+            #
+            # HuggingFace Transformers logging verbosity for detailed generation info.
+            - name: TRANSFORMERS_VERBOSITY
+              value: "info"
             # OpenMP thread count for parallelized tensor operations.
             # Set to match container CPU limit to prevent thread over-subscription.
             # Without this, OpenMP may spawn threads based on node CPU count (not container limit),

@@ -137,7 +137,7 @@ curl --max-time 60 -X POST http://$KAITO_IP/chat \
     "prompt": "What sport should I play in rainy weather?",
     "return_full_text": false,
     "generate_kwargs": {
-      "max_length": 64,
+      "max_new_tokens": 64,
       "do_sample": false
     }
   }'
@@ -149,7 +149,7 @@ curl --max-time 60 -X POST http://$KAITO_IP/chat \
     "prompt": "Is a tomato a fruit or a vegetable?",
     "return_full_text": false,
     "generate_kwargs": {
-      "max_length": 64,
+      "max_new_tokens": 64,
       "do_sample": false
     }
   }'
@@ -161,7 +161,7 @@ curl --max-time 60 -X POST http://$KAITO_IP/chat \
     "prompt": "Answer briefly: What is cloud computing?",
     "return_full_text": false,
     "generate_kwargs": {
-      "max_length": 64,
+      "max_new_tokens": 64,
       "do_sample": false
     }
   }'
@@ -173,7 +173,7 @@ curl --max-time 60 -X POST http://$KAITO_IP/chat \
 |-----------|-------------|
 | `prompt` | The input text/question for the model |
 | `return_full_text` | If `false`, returns only the generated text (not the prompt) |
-| `generate_kwargs.max_length` | Maximum number of tokens to generate |
+| `generate_kwargs.max_new_tokens` | Maximum number of new tokens to generate |
 | `generate_kwargs.do_sample` | If `false`, uses greedy decoding (deterministic). If `true`, uses sampling (more creative). |
 
 ## Model Details
