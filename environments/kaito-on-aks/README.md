@@ -137,7 +137,7 @@ curl --max-time 60 -X POST http://$KAITO_IP/chat \
     "prompt": "What sport should I play in rainy weather?",
     "return_full_text": false,
     "generate_kwargs": {
-      "max_new_tokens": 64,
+      "max_new_tokens": 256,
       "do_sample": false
     }
   }'
@@ -149,7 +149,7 @@ curl --max-time 60 -X POST http://$KAITO_IP/chat \
     "prompt": "Is a tomato a fruit or a vegetable?",
     "return_full_text": false,
     "generate_kwargs": {
-      "max_new_tokens": 64,
+      "max_new_tokens": 256,
       "do_sample": false
     }
   }'
@@ -161,7 +161,7 @@ curl --max-time 60 -X POST http://$KAITO_IP/chat \
     "prompt": "Answer briefly: What is cloud computing?",
     "return_full_text": false,
     "generate_kwargs": {
-      "max_new_tokens": 64,
+      "max_new_tokens": 256,
       "do_sample": false
     }
   }'
