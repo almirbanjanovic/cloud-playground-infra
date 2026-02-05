@@ -72,7 +72,7 @@ The Terraform configuration (`terraform/main.tf`) provisions:
 
 ### POC Model Details
 
-This POC uses **bigscience/bloomz-560m**, a small multilingual instruction-tuned model (~2.2GB). It runs on CPU for simplicity (no GPU quota required).
+This POC uses [**bigscience/bloomz-560m**](https://huggingface.co/bigscience/bloomz-560m), a small multilingual instruction-tuned model (~2.2GB). It runs on CPU for simplicity (no GPU quota required).
 
 | Setting | Value |
 |---------|-------|
