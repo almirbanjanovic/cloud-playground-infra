@@ -89,6 +89,20 @@ The Terraform configuration (`terraform/main.tf`) provisions:
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
+## Configure kubectl
+
+After deployment, configure kubectl to connect to your AKS cluster:
+
+```bash
+az aks get-credentials --resource-group <resource-group> --name <cluster-name>
+```
+
+Verify connection:
+
+```bash
+kubectl get nodes
+```
+
 ## Testing the Model
 
 Once deployed, you can test the inference endpoint directly from your machine using curl:
