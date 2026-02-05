@@ -65,7 +65,7 @@ KAITO is enabled on this cluster via `ai_toolchain_operator_enabled = true` in T
 
 KAITO includes built-in support for popular open-source models that can be deployed with minimal configuration. Instead of defining a custom inference template, you simply specify the preset name in your workspace manifest.
 
-**Note:** Preset models require GPU-enabled node pools. Ensure your Azure subscription has sufficient GPU quota.
+**Note:** Preset models require GPU-enabled node pools. The current minimum requirement is `Standard_NC24ads_A100_v4`. Ensure your Azure subscription has sufficient GPU quota. This POC uses a custom model on CPU instead, as GPU quota was not available.
 
 | Model Family | Examples |
 |--------------|----------|
