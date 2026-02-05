@@ -20,6 +20,8 @@ kind: Workspace
 metadata:
   name: ${name}
   namespace: ${namespace}
+  # annotations:
+  #   kaito.sh/enablelb: "True"  # Creates LoadBalancer service automatically (testing only, not for production)
 
 resource:
   instanceType: ${instanceType}
