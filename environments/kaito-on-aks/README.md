@@ -2,6 +2,22 @@
 
 This environment demonstrates running [KAITO (Kubernetes AI Toolchain Operator)](https://github.com/kaito-project/kaito) on AKS as a simple POC/MVP.
 
+## Table of Contents
+
+- [What is KAITO?](#what-is-kaito)
+  - [KAITO vs Microsoft Foundry](#kaito-vs-microsoft-foundry)
+  - [Architecture](#architecture)
+- [Infrastructure Overview](#infrastructure-overview)
+  - [Architecture Diagram](#architecture-diagram)
+- [Configure kubectl](#configure-kubectl)
+- [Testing the Model](#testing-the-model)
+  - [Testing with LoadBalancer](#testing-with-loadbalancer)
+  - [Testing without LoadBalancer](#testing-without-loadbalancer)
+- [Model Details](#model-details)
+- [KAITO Preset Models](#kaito-preset-models)
+- [Custom Model Manifests](#custom-model-manifests)
+- [Resources](#resources)
+
 ## What is KAITO?
 
 [KAITO (Kubernetes AI Toolchain Operator)](https://github.com/kaito-project/kaito) is an operator that automates AI/ML model inference and tuning workloads in Kubernetes. It simplifies running AI/ML inference by:
@@ -105,7 +121,9 @@ kubectl get nodes
 
 ## Testing the Model
 
-Once deployed, you can test the inference endpoint directly from your machine using curl:
+### Testing with LoadBalancer
+
+When the `kaito.sh/enablelb: "True"` annotation is enabled, you can test the inference endpoint directly from your machine using curl:
 
 **1. Set the external IP:**
 
