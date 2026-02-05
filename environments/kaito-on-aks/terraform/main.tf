@@ -80,10 +80,13 @@ resource "azurerm_kubernetes_cluster" "this" {
 #------------------------------------------------------------------------------------------------------------------------------
 # Step 2: Create namespace for KAITO workloads
 #------------------------------------------------------------------------------------------------------------------------------
-resource "kubernetes_namespace_v1" "custom_cpu_inference" {
-  metadata {
-    name = local.custom_cpu_inference_namespace
-  }
+resource "kubectl_manifest" "custom_cpu_inference_namespace" {
+  yaml_body = <<-EOF
+    apiVersion: v1
+    kind: Namespace
+    metadata:
+      name: ${local.custom_cpu_inference_namespace}
+  EOF
 
   depends_on = [azurerm_kubernetes_cluster.this]
 }
@@ -91,22 +94,20 @@ resource "kubernetes_namespace_v1" "custom_cpu_inference" {
 #------------------------------------------------------------------------------------------------------------------------------
 # Step 3: Deploy KAITO custom model workspace
 #------------------------------------------------------------------------------------------------------------------------------
-resource "kubernetes_manifest" "bloomz_560m" {
-  manifest = yamldecode(
-    templatefile(
-      "${path.module}/../assets/kubernetes/kaito_custom_cpu_model.yaml",
-      {
-        name         = local.bloomz_560m_workspace
-        namespace    = local.custom_cpu_inference_namespace
-        instanceType = local.custom_cpu_inference_vm
-        appLabel     = local.bloomz_560m_app_label
-      }
-    )
+resource "kubectl_manifest" "bloomz_560m" {
+  yaml_body = templatefile(
+    "${path.module}/../assets/kubernetes/kaito_custom_cpu_model.yaml",
+    {
+      name         = local.bloomz_560m_workspace
+      namespace    = local.custom_cpu_inference_namespace
+      instanceType = local.custom_cpu_inference_vm
+      appLabel     = local.bloomz_560m_app_label
+    }
   )
 
   depends_on = [
     azurerm_kubernetes_cluster.this,
-    kubernetes_namespace_v1.custom_cpu_inference
+    kubectl_manifest.custom_cpu_inference_namespace
   ]
 }
 
