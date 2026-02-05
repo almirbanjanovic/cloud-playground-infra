@@ -19,6 +19,16 @@ For this POC, we use the AI-conformant cluster as the foundation for running KAI
 
 KAITO is enabled on this cluster via `ai_toolchain_operator_enabled = true` in Terraform.
 
+## Preset Model Manifests
+
+KAITO includes **preset models** - pre-configured Workspace definitions for popular open-source models. These presets handle all the complexity for you:
+
+- **Optimized configurations** - Correct VM sizes, memory limits, and GPU requirements
+- **Model-specific settings** - Proper tensor precision, tokenizer configs, and inference parameters
+- **Automatic node provisioning** - KAITO provisions the right node type based on the preset
+
+See the full list of supported presets and example manifests: [KAITO Supported Models](https://github.com/kaito-project/kaito/tree/main/presets/workspace/models)
+
 ## Custom Model Manifests
 
 This environment includes several KAITO Workspace manifests for deploying custom models:
