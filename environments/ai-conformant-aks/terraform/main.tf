@@ -186,7 +186,7 @@ resource "kubernetes_manifest" "gateway_api_gateway" {
 
   depends_on = [
     azurerm_kubernetes_cluster.aks,
-    azapi_update_resource.gateway_api,
+    time_sleep.wait_for_gateway_api_crds,
     kubernetes_namespace_v1.custom_cpu_model
   ]
 }
@@ -561,7 +561,7 @@ EOF
 #------------------------------------------------------------------------------------------------------------------------------
 
 resource "azapi_update_resource" "gateway_api" {
-  type        = "Microsoft.ContainerService/managedClusters@2024-02-01"
+  type        = "Microsoft.ContainerService/managedClusters@2024-09-01"
   resource_id = azurerm_kubernetes_cluster.aks.id
 
   body = {
@@ -575,6 +575,13 @@ resource "azapi_update_resource" "gateway_api" {
   depends_on = [
     azurerm_kubernetes_cluster.aks
   ]
+}
+
+# Wait for Gateway API CRDs to be installed after enabling the feature
+# The CRDs are installed asynchronously by AKS after gatewayAPIEnabled = true
+resource "time_sleep" "wait_for_gateway_api_crds" {
+  depends_on      = [azapi_update_resource.gateway_api]
+  create_duration = "60s"
 }
 
 #------------------------------------------------------------------------------------------------------------------------------
