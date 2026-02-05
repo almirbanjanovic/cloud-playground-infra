@@ -7,6 +7,8 @@ This environment demonstrates running [KAITO (Kubernetes AI Toolchain Operator)]
 - [What is KAITO?](#what-is-kaito)
   - [KAITO vs Microsoft Foundry](#kaito-vs-microsoft-foundry)
   - [Architecture](#architecture)
+- [KAITO Preset Models](#kaito-preset-models)
+- [Custom Model Manifests](#custom-model-manifests)
 - [Infrastructure Overview](#infrastructure-overview)
   - [POC Model Details](#poc-model-details)
   - [Architecture Diagram](#architecture-diagram)
@@ -14,8 +16,6 @@ This environment demonstrates running [KAITO (Kubernetes AI Toolchain Operator)]
 - [Testing the Model](#testing-the-model)
   - [Testing with LoadBalancer](#testing-with-loadbalancer)
   - [Testing without LoadBalancer](#testing-without-loadbalancer)
-- [KAITO Preset Models](#kaito-preset-models)
-- [Custom Model Manifests](#custom-model-manifests)
 - [Resources](#resources)
 
 ## What is KAITO?
@@ -60,6 +60,39 @@ KAITO follows the classic Kubernetes CRD/controller pattern. Its major component
 *Source: [KAITO GitHub](https://github.com/kaito-project/kaito)*
 
 KAITO is enabled on this cluster via `ai_toolchain_operator_enabled = true` in Terraform.
+
+## KAITO Preset Models
+
+KAITO includes built-in support for popular open-source models that can be deployed with minimal configuration. Instead of defining a custom inference template, you simply specify the preset name in your workspace manifest.
+
+**Note:** Preset models require GPU-enabled node pools. Ensure your Azure subscription has sufficient GPU quota.
+
+| Model Family | Examples |
+|--------------|----------|
+| DeepSeek | deepseek-r1 |
+| Falcon | falcon-7b, falcon-40b |
+| Gemma 3 | gemma-3-4b, gemma-3-12b, gemma-3-27b |
+| Llama 3 | llama-3-8b, llama-3-70b, llama-3.1-8b, llama-3.1-70b, llama-3.1-405b |
+| Mistral | mistral-7b, mistral-nemo-12b, mistral-large-2-123b |
+| Phi 3 | phi-3-mini, phi-3-medium |
+| Phi 4 | phi-4 |
+| Qwen | qwen-2.5-7b, qwen-2.5-72b, qwen-2.5-coder-32b |
+
+See the full list: [KAITO Supported Models](https://github.com/kaito-project/kaito/tree/main/presets/workspace/models)
+
+An example preset manifest is available at `assets/kubernetes/kaito_preset_model.yaml`.
+
+## Custom Model Manifests
+
+For more advanced deployments, see the example manifests in `assets/kubernetes/`:
+
+| Manifest | Use Case |
+|----------|----------|
+| `kaito_custom_cpu_model.yaml` | Base template for public HuggingFace models |
+| `kaito_option1_hf_private.yaml` | Private/gated HuggingFace models with HF_TOKEN |
+| `kaito_option2_azure_volume.yaml` | Models pre-loaded on Azure Blob/Files storage |
+| `kaito_option3_init_container_blob.yaml` | Download from Azure Blob at startup |
+| `kaito_option4_azureml.yaml` | Download from Azure ML Model Registry |
 
 ## Infrastructure Overview
 
@@ -236,39 +269,6 @@ curl -X POST http://bloomz-560m-workspace:80/chat \
 exit
 kubectl delete pod curl-debug -n kaito-custom-cpu-inference
 ```
-
-## KAITO Preset Models
-
-KAITO includes built-in support for popular open-source models that can be deployed with minimal configuration. Instead of defining a custom inference template, you simply specify the preset name in your workspace manifest.
-
-**Note:** Preset models require GPU-enabled node pools. Ensure your Azure subscription has sufficient GPU quota.
-
-| Model Family | Examples |
-|--------------|----------|
-| DeepSeek | deepseek-r1 |
-| Falcon | falcon-7b, falcon-40b |
-| Gemma 3 | gemma-3-4b, gemma-3-12b, gemma-3-27b |
-| Llama 3 | llama-3-8b, llama-3-70b, llama-3.1-8b, llama-3.1-70b, llama-3.1-405b |
-| Mistral | mistral-7b, mistral-nemo-12b, mistral-large-2-123b |
-| Phi 3 | phi-3-mini, phi-3-medium |
-| Phi 4 | phi-4 |
-| Qwen | qwen-2.5-7b, qwen-2.5-72b, qwen-2.5-coder-32b |
-
-See the full list: [KAITO Supported Models](https://github.com/kaito-project/kaito/tree/main/presets/workspace/models)
-
-An example preset manifest is available at `assets/kubernetes/kaito_preset_model.yaml`.
-
-## Custom Model Manifests
-
-For more advanced deployments, see the example manifests in `assets/kubernetes/`:
-
-| Manifest | Use Case |
-|----------|----------|
-| `kaito_custom_cpu_model.yaml` | Base template for public HuggingFace models |
-| `kaito_option1_hf_private.yaml` | Private/gated HuggingFace models with HF_TOKEN |
-| `kaito_option2_azure_volume.yaml` | Models pre-loaded on Azure Blob/Files storage |
-| `kaito_option3_init_container_blob.yaml` | Download from Azure Blob at startup |
-| `kaito_option4_azureml.yaml` | Download from Azure ML Model Registry |
 
 ## Resources
 
