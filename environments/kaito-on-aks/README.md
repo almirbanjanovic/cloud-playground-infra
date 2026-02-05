@@ -19,12 +19,13 @@ You might wonder: why use KAITO when [Microsoft Foundry](https://ai.azure.com) o
 | Consideration | KAITO | Microsoft Foundry |
 |---------------|-------|------------------|
 | **Service model** | PaaS - you manage cluster and model deployments | PaaS - you consume models via APIs |
+| **Model selection** | Full control - any model from HuggingFace, Azure Blob/Files, Azure ML Registry, or private registries | Curated catalog with regional availability limitations (not all models available in all regions) |
 | **Data sovereignty** | Models run in your cluster, data never leaves your network | Data sent to Microsoft-managed endpoints |
 | **Cost model** | Pay for VM compute only, no per-token charges | Pay-per-token or provisioned throughput |
 | **Customization** | Full control over inference parameters, batching, quantization | Limited to provider-exposed options |
 | **Latency** | In-cluster inference, minimal network hops | Network round-trip to external endpoint |
 | **Compliance** | Easier to meet strict regulatory requirements (HIPAA, FedRAMP, etc.) | Depends on service compliance certifications |
-| **Model selection** | Full control - any model from HuggingFace, Azure Blob/Files, Azure ML Registry, or private registries | Curated catalog with regional availability limitations (not all models available in all regions) |
+
 
 **Use KAITO when**: You need data to stay in your environment, want predictable costs at scale, require custom model configurations, or have strict compliance requirements.
 
