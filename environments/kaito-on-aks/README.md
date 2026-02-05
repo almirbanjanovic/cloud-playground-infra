@@ -176,6 +176,37 @@ curl --max-time 60 -X POST http://$KAITO_IP/chat \
 | `generate_kwargs.max_new_tokens` | Maximum number of new tokens to generate |
 | `generate_kwargs.do_sample` | If `false`, uses greedy decoding (deterministic). If `true`, uses sampling (more creative). |
 
+### Testing Without LoadBalancer
+
+If the `kaito.sh/enablelb` annotation is commented out in the manifest, you can still test by running a curl pod inside the cluster:
+
+```bash
+# Start an interactive curl pod
+kubectl run curl-debug \
+  -n kaito-custom-cpu-inference \
+  -it --restart=Never \
+  --image=curlimages/curl \
+  -- sh
+
+# Inside the pod, call the service using cluster DNS
+curl http://bloomz-560m-workspace:80/health
+
+curl -X POST http://bloomz-560m-workspace:80/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "What is cloud computing?",
+    "return_full_text": false,
+    "generate_kwargs": {
+      "max_new_tokens": 256,
+      "do_sample": false
+    }
+  }'
+
+# Exit and delete the pod when done
+exit
+kubectl delete pod curl-debug -n kaito-custom-cpu-inference
+```
+
 ## Model Details
 
 This POC uses **bigscience/bloomz-560m**, a small multilingual instruction-tuned model (~2.2GB). It runs on CPU for simplicity (no GPU quota required).
