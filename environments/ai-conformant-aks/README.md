@@ -19,22 +19,11 @@ For this POC, we use the AI-conformant cluster as the foundation for running KAI
 - **OpenAI-compatible API** - Provides a standard interface for inference calls
 - **Multiple inference runtimes** - Supports vLLM and transformers
 
-### Architecture
+### KAITO vs Microsoft Foundry
 
-![KAITO Architecture](https://raw.githubusercontent.com/kaito-project/kaito/main/website/static/img/arch.png)
+You might wonder: why use KAITO when [Microsoft Foundry](https://ai.azure.com) offers thousands of models for inference?
 
-KAITO follows the classic Kubernetes CRD/controller pattern. Its major components are:
-
-- **Workspace controller** - Reconciles the Workspace custom resource, triggers node provisioning via NodeClaim CRDs, and creates inference/tuning workloads based on model preset configurations
-- **Node provisioner controller (gpu-provisioner)** - Uses Karpenter-core NodeClaim CRD to integrate with Azure Resource Manager APIs, automatically adding GPU nodes to AKS clusters
-
-*Source: [KAITO GitHub](https://github.com/kaito-project/kaito)*
-
-### KAITO vs Azure AI Foundry
-
-You might wonder: why use KAITO when [Azure AI Foundry](https://ai.azure.com) offers thousands of models for inference?
-
-| Consideration | KAITO | Azure AI Foundry |
+| Consideration | KAITO | Microsoft Foundry |
 |---------------|-------|------------------|
 | **Data sovereignty** | Models run in your cluster, data never leaves your network | Data sent to Microsoft-managed endpoints |
 | **Cost model** | Pay for VM compute only, no per-token charges | Pay-per-token or provisioned throughput |
@@ -45,7 +34,18 @@ You might wonder: why use KAITO when [Azure AI Foundry](https://ai.azure.com) of
 
 **Use KAITO when**: You need data to stay in your environment, want predictable costs at scale, require custom model configurations, or have strict compliance requirements.
 
-**Use Azure AI Foundry when**: You want managed infrastructure, need access to proprietary models (GPT-4, Claude), prefer pay-per-use pricing, or don't want to manage GPU infrastructure.
+**Use Microsoft Foundry when**: You want managed infrastructure, need access to proprietary models (GPT-4, Claude), prefer pay-per-use pricing, or don't want to manage GPU infrastructure.
+
+### Architecture
+
+![KAITO Architecture](https://raw.githubusercontent.com/kaito-project/kaito/main/website/static/img/arch.png)
+
+KAITO follows the classic Kubernetes CRD/controller pattern. Its major components are:
+
+- **Workspace controller** - Reconciles the Workspace custom resource, triggers node provisioning via NodeClaim CRDs, and creates inference/tuning workloads based on model preset configurations
+- **Node provisioner controller (gpu-provisioner)** - Uses Karpenter-core NodeClaim CRD to integrate with Azure Resource Manager APIs, automatically adding GPU nodes to AKS clusters
+
+*Source: [KAITO GitHub](https://github.com/kaito-project/kaito)*
 
 KAITO is enabled on this cluster via `ai_toolchain_operator_enabled = true` in Terraform.
 
