@@ -81,8 +81,6 @@ resource "azurerm_kubernetes_cluster" "this" {
 # Step 2: Create namespace for KAITO workloads
 #------------------------------------------------------------------------------------------------------------------------------
 resource "kubernetes_namespace_v1" "custom_cpu_inference" {
-  count = var.first_run ? 0 : 1
-
   metadata {
     name = local.custom_cpu_inference_namespace
   }
@@ -94,8 +92,6 @@ resource "kubernetes_namespace_v1" "custom_cpu_inference" {
 # Step 3: Deploy KAITO custom model workspace
 #------------------------------------------------------------------------------------------------------------------------------
 resource "kubernetes_manifest" "bloomz_560m" {
-  count = var.first_run ? 0 : 1
-
   manifest = yamldecode(
     templatefile(
       "${path.module}/../assets/kubernetes/kaito_custom_cpu_model.yaml",

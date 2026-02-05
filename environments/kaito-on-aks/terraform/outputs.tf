@@ -15,7 +15,7 @@ output "kube_config_command" {
 
 output "custom_cpu_inference_namespace" {
   description = "Namespace where KAITO custom CPU inference workloads are deployed"
-  value       = var.first_run ? null : kubernetes_namespace_v1.custom_cpu_inference[0].metadata[0].name
+  value       = kubernetes_namespace_v1.custom_cpu_inference.metadata[0].name
 }
 
 output "bloomz_560m_workspace" {
