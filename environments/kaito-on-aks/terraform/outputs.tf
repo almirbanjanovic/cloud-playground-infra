@@ -15,15 +15,15 @@ output "kube_config_command" {
 
 output "kaito_namespace" {
   description = "Namespace where KAITO workloads are deployed"
-  value       = kubernetes_namespace_v1.kaito.metadata[0].name
+  value       = kubernetes_namespace_v1.custom_cpu_inference.metadata[0].name
 }
 
-output "kaito_external_service" {
-  description = "Name of the LoadBalancer service for external access"
-  value       = kubernetes_service_v1.kaito_external.metadata[0].name
+output "kaito_workspace" {
+  description = "Name of the KAITO workspace (also the LoadBalancer service name)"
+  value       = local.kaito_workspace
 }
 
 output "get_external_ip_command" {
   description = "Command to get the external IP of the KAITO LoadBalancer"
-  value       = "kubectl get svc ${kubernetes_service_v1.kaito_external.metadata[0].name} -n ${kubernetes_namespace_v1.kaito.metadata[0].name} -o jsonpath='{.status.loadBalancer.ingress[0].ip}'"
+  value       = "kubectl get svc ${local.kaito_workspace} -n ${kubernetes_namespace_v1.custom_cpu_inference.metadata[0].name} -o jsonpath='{.status.loadBalancer.ingress[0].ip}'"
 }
