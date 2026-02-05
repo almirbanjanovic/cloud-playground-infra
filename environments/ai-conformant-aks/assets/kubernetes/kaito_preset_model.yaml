@@ -3,11 +3,13 @@ kind: Workspace
 metadata:
   name: ${name}
   namespace: ${namespace}
+
 resource:
-  instanceType: ${instanceType}
+  instanceType: ${instanceType} # Must be GPU-enabled instance type.  Ensure your subscription has quota.
   labelSelector:
     matchLabels:
       apps: ${appLabel}
+
 inference:
   preset:
     name: ${presetName}
