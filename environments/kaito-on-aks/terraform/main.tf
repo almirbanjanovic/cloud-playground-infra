@@ -71,7 +71,7 @@ resource "azurerm_kubernetes_cluster" "this" {
   }
 
   # Enable KAITO
-  # See here for supported models: https://github.com/kaito-project/kaito/tree/main/presets/workspace/models
+  # See here for more information: https://learn.microsoft.com/en-us/azure/aks/ai-toolchain-operator
   ai_toolchain_operator_enabled = true
 
   tags = local.common_tags
