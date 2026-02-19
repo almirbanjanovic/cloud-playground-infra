@@ -98,7 +98,7 @@ For more advanced deployments, see the example manifests in `assets/kubernetes/`
 
 The Terraform configuration (`terraform/main.tf`) provisions:
 
-- **AKS Cluster** - Kubernetes 1.31 with KAITO enabled
+- **AKS Cluster** - Kubernetes 1.34 with KAITO enabled
 - **Kubernetes Namespace** - `kaito-custom-cpu-inference` for isolating KAITO workloads
 - **KAITO Workspace** - Custom model deployment (bigscience/bloomz-560m) with `kaito.sh/enablelb: "True"` annotation for automatic LoadBalancer creation
 
