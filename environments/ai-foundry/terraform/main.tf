@@ -13,3 +13,15 @@ resource "azurerm_ai_services" "this" {
     default_action = "Allow"
   }
 }
+
+resource "azurerm_cognitive_account" "this" {
+  name                = "cog-acc-playground-eastus2"
+  resource_group_name = var.resource_group_name
+  location            = "eastus2"
+  kind                = "AIServices"
+  sku_name            = "S0"
+
+  identity {
+    type = "SystemAssigned"
+  }
+}
