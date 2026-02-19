@@ -11,6 +11,7 @@ resource "azurerm_ai_services" "this" {
 
   network_acls {
     default_action = "Allow"
+    bypass = "AzureServices"
   }
 }
 
@@ -23,5 +24,10 @@ resource "azurerm_cognitive_account" "this" {
 
   identity {
     type = "SystemAssigned"
+  }
+
+  network_acls {
+    default_action = "Allow"
+    bypass         = "AzureServices"
   }
 }
