@@ -22,6 +22,10 @@ resource "azurerm_cognitive_account" "this" {
   kind                = "AIServices"
   sku_name            = "S0"
 
+  # required for stateful development in Foundry including agent service
+  custom_subdomain_name = "cog-acc-playground-eastus2"
+  project_management_enabled = true
+
   identity {
     type = "SystemAssigned"
   }
