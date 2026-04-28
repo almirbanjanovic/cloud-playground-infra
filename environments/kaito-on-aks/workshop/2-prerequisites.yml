@@ -1,0 +1,13 @@
+### YamlMime:ModuleUnit
+uid: learn.kaito-on-aks.workshop.2-prerequisites
+title: Pre-requisites
+metadata:
+  title: Pre-requisites
+  description: Verify Azure access, install local tools, and clone the repository before starting the labs.
+  ms.date: 04/28/2026
+  author: almirbanjanovic
+  ms.author: albanjanovic
+  ms.topic: interactive-tutorial
+durationInMinutes: 10
+content: |
+  [!include[](includes/2-prerequisites.md)]

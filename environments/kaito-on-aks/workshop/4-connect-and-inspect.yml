@@ -1,0 +1,13 @@
+### YamlMime:ModuleUnit
+uid: learn.kaito-on-aks.workshop.4-connect-and-inspect
+title: 'Lab 2 — Connect and inspect'
+metadata:
+  title: 'Lab 2 — Connect and inspect'
+  description: Connect kubectl to the new AKS cluster and inspect the KAITO Workspace, pods, logs, and auto-created LoadBalancer.
+  ms.date: 04/28/2026
+  author: almirbanjanovic
+  ms.author: albanjanovic
+  ms.topic: interactive-tutorial
+durationInMinutes: 20
+content: |
+  [!include[](includes/4-connect-and-inspect.md)]

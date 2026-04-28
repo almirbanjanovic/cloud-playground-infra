@@ -2,6 +2,8 @@
 
 This environment demonstrates running [KAITO (Kubernetes AI Toolchain Operator)](https://github.com/kaito-project/kaito) on AKS as a simple POC/MVP.
 
+> Looking for a guided, hands-on version of this demo? See the customer workshop in [workshop/](workshop/).
+
 ## Table of Contents
 
 - [What is KAITO?](#what-is-kaito)

@@ -1,0 +1,50 @@
+### YamlMime:Module
+uid: learn.kaito-on-aks.workshop
+metadata:
+  title: Run open-source AI models on AKS with KAITO
+  description: Deploy an Azure Kubernetes Service cluster with the KAITO add-on, deploy a CPU-based language model, and call it via an OpenAI-compatible API.
+  ms.date: 04/28/2026
+  author: almirbanjanovic
+  ms.author: albanjanovic
+  ms.topic: interactive-tutorial
+  ms.service: azure-kubernetes-service
+title: Run open-source AI models on AKS with KAITO
+summary: |
+  In this hands-on workshop you'll deploy an Azure Kubernetes Service (AKS) cluster with the Kubernetes AI Toolchain Operator (KAITO) add-on enabled, deploy a small CPU-based language model (BLOOMZ-560m), and call it from both outside and inside the cluster. You'll work entirely in your own Azure subscription.
+abstract: |
+  By the end of this module, you'll be able to:
+  - Explain what KAITO is and when to choose it over Microsoft Foundry.
+  - Bootstrap an Azure resource group and storage account for Terraform state.
+  - Use Terraform to deploy an AKS cluster with the KAITO add-on enabled.
+  - Inspect a KAITO `Workspace` custom resource and the workload it manages.
+  - Send inference requests to a deployed model via HTTP.
+  - Cleanly tear down all resources.
+prerequisites: |
+  - An Azure subscription where you can create resource groups, storage accounts, and AKS clusters.
+  - Familiarity with basic Azure and Kubernetes concepts (pods, services, namespaces).
+  - Local install of: Azure CLI 2.60+, Terraform 1.14.4+, kubectl 1.30+, Git, and curl.
+  - This repository cloned locally; commands assume the working directory is `environments/kaito-on-aks`.
+iconUrl: /training/achievements/generic-badge.svg
+levels:
+  - intermediate
+roles:
+  - solution-architect
+  - devops-engineer
+  - administrator
+products:
+  - azure
+  - azure-kubernetes-service
+subjects:
+  - artificial-intelligence
+  - cloud-computing
+units:
+  - learn.kaito-on-aks.workshop.1-introduction
+  - learn.kaito-on-aks.workshop.2-prerequisites
+  - learn.kaito-on-aks.workshop.3-bootstrap-and-deploy
+  - learn.kaito-on-aks.workshop.4-connect-and-inspect
+  - learn.kaito-on-aks.workshop.5-call-the-model
+  - learn.kaito-on-aks.workshop.6-cleanup
+  - learn.kaito-on-aks.workshop.7-knowledge-check
+  - learn.kaito-on-aks.workshop.8-summary
+badge:
+  uid: learn.kaito-on-aks.workshop.badge
