@@ -26,17 +26,6 @@ Approximately **2 to 3 hours**, depending on AKS provisioning time and how much 
 - Nothing is pre-provisioned. Attendees deploy live during the workshop.
 - This workshop uses a **CPU-based** model (BLOOMZ-560m). GPU presets are out of scope.
 
-## Workshop format
-
-This workshop ships in two formats — pick whichever fits your delivery:
-
-| Format | Location | Best for |
-|--------|----------|----------|
-| Markdown (this file) | [workshop/WORKSHOP.md](WORKSHOP.md) | Self-paced, GitHub reading, in-person delivery |
-| MS Learn / Reactor module | [workshop/index.yml](index.yml) | Microsoft Reactor events, Learn-style hosted delivery |
-
-Both formats cover the same material and reference the same Terraform and Kubernetes manifests in the parent [environments/kaito-on-aks](../) folder.
-
 ---
 
 ## Table of contents
