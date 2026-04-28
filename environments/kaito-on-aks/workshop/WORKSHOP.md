@@ -100,6 +100,14 @@ az account set --subscription "<your-subscription-id-or-name>"
 az account show --output table
 ```
 
+**Expected output:**
+
+```text
+EnvironmentName    HomeTenantId                          IsDefault    Name              State    TenantId
+-----------------  ------------------------------------  -----------  ----------------  -------  ------------------------------------
+AzureCloud         <tenant-guid>                         True         <subscription>    Enabled  <tenant-guid>
+```
+
 ### 1.2 Create the workshop resource group
 
 This is where the AKS cluster and supporting resources will live.
@@ -110,6 +118,17 @@ RG_NAME="rg-kaito-workshop"
 LOCATION="centralus"
 
 az group create --name "$RG_NAME" --location "$LOCATION"
+```
+
+**Expected output (truncated):**
+
+```json
+{
+  "id": "/subscriptions/<sub-id>/resourceGroups/rg-kaito-workshop",
+  "location": "centralus",
+  "name": "rg-kaito-workshop",
+  "properties": { "provisioningState": "Succeeded" }
+}
 ```
 
 > The Terraform code defaults to `centralus`. If you change `LOCATION`, also change the `location` value in [../terraform/main.tf](../terraform/main.tf) `locals` block (or just stick with `centralus` to keep it simple).
@@ -137,6 +156,12 @@ az storage container create \
   --auth-mode login
 
 echo "Storage account: $STORAGE_ACCOUNT"
+```
+
+**Expected output (final line):**
+
+```text
+Storage account: stkaito12345
 ```
 
 ### 1.4 Walk through the Terraform code
@@ -197,18 +222,55 @@ terraform init \
   -backend-config="key=kaito-on-aks.tfstate"
 ```
 
-You should see `Terraform has been successfully initialized!`
+**Expected output (truncated):**
+
+```text
+Initializing the backend...
+Successfully configured the backend "azurerm"!
+
+Initializing provider plugins...
+- Installing hashicorp/azurerm v4.58.x...
+- Installing gavinbunney/kubectl v1.18.x...
+- Installing hashicorp/kubernetes v3.0.x...
+- Installing azure/azapi v2.8.x...
+
+Terraform has been successfully initialized!
+```
+
+Confirm the backend is the Azure storage container you just created (not local):
+
+```bash
+grep -A1 '"backend"' .terraform/terraform.tfstate
+```
+
+You should see `"type": "azurerm"`.
 
 ### 1.6 Plan and apply
 
+> The backend was pinned to your Azure storage container in step 1.5, so `plan` and `apply` will read and write state remotely without any extra flags.
+
 ```bash
-terraform plan -var "resource_group_name=$RG_NAME"
+terraform plan -var "resource_group_name=$RG_NAME" -out tfplan
 ```
 
 Review the plan output. You should see roughly 3 resources to add (cluster, namespace, workspace).
 
+**Expected output (final lines):**
+
+```text
+Plan: 3 to add, 0 to change, 0 to destroy.
+
+Saved the plan to: tfplan
+```
+
 ```bash
-terraform apply -var "resource_group_name=$RG_NAME" -auto-approve
+terraform apply tfplan
+```
+
+**Expected output (final line):**
+
+```text
+Apply complete! Resources: 3 added, 0 changed, 0 destroyed.
 ```
 
 > **Heads-up:** AKS provisioning takes ~5–10 minutes, and after that the KAITO controller still needs to provision a node and pull the model. **The `apply` may take 15–25 minutes total before everything is ready.** Use the time to read the [What is KAITO?](../README.md#what-is-kaito) section of the demo README.
@@ -219,7 +281,13 @@ terraform apply -var "resource_group_name=$RG_NAME" -auto-approve
 az aks list --resource-group "$RG_NAME" --output table
 ```
 
-Move on to Lab 2 once the cluster shows `Succeeded`.
+**Expected output:**
+
+```text
+Name                       Location    ResourceGroup       KubernetesVersion    ProvisioningState
+-------------------------  ----------  ------------------  -------------------  -----------------
+aks-kaito-dev-centralus    centralus   rg-kaito-workshop   1.34.2               Succeeded
+```
 
 ---
 
@@ -239,6 +307,12 @@ az aks get-credentials \
   --name "$(terraform output -raw cluster_name)"
 ```
 
+**Expected output:**
+
+```text
+Merged "aks-kaito-dev-centralus" as current context in /home/<user>/.kube/config
+```
+
 ### 2.2 Look at the cluster
 
 ```bash
@@ -246,7 +320,20 @@ kubectl get nodes
 kubectl get namespaces
 ```
 
-You should see the system node pool plus, eventually, a KAITO-provisioned node tagged for the workspace.
+**Expected output (after the KAITO node has been provisioned):**
+
+```text
+NAME                                STATUS   ROLES    AGE   VERSION
+aks-system-12345678-vmss000000      Ready    <none>   25m   v1.34.2
+aks-bloomz-560m-87654321-vmss0000   Ready    <none>   8m    v1.34.2
+
+NAME                          STATUS   AGE
+default                       Active   30m
+kaito-custom-cpu-inference    Active   28m
+kube-node-lease               Active   30m
+kube-public                   Active   30m
+kube-system                   Active   30m
+```
 
 ### 2.3 Inspect the KAITO Workspace
 
@@ -255,7 +342,14 @@ kubectl get workspace -n kaito-custom-cpu-inference
 kubectl describe workspace bloomz-560m-workspace -n kaito-custom-cpu-inference
 ```
 
-Walk through the `Status` block. KAITO reports:
+**Expected output (`get workspace`):**
+
+```text
+NAME                    INSTANCE              RESOURCEREADY   INFERENCEREADY   WORKSPACEREADY   AGE
+bloomz-560m-workspace   Standard_D16s_v5      True            True             True             20m
+```
+
+Walk through the `Status` block in the `describe` output. KAITO reports:
 
 - `ResourceReady` — the underlying VM/node is up
 - `InferenceReady` — the inference pod is healthy
@@ -267,6 +361,16 @@ Walk through the `Status` block. KAITO reports:
 kubectl get pods -n kaito-custom-cpu-inference -w
 ```
 
+**Expected output (states it transitions through):**
+
+```text
+NAME                      READY   STATUS              RESTARTS   AGE
+bloomz-560m-workspace-0   0/1     Init:0/0            0          5s
+bloomz-560m-workspace-0   0/1     ContainerCreating   0          15s
+bloomz-560m-workspace-0   0/1     Running             0          45s
+bloomz-560m-workspace-0   1/1     Running             0          7m
+```
+
 Press `Ctrl+C` once the pod shows `Running` with `Ready 1/1`. On CPU this can take several minutes — the container has to download ~2.2 GB of model weights from HuggingFace before the readiness probe passes.
 
 ### 2.5 Tail the logs
@@ -276,12 +380,30 @@ POD=$(kubectl get pods -n kaito-custom-cpu-inference -l app=bloomz-560m -o jsonp
 kubectl logs -n kaito-custom-cpu-inference "$POD" --tail=100
 ```
 
-You should see HuggingFace `transformers` downloading config + tokenizer + weights, then `accelerate` launching the inference server on port 5000.
+**Expected output (key lines, abridged):**
+
+```text
+Downloading config.json: 100%|##########| 715/715
+Downloading tokenizer.json: 100%|##########| 14.5M/14.5M
+Downloading pytorch_model.bin: 100%|##########| 2.24G/2.24G
+[INFO] accelerate.commands.launch: Running on 1 process(es), 1 machine(s)
+[INFO] tfs.inference_api: Loading pipeline (text-generation)
+[INFO] tfs.inference_api: Model loaded in 142.3s
+[INFO] uvicorn: Application startup complete.
+[INFO] uvicorn: Uvicorn running on http://0.0.0.0:5000 (Press CTRL+C to quit)
+```
 
 ### 2.6 Inspect the auto-created LoadBalancer
 
 ```bash
 kubectl get svc bloomz-560m-workspace -n kaito-custom-cpu-inference
+```
+
+**Expected output (once the public IP is assigned):**
+
+```text
+NAME                    TYPE           CLUSTER-IP     EXTERNAL-IP      PORT(S)        AGE
+bloomz-560m-workspace   LoadBalancer   10.0.123.45    20.123.45.67     80:31234/TCP   18m
 ```
 
 The `EXTERNAL-IP` column will say `<pending>` for a minute or two while Azure provisions the public IP, then show a real IP. This service was created automatically because of the `kaito.sh/enablelb: "True"` annotation on the `Workspace`.
@@ -303,13 +425,23 @@ KAITO_IP=$(kubectl get svc bloomz-560m-workspace \
 echo "KAITO endpoint: http://$KAITO_IP"
 ```
 
+**Expected output:**
+
+```text
+KAITO endpoint: http://20.123.45.67
+```
+
 ### 3.2 Health check
 
 ```bash
 curl http://$KAITO_IP/health
 ```
 
-Expect `{"status":"Healthy"}` (or similar).
+**Expected output:**
+
+```text
+Healthy
+```
 
 ### 3.3 Inspect the API schema
 
@@ -317,11 +449,23 @@ Expect `{"status":"Healthy"}` (or similar).
 curl -s http://$KAITO_IP/openapi.json | head
 ```
 
+**Expected output (truncated):**
+
+```json
+{"openapi":"3.1.0","info":{"title":"FastAPI","version":"0.1.0"},"paths":{"/health":{"get":{...
+```
+
 KAITO exposes a standard OpenAPI-compatible inference API.
 
 ### 3.4 Sample prompts
 
 These match the demo in [../README.md](../README.md#testing-with-loadbalancer).
+
+Each response has the same shape: a JSON object with a `Result` field containing the generated text. The exact text varies between runs and model versions — BLOOMZ-560m is small, so don't expect Claude/GPT-quality answers.
+
+```json
+{ "Result": "<generated text from the model>" }
+```
 
 **Question answering:**
 
@@ -368,47 +512,6 @@ curl --max-time 60 -X POST http://$KAITO_IP/chat \
   }'
 ```
 
-### 3.5 Discuss the request shape
-
-| Field | Meaning |
-|-------|---------|
-| `prompt` | The input text the model continues from |
-| `return_full_text` | `false` returns only the newly generated tokens (not the prompt itself) |
-| `generate_kwargs.max_new_tokens` | Hard cap on generated length |
-| `generate_kwargs.do_sample` | `false` = greedy (deterministic), `true` = sampling (more varied) |
-
-### 3.6 Optional — call from inside the cluster
-
-This shows the more production-realistic path: an in-cluster client hitting a `ClusterIP` service via DNS, with no public IP involved.
-
-```bash
-kubectl run curl-debug \
-  -n kaito-custom-cpu-inference \
-  -it --restart=Never \
-  --image=curlimages/curl \
-  -- sh
-```
-
-Inside the pod:
-
-```sh
-curl http://bloomz-560m-workspace/health
-
-curl -X POST http://bloomz-560m-workspace/chat \
-  -H "Content-Type: application/json" \
-  -d '{
-    "prompt": "What is cloud computing?",
-    "return_full_text": false,
-    "generate_kwargs": { "max_new_tokens": 256, "do_sample": false }
-  }'
-
-exit
-```
-
-```bash
-kubectl delete pod curl-debug -n kaito-custom-cpu-inference
-```
-
 ---
 
 ## Lab 4 — Cleanup
@@ -425,6 +528,12 @@ terraform destroy -var "resource_group_name=$RG_NAME" -auto-approve
 
 This removes the AKS cluster, the namespace, and the KAITO workspace.
 
+**Expected output (final line):**
+
+```text
+Destroy complete! Resources: 3 destroyed.
+```
+
 ### 4.2 Verify the AKS-managed resource group is gone
 
 When AKS is created, Azure provisions a "node" resource group (typically named `MC_<rg>_<cluster>_<region>`) that holds the VMs, NICs, disks, and load balancer. It should be deleted automatically when the cluster is destroyed — verify:
@@ -432,6 +541,13 @@ When AKS is created, Azure provisions a "node" resource group (typically named `
 ```bash
 az group list --query "[?starts_with(name, 'MC_${RG_NAME}_')]" --output table
 ```
+
+**Expected output (when properly cleaned up):**
+
+```text
+```
+
+(empty — nothing to list)
 
 If anything is still listed, delete it manually:
 
