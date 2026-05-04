@@ -63,7 +63,7 @@ Before starting Lab 1, make sure each attendee has the following.
 | `curl` | any | usually pre-installed |
 | Git | any | <https://git-scm.com/downloads> |
 
-> **Shell support:** Every command in this workshop is shown for both **bash** (Linux, macOS, WSL, Git Bash) and **PowerShell 7+** (Windows, cross-platform). Pick whichever you prefer and use the matching block consistently.
+> **Shell support:** Commands in this workshop are shown for both **bash** (Linux, macOS, WSL, Git Bash) and **PowerShell 7+** (Windows, cross-platform). Pick whichever you prefer and use the matching block consistently. Where a single command works identically in both shells, it appears once under a `**Bash & PowerShell:**` heading.
 
 ### Background knowledge
 
