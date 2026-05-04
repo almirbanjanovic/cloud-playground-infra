@@ -7,11 +7,11 @@ locals {
   # Base identifiers
   workload = "kaito"
   env      = "dev"
-  location = "centralus"
 
   # Azure resource names (CAF abbreviations)
   # https://learn.microsoft.com/en-us/azure/cloud-adoption-framework/ready/azure-best-practices/resource-abbreviations
-  cluster_name = "aks-${local.workload}-${local.env}-${local.location}"
+  # Region comes from var.location (default: centralus) so attendees can override without editing code.
+  cluster_name = "aks-${local.workload}-${local.env}-${var.location}"
 
   # AKS configuration
   cluster_version           = "1.34.2"
@@ -39,7 +39,7 @@ data "azurerm_client_config" "current" {}
 #------------------------------------------------------------------------------------------------------------------------------
 resource "azurerm_kubernetes_cluster" "this" {
   name                = local.cluster_name
-  location            = local.location
+  location            = var.location
   resource_group_name = var.resource_group_name
   dns_prefix          = local.cluster_name
   kubernetes_version  = local.cluster_version
