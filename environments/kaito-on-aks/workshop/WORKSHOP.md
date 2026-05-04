@@ -19,6 +19,42 @@ Approximately **2 to 3 hours**, depending on AKS provisioning time and how much 
 - How to call the model's OpenAI-compatible inference API
 - How to clean up everything safely
 
+## What is KAITO?
+
+[KAITO (Kubernetes AI Toolchain Operator)](https://github.com/kaito-project/kaito) is a CNCF Sandbox project that automates AI/ML model inference and tuning workloads in Kubernetes. It simplifies serving open-source models by:
+
+- **Automatic node provisioning** — spins up GPU or CPU nodes sized for the model
+- **Model lifecycle management** — downloads weights, manages the inference server
+- **Preset models** — built-in support for popular families (Llama, Mistral, Falcon, Phi, Qwen, DeepSeek, Gemma)
+- **Custom models** — deploy your own from HuggingFace, Azure Blob/Files, or Azure ML Model Registry
+- **OpenAI-compatible API** — standard `/chat`-style HTTP interface
+
+Architecturally, KAITO is a classic Kubernetes CRD/controller. The two pieces you'll see in this workshop are:
+
+- **Workspace controller** — reconciles the `Workspace` custom resource, triggers node provisioning, and creates the inference workload from a preset or custom template
+- **Node provisioner (`gpu-provisioner`)** — uses the Karpenter-core `NodeClaim` API to add nodes to the AKS cluster on demand
+
+In this workshop you enable KAITO with a single Terraform flag (`ai_toolchain_operator_enabled = true` on the AKS resource) and then declare one `Workspace` CR — KAITO does the rest.
+
+### KAITO vs. Microsoft Foundry
+
+Why KAITO when [Microsoft Foundry](https://ai.azure.com) already offers thousands of models? They serve different needs:
+
+| Consideration | KAITO | Microsoft Foundry |
+|---|---|---|
+| **Service model** | You manage the cluster and the model deployments | You consume models through Microsoft-managed APIs |
+| **Model selection** | Any model from HuggingFace, Azure Blob/Files, Azure ML Registry, or a private registry | Curated catalog with regional availability limits |
+| **Compliance / data sovereignty** | Models and data stay in your cluster — easier for HIPAA, FedRAMP, etc. | Data is sent to Microsoft-managed endpoints |
+| **Cost model** | Pay for VM compute only, no per-token charges | Pay-per-token or provisioned throughput |
+| **Customization** | Full control over inference parameters, batching, quantization | Limited to provider-exposed knobs |
+| **Latency** | In-cluster, minimal hops | Network round-trip to an external endpoint |
+
+**Pick KAITO when** you need data to stay in your environment, want predictable cost at scale, require custom model configurations, or have strict compliance requirements.
+
+**Pick Microsoft Foundry when** you want managed infrastructure, need access to proprietary models (GPT-4, Claude), prefer pay-per-use pricing, or don't want to manage GPU infrastructure.
+
+> Want more depth (preset model catalog, alternative custom-model manifests, the architecture diagram)? See the [demo README](../README.md) — it's the reference for this workshop.
+
 ## Workshop assumptions
 
 - Each attendee has **their own Azure subscription** with permission to create resource groups, storage accounts, and AKS clusters, **and** to assign Azure RBAC roles (e.g. `Owner` or `User Access Administrator` on the resource group or subscription).
@@ -32,6 +68,7 @@ Approximately **2 to 3 hours**, depending on AKS provisioning time and how much 
 
 ## Table of contents
 
+- [What is KAITO?](#what-is-kaito)
 - [Pre-requisites](#pre-requisites)
 - [Lab 1 — Bootstrap and deploy](#lab-1--bootstrap-and-deploy)
 - [Lab 2 — Connect and inspect](#lab-2--connect-and-inspect)
@@ -73,7 +110,7 @@ You should be comfortable with:
 - Basic Kubernetes concepts (pods, services, namespaces)
 - Running CLI commands and editing YAML
 
-If KAITO is new to you, skim the [What is KAITO?](../README.md#what-is-kaito) section of the demo README before starting.
+If KAITO is new to you, the [What is KAITO?](#what-is-kaito) section above covers everything the labs assume.
 
 ### Repository
 
@@ -509,7 +546,7 @@ kubectl_manifest.bloomz_560m
 kubectl_manifest.custom_cpu_inference_namespace
 ```
 
-> **Heads-up:** AKS provisioning takes ~5–10 minutes, and after that the KAITO controller still needs to provision a node and pull the model. **The `apply` may take 15–25 minutes total before everything is ready.** Use the time to read the [What is KAITO?](../README.md#what-is-kaito) section of the demo README.
+> **Heads-up:** AKS provisioning takes ~5–10 minutes, and after that the KAITO controller still needs to provision a node and pull the model. **The `apply` may take 15–25 minutes total before everything is ready.**
 >
 > **Troubleshooting — `KubernetesVersionNotSupported`:** This workshop pins `kubernetes_version = "1.34.2"`. If that version is no longer offered in your region, run `az aks get-versions --location $LOCATION --output table`, pick a supported one, and update `cluster_version` in [../terraform/main.tf](../terraform/main.tf) `locals` block before re-running `terraform plan`.
 
