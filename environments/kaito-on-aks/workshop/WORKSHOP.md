@@ -96,17 +96,9 @@ All commands in this workshop assume your working directory is `environments/kai
 
 ### 1.1 Sign in and pick a subscription
 
-**bash:**
+**Bash & PowerShell:**
 
 ```bash
-az login
-az account set --subscription "<your-subscription-id-or-name>"
-az account show --output table
-```
-
-**PowerShell:**
-
-```powershell
 az login
 az account set --subscription "<your-subscription-id-or-name>"
 az account show --output table
@@ -431,7 +423,7 @@ Plan: 3 to add, 0 to change, 0 to destroy.
 
 Now apply. Terraform will re-plan against the same remote state, show the diff again, and prompt for `yes` before making any changes — there is no local plan file involved.
 
-**bash / PowerShell:**
+**Bash & PowerShell:**
 
 ```bash
 terraform apply -var "resource_group_name=$RG_NAME"
@@ -503,7 +495,7 @@ The `LastModified` timestamp should be within the last few minutes (when `apply`
 
 **3) `terraform state list` reads from whatever backend Terraform currently thinks is active.** Getting your three resources back here proves Terraform is round-tripping state through the azurerm backend, not a stale local copy.
 
-**bash / PowerShell:**
+**Bash & PowerShell:**
 
 ```bash
 terraform state list
@@ -872,15 +864,9 @@ Destroy complete! Resources: 3 destroyed.
 
 When AKS is created, Azure provisions a "node" resource group (typically named `MC_<rg>_<cluster>_<region>`) that holds the VMs, NICs, disks, and load balancer. It should be deleted automatically when the cluster is destroyed — verify:
 
-**bash:**
+**Bash & PowerShell:**
 
 ```bash
-az group list --query "[?starts_with(name, 'MC_${RG_NAME}_')]" --output table
-```
-
-**PowerShell:**
-
-```powershell
 az group list --query "[?starts_with(name, 'MC_${RG_NAME}_')]" --output table
 ```
 
@@ -893,15 +879,9 @@ az group list --query "[?starts_with(name, 'MC_${RG_NAME}_')]" --output table
 
 If anything is still listed, delete it manually:
 
-**bash:**
+**Bash & PowerShell:**
 
 ```bash
-az group delete --name "<MC_...>" --yes --no-wait
-```
-
-**PowerShell:**
-
-```powershell
 az group delete --name "<MC_...>" --yes --no-wait
 ```
 
