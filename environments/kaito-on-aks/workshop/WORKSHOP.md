@@ -389,6 +389,8 @@ You should see `"type": "azurerm"` and your storage account name.
 
 To guarantee the next `plan` / `apply` reads and writes state in your Azure storage container (and not a local `terraform.tfstate` left over from a previous run, a different folder, or a teammate's machine), **re-run `terraform init -reconfigure` with the same backend-config flags from step 1.7 immediately before `plan`**. The `-reconfigure` flag forces Terraform to drop any cached backend state and re-attach to the remote backend exactly as you specify; if anything is wrong (wrong storage account, missing RBAC, expired token), it fails here instead of silently writing state to disk.
 
+> **Why no `-out tfplan`?** Terraform plan files are *always* a local on-disk artifact — there is no built-in way to save them to a remote backend. To avoid the misleading impression that anything other than the state file is being persisted remotely, this workshop runs `plan` for review only and lets `apply` re-plan against the same remote state and prompt for confirmation. Every command below reads and writes state directly to/from your azurerm backend with no local plan artifact left behind.
+
 If you stuck with the default `centralus` region you can omit `-var "location=..."`. If you used a different region in step 1.2, add it to both `plan` and the `destroy` in Lab 4.
 
 **bash:**
@@ -401,7 +403,7 @@ terraform init -reconfigure \
   -backend-config="key=kaito-on-aks.tfstate" \
   -backend-config="use_azuread_auth=true"
 
-terraform plan -var "resource_group_name=$RG_NAME" -out tfplan
+terraform plan -var "resource_group_name=$RG_NAME"
 ```
 
 **PowerShell:**
@@ -414,33 +416,105 @@ terraform init -reconfigure `
   -backend-config="key=kaito-on-aks.tfstate" `
   -backend-config="use_azuread_auth=true"
 
-terraform plan -var "resource_group_name=$RG_NAME" -out tfplan
+terraform plan -var "resource_group_name=$RG_NAME"
 ```
 
 The `init` output must end with `Successfully configured the backend "azurerm"!`. If you see anything else (e.g. `Initializing the backend... (no backend)` or a local-state warning), **stop and fix it before applying** — do not proceed with `apply`.
 
 Review the plan output. You should see roughly 3 resources to add (cluster, namespace, workspace) — and **zero** for the resource group and storage account, since those are not Terraform-managed.
 
-**Expected output (final lines):**
+**Expected output (final line):**
 
 ```text
 Plan: 3 to add, 0 to change, 0 to destroy.
-
-Saved the plan to: tfplan
 ```
 
-`terraform apply` reads the saved plan and writes the resulting state straight back to the same remote backend that `init -reconfigure` just pinned — there is no separate flag to pass.
+Now apply. Terraform will re-plan against the same remote state, show the diff again, and prompt for `yes` before making any changes — there is no local plan file involved.
 
 **bash / PowerShell:**
 
 ```bash
-terraform apply tfplan
+terraform apply -var "resource_group_name=$RG_NAME"
 ```
 
 **Expected output (final line):**
 
 ```text
 Apply complete! Resources: 3 added, 0 changed, 0 destroyed.
+```
+
+#### Verify the state file is actually in the remote container
+
+`apply` exiting cleanly is **not** by itself proof that state landed in Azure — Terraform would happily fall back to writing `terraform.tfstate` next to your code if the backend silently degraded. Run all three of these checks after every apply:
+
+**1) No local state file should exist in the working directory.** With a remote backend, the only on-disk artifact is `.terraform/terraform.tfstate`, which is just a *pointer* to the remote backend (you already inspected it in step 1.7). A real `terraform.tfstate` (or `terraform.tfstate.backup`) at the repo root means state is being written locally.
+
+**bash:**
+
+```bash
+ls -la terraform.tfstate terraform.tfstate.backup 2>/dev/null \
+  && echo "WARNING: local state file found - backend is NOT remote" \
+  || echo "OK: no local state file"
+```
+
+**PowerShell:**
+
+```powershell
+if (Test-Path terraform.tfstate) {
+  Write-Host "WARNING: local state file found - backend is NOT remote"
+} else {
+  Write-Host "OK: no local state file"
+}
+```
+
+**2) The state blob should be visible in your Azure storage container.** This is the definitive proof — if `kaito-on-aks.tfstate` is listed here, Terraform really did write to the remote backend.
+
+**bash:**
+
+```bash
+az storage blob list \
+  --account-name "$STORAGE_ACCOUNT" \
+  --container-name "$STATE_CONTAINER" \
+  --auth-mode login \
+  --query "[].{name:name, size:properties.contentLength, lastModified:properties.lastModified}" \
+  --output table
+```
+
+**PowerShell:**
+
+```powershell
+az storage blob list `
+  --account-name $STORAGE_ACCOUNT `
+  --container-name $STATE_CONTAINER `
+  --auth-mode login `
+  --query "[].{name:name, size:properties.contentLength, lastModified:properties.lastModified}" `
+  --output table
+```
+
+**Expected output:**
+
+```text
+Name                  Size    LastModified
+--------------------  ------  -------------------------
+kaito-on-aks.tfstate  12345   2026-05-04T17:42:10+00:00
+```
+
+The `LastModified` timestamp should be within the last few minutes (when `apply` finished). If the blob is missing, your `apply` did not write to the remote backend — re-run the `terraform init -reconfigure` block and apply again.
+
+**3) `terraform state list` reads from whatever backend Terraform currently thinks is active.** Getting your three resources back here proves Terraform is round-tripping state through the azurerm backend, not a stale local copy.
+
+**bash / PowerShell:**
+
+```bash
+terraform state list
+```
+
+**Expected output:**
+
+```text
+azurerm_kubernetes_cluster.this
+kubectl_manifest.bloomz_560m
+kubectl_manifest.custom_cpu_inference_namespace
 ```
 
 > **Heads-up:** AKS provisioning takes ~5–10 minutes, and after that the KAITO controller still needs to provision a node and pull the model. **The `apply` may take 15–25 minutes total before everything is ready.** Use the time to read the [What is KAITO?](../README.md#what-is-kaito) section of the demo README.
