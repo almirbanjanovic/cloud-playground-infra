@@ -387,21 +387,37 @@ You should see `"type": "azurerm"` and your storage account name.
 
 ### 1.8 Plan and apply
 
-> The backend was pinned to your Azure storage container in step 1.7, so `plan` and `apply` read and write state remotely without any extra backend flags. Only the input variables need to be passed.
+To guarantee the next `plan` / `apply` reads and writes state in your Azure storage container (and not a local `terraform.tfstate` left over from a previous run, a different folder, or a teammate's machine), **re-run `terraform init -reconfigure` with the same backend-config flags from step 1.7 immediately before `plan`**. The `-reconfigure` flag forces Terraform to drop any cached backend state and re-attach to the remote backend exactly as you specify; if anything is wrong (wrong storage account, missing RBAC, expired token), it fails here instead of silently writing state to disk.
 
-If you stuck with the default `centralus` region you can omit `-var "location=..."`. If you used a different region in step 1.2, add it to both `plan` and `destroy`.
+If you stuck with the default `centralus` region you can omit `-var "location=..."`. If you used a different region in step 1.2, add it to both `plan` and the `destroy` in Lab 4.
 
 **bash:**
 
 ```bash
+terraform init -reconfigure \
+  -backend-config="resource_group_name=$RG_NAME" \
+  -backend-config="storage_account_name=$STORAGE_ACCOUNT" \
+  -backend-config="container_name=$STATE_CONTAINER" \
+  -backend-config="key=kaito-on-aks.tfstate" \
+  -backend-config="use_azuread_auth=true"
+
 terraform plan -var "resource_group_name=$RG_NAME" -out tfplan
 ```
 
 **PowerShell:**
 
 ```powershell
+terraform init -reconfigure `
+  -backend-config="resource_group_name=$RG_NAME" `
+  -backend-config="storage_account_name=$STORAGE_ACCOUNT" `
+  -backend-config="container_name=$STATE_CONTAINER" `
+  -backend-config="key=kaito-on-aks.tfstate" `
+  -backend-config="use_azuread_auth=true"
+
 terraform plan -var "resource_group_name=$RG_NAME" -out tfplan
 ```
+
+The `init` output must end with `Successfully configured the backend "azurerm"!`. If you see anything else (e.g. `Initializing the backend... (no backend)` or a local-state warning), **stop and fix it before applying** — do not proceed with `apply`.
 
 Review the plan output. You should see roughly 3 resources to add (cluster, namespace, workspace) — and **zero** for the resource group and storage account, since those are not Terraform-managed.
 
@@ -412,6 +428,10 @@ Plan: 3 to add, 0 to change, 0 to destroy.
 
 Saved the plan to: tfplan
 ```
+
+`terraform apply` reads the saved plan and writes the resulting state straight back to the same remote backend that `init -reconfigure` just pinned — there is no separate flag to pass.
+
+**bash / PowerShell:**
 
 ```bash
 terraform apply tfplan
@@ -736,17 +756,33 @@ curl --max-time 60 -X POST http://$KAITO_IP/chat \
 
 This removes the AKS cluster, the namespace, and the KAITO workspace — the **only** three things Terraform owns. The resource group and the state storage account are not in Terraform state, so they are untouched here.
 
+Like `plan`/`apply`, prefix `destroy` with `terraform init -reconfigure` so it explicitly re-attaches to the remote azurerm backend before touching anything. If your shell session is brand new and the env vars from Lab 1 are gone, re-export `RG_NAME`, `STORAGE_ACCOUNT`, and `STATE_CONTAINER` first.
+
 If you used a non-default region in step 1.2, append `-var "location=<region>"` so Terraform's plan matches the apply.
 
 **bash:**
 
 ```bash
+terraform init -reconfigure \
+  -backend-config="resource_group_name=$RG_NAME" \
+  -backend-config="storage_account_name=$STORAGE_ACCOUNT" \
+  -backend-config="container_name=$STATE_CONTAINER" \
+  -backend-config="key=kaito-on-aks.tfstate" \
+  -backend-config="use_azuread_auth=true"
+
 terraform destroy -var "resource_group_name=$RG_NAME" -auto-approve
 ```
 
 **PowerShell:**
 
 ```powershell
+terraform init -reconfigure `
+  -backend-config="resource_group_name=$RG_NAME" `
+  -backend-config="storage_account_name=$STORAGE_ACCOUNT" `
+  -backend-config="container_name=$STATE_CONTAINER" `
+  -backend-config="key=kaito-on-aks.tfstate" `
+  -backend-config="use_azuread_auth=true"
+
 terraform destroy -var "resource_group_name=$RG_NAME" -auto-approve
 ```
 
