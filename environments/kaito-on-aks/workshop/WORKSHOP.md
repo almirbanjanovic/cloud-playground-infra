@@ -19,6 +19,15 @@ Approximately **2 to 3 hours**, depending on AKS provisioning time and how much 
 - How to call the model's OpenAI-compatible inference API
 - How to clean up everything safely
 
+## Table of contents
+
+- [What is KAITO?](#what-is-kaito)
+- [Pre-requisites](#pre-requisites)
+- [Lab 1 — Bootstrap and deploy](#lab-1--bootstrap-and-deploy)
+- [Lab 2 — Connect and inspect](#lab-2--connect-and-inspect)
+- [Lab 3 — Call the model](#lab-3--call-the-model)
+- [Lab 4 — Cleanup](#lab-4--cleanup)
+
 ## What is KAITO?
 
 [KAITO (Kubernetes AI Toolchain Operator)](https://github.com/kaito-project/kaito) is a CNCF Sandbox project that automates AI/ML model inference and tuning workloads in Kubernetes. It simplifies serving open-source models by:
@@ -33,6 +42,10 @@ Architecturally, KAITO is a classic Kubernetes CRD/controller. The two pieces yo
 
 - **Workspace controller** — reconciles the `Workspace` custom resource, triggers node provisioning, and creates the inference workload from a preset or custom template
 - **Node provisioner (`gpu-provisioner`)** — uses the Karpenter-core `NodeClaim` API to add nodes to the AKS cluster on demand
+
+![KAITO Architecture](https://raw.githubusercontent.com/kaito-project/kaito/main/website/static/img/arch.png)
+
+*Source: [KAITO GitHub](https://github.com/kaito-project/kaito)*
 
 In this workshop you enable KAITO with a single Terraform flag (`ai_toolchain_operator_enabled = true` on the AKS resource) and then declare one `Workspace` CR — KAITO does the rest.
 
@@ -63,17 +76,6 @@ Why KAITO when [Microsoft Foundry](https://ai.azure.com) already offers thousand
 - All access to the state storage account uses **Microsoft Entra ID** authentication — shared keys are disabled.
 - Nothing is pre-provisioned. Attendees deploy live during the workshop.
 - This workshop uses a **CPU-based** model (BLOOMZ-560m). GPU presets are out of scope.
-
----
-
-## Table of contents
-
-- [What is KAITO?](#what-is-kaito)
-- [Pre-requisites](#pre-requisites)
-- [Lab 1 — Bootstrap and deploy](#lab-1--bootstrap-and-deploy)
-- [Lab 2 — Connect and inspect](#lab-2--connect-and-inspect)
-- [Lab 3 — Call the model](#lab-3--call-the-model)
-- [Lab 4 — Cleanup](#lab-4--cleanup)
 
 ---
 
