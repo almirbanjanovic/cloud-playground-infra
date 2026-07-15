@@ -2,40 +2,89 @@ name: Bootstrap GitHub Environments
 
 # ------------------------------------------------------------------------------
 # One-click population of the ai-foundry-base and ai-foundry-workload GitHub
-# environments with the per-user inputs that Terraform (base stack) needs.
+# environments with EVERY secret / variable that the downstream terraform
+# workflows need. After this workflow runs successfully, the deploy is
+# entirely CI-driven — no manual CLI commands.
 #
-# Populates:
-#   Secret ADMIN_SSH_PUBLIC_KEY              (both environments)
-#   Secret GH_RUNNER_PAT                     (both environments)
-#   Variable ALLOWED_SSH_SOURCE_PREFIXES     (both environments)
-#   Variable JUMPBOX_ENTRA_ADMIN_OBJECT_IDS  (both environments)
+# Populates in BOTH environments (unless noted):
+#   Secrets:
+#     AZURE_CLIENT_ID         (BASE ONLY — see idempotency note below)
+#     AZURE_TENANT_ID
+#     AZURE_SUBSCRIPTION_ID
+#     TAGS                    (space-separated key=value for the RG)
+#     ADMIN_SSH_PUBLIC_KEY
+#     GH_RUNNER_PAT           (masked in logs)
+#   Variables:
+#     RESOURCE_GROUP
+#     LOCATION                (hardcoded to centralus — matches Terraform locals)
+#     STORAGE_ACCOUNT
+#     STORAGE_ACCOUNT_SKU                    (Standard_LRS)
+#     STORAGE_ACCOUNT_ENCRYPTION_SERVICES    (blob)
+#     STORAGE_ACCOUNT_MIN_TLS_VERSION        (TLS1_2)
+#     STORAGE_ACCOUNT_PUBLIC_NETWORK_ACCESS  (Enabled — init-backend trap
+#                                             disables it at exit)
+#     TERRAFORM_STATE_CONTAINER              (tfstate)
+#     ALLOWED_SSH_SOURCE_PREFIXES
+#     JUMPBOX_ENTRA_ADMIN_OBJECT_IDS
+#   Variables (per-env, hardcoded):
+#     TERRAFORM_STATE_BLOB          base.tfstate  |  workload.tfstate
+#     TERRAFORM_WORKING_DIRECTORY   environments/ai-foundry/{base,workload}/terraform
 #
-# NOT populated (auto-derived at workflow runtime, no storage needed):
-#   github_org  → ${{ github.repository_owner }}
-#   github_repo → ${{ github.event.repository.name }}
+# AZURE_CLIENT_ID is populated ONLY into ai-foundry-base. The workload env's
+# AZURE_CLIENT_ID is set by the base apply's post-apply step to point at the
+# runner UAMI (which has its own federated credential trusting
+# `repo:{owner}/{repo}:environment:ai-foundry-workload`). This is deliberate:
+# the bootstrap principal is federated only for ai-foundry-base, so writing
+# it into ai-foundry-workload would break workload auth. Skipping it here
+# keeps bootstrap safely re-runnable — re-running only overwrites values
+# whose source of truth is the workflow inputs (SSH key, PAT, RG name, etc.);
+# the workload UAMI client_id (set by base apply) is never touched.
 #
-# Prereq (the ONLY manual GitHub-UI step in the whole flow):
-#   Create a repository secret named `GH_ADMIN_PAT` with a fine-grained
-#   Personal Access Token that has these permissions on this repo:
-#     - Environments        : Read and write
-#     - Secrets             : Read and write
-#     - Variables           : Read and write
-#     - Metadata            : Read (always required)
+# NOT populated (auto-derived at workflow runtime from GitHub context):
+#   TF_VAR_github_org  → ${{ github.repository_owner }}
+#   TF_VAR_github_repo → ${{ github.event.repository.name }}
 #
-# After that, run this workflow once. Re-runs are idempotent (they overwrite
-# whatever value is currently stored), which makes it safe for rotating any
-# of the four values later.
+# Prereqs (see environments/ai-foundry/README.md):
+#   1. Azure bootstrap principal (UAMI or app registration) with:
+#        - subscription-scope Owner
+#        - subscription-scope Storage Blob Data Contributor
+#        - federated credential for repo:{owner}/{repo}:environment:ai-foundry-base
+#      You need its client ID / tenant / subscription for the workflow inputs.
+#   2. Repo-level secret GH_ADMIN_PAT — fine-grained PAT with these
+#      permissions on this repo: Environments r/w, Secrets r/w, Variables r/w,
+#      Metadata r. Used by this workflow to write env-scoped values.
+#
+# Idempotent — re-run any time to rotate GH_RUNNER_PAT, update the SSH
+# allowlist, change the RG name, etc. AZURE_CLIENT_ID on ai-foundry-workload
+# is intentionally left untouched so the runner UAMI (set by base apply)
+# survives bootstrap re-runs.
 # ------------------------------------------------------------------------------
 
 on:
   workflow_dispatch:
     inputs:
+      azure_client_id:
+        description: 'Bootstrap principal client ID (UAMI or app registration). Populates AZURE_CLIENT_ID in both envs; workload gets overwritten by base apply.'
+        required: true
+        type: string
+      azure_tenant_id:
+        description: 'Azure tenant ID.'
+        required: true
+        type: string
+      azure_subscription_id:
+        description: 'Target Azure subscription ID.'
+        required: true
+        type: string
+      state_storage_account_name:
+        description: 'Globally-unique name for the Terraform state storage account. 3-24 lowercase alphanumerics, e.g. "staifoundry123456".'
+        required: true
+        type: string
       admin_ssh_public_key:
         description: 'OpenSSH public key for the jumpbox + runner admin user. Paste the full "ssh-ed25519 AAAA... user@host" line.'
         required: true
         type: string
       github_runner_pat:
-        description: 'Fine-grained PAT with `Administration: read/write` on this repo (used by cloud-init to mint runner registration tokens). Will be masked in logs.'
+        description: 'Fine-grained PAT with Administration: read/write on this repo (used by cloud-init to mint runner registration tokens). Masked in logs.'
         required: true
         type: string
       allowed_ssh_source_prefixes:
@@ -44,13 +93,38 @@ on:
         type: string
         default: '[]'
       jumpbox_entra_admin_object_ids:
-        description: 'JSON list of Entra object IDs (users or groups) granted `Virtual Machine Administrator Login` on the jumpbox. Example: ["11111111-2222-3333-4444-555555555555"].'
+        description: 'JSON list of Entra object IDs granted Virtual Machine Administrator Login on the jumpbox. Example: ["11111111-2222-3333-4444-555555555555"].'
         required: true
         type: string
         default: '[]'
+      resource_group_name:
+        description: 'Azure resource group name for all ai-foundry resources.'
+        required: false
+        type: string
+        default: 'rg-ai-foundry-dev'
+      tags:
+        description: 'Space-separated key=value tags applied to the resource group.'
+        required: false
+        type: string
+        default: 'environment=dev workload=ai-foundry'
 
 permissions:
   contents: read
+
+env:
+  # Hardcoded shape values — kept here (not as workflow inputs) because they
+  # rarely change and are not per-deployment secrets. Change these together
+  # with local.location in base/workload main.tf if you need a different
+  # region.
+  LOCATION: centralus
+  STORAGE_ACCOUNT_SKU: Standard_LRS
+  STORAGE_ACCOUNT_ENCRYPTION_SERVICES: blob
+  STORAGE_ACCOUNT_MIN_TLS_VERSION: TLS1_2
+  # `Enabled` at creation; the init-backend workflow's `trap` disables it at
+  # exit so the final state is `Disabled`. Setting `Disabled` here would break
+  # the first init run because ubuntu-latest can't reach the private data plane.
+  STORAGE_ACCOUNT_PUBLIC_NETWORK_ACCESS: Enabled
+  TERRAFORM_STATE_CONTAINER: tfstate
 
 jobs:
   populate:
@@ -59,29 +133,35 @@ jobs:
 
     steps:
       - name: Mask sensitive workflow inputs in logs
-        # Workflow-dispatch inputs are NOT auto-masked by GitHub Actions.
-        # Explicitly add the runner PAT to the mask list so it can't leak
-        # through `set -x`, downstream tool output, or accidental echo.
-        # The SSH public key is not sensitive (public by definition).
+        # workflow_dispatch inputs are NOT auto-masked by GitHub Actions.
+        # Explicitly add the runner PAT to the mask list. Everything else
+        # (SSH pubkey, Azure IDs) is not sensitive.
         env:
           RUNNER_PAT: ${{ inputs.github_runner_pat }}
         run: |
           echo "::add-mask::$RUNNER_PAT"
 
-      - name: Validate JSON list inputs
-        # `gh variable set` accepts any body verbatim; catching JSON errors
-        # here beats debugging a Terraform "invalid JSON" 30 minutes later.
-        # Validate BOTH the container type AND that every element is a string
-        # — Terraform declares both as `list(string)`, so mixed-type arrays
-        # like [42, "foo"] would fail apply.
+      - name: Validate inputs
         env:
           ALLOWED: ${{ inputs.allowed_ssh_source_prefixes }}
           ADMIN_IDS: ${{ inputs.jumpbox_entra_admin_object_ids }}
+          SA_NAME: ${{ inputs.state_storage_account_name }}
         run: |
           set -euo pipefail
+
+          # JSON list inputs: verify shape AND element types up front so we
+          # fail before writing anything (safer than a partial population).
           jq_check='type == "array" and all(.[]; type == "string")'
-          printf '%s' "$ALLOWED"   | jq -e "$jq_check" >/dev/null || { echo "ALLOWED_SSH_SOURCE_PREFIXES is not a JSON array of strings"; exit 1; }
-          printf '%s' "$ADMIN_IDS" | jq -e "$jq_check" >/dev/null || { echo "JUMPBOX_ENTRA_ADMIN_OBJECT_IDS is not a JSON array of strings"; exit 1; }
+          printf '%s' "$ALLOWED"   | jq -e "$jq_check" >/dev/null \
+            || { echo "ALLOWED_SSH_SOURCE_PREFIXES is not a JSON array of strings"; exit 1; }
+          printf '%s' "$ADMIN_IDS" | jq -e "$jq_check" >/dev/null \
+            || { echo "JUMPBOX_ENTRA_ADMIN_OBJECT_IDS is not a JSON array of strings"; exit 1; }
+
+          # Storage account name rules per Azure: 3-24 lowercase alphanumerics.
+          if [[ ! "$SA_NAME" =~ ^[a-z0-9]{3,24}$ ]]; then
+            echo "state_storage_account_name '$SA_NAME' is invalid: must be 3-24 lowercase alphanumerics."
+            exit 1
+          fi
 
       - name: Ensure GitHub environments exist
         env:
@@ -93,43 +173,80 @@ jobs:
             echo "Ensured environment '$env_name' exists."
           done
 
-      - name: Populate secrets and variables in both environments
+      - name: Populate both environments
         env:
-          GH_TOKEN:      ${{ secrets.GH_ADMIN_PAT }}
-          SSH_PUB_KEY:   ${{ inputs.admin_ssh_public_key }}
-          RUNNER_PAT:    ${{ inputs.github_runner_pat }}
-          ALLOWED_CIDRS: ${{ inputs.allowed_ssh_source_prefixes }}
-          ADMIN_IDS:     ${{ inputs.jumpbox_entra_admin_object_ids }}
+          GH_TOKEN:            ${{ secrets.GH_ADMIN_PAT }}
+          AZ_CLIENT_ID:        ${{ inputs.azure_client_id }}
+          AZ_TENANT_ID:        ${{ inputs.azure_tenant_id }}
+          AZ_SUBSCRIPTION_ID:  ${{ inputs.azure_subscription_id }}
+          TAGS:                ${{ inputs.tags }}
+          SSH_PUB_KEY:         ${{ inputs.admin_ssh_public_key }}
+          RUNNER_PAT:          ${{ inputs.github_runner_pat }}
+          ALLOWED_CIDRS:       ${{ inputs.allowed_ssh_source_prefixes }}
+          ADMIN_IDS:           ${{ inputs.jumpbox_entra_admin_object_ids }}
+          RG_NAME:             ${{ inputs.resource_group_name }}
+          SA_NAME:             ${{ inputs.state_storage_account_name }}
+          REPO:                ${{ github.repository }}
         run: |
           set -euo pipefail
 
-          # `gh secret set` and `gh variable set` (both in gh CLI 2.x) accept
-          # values via `--body`, positional argument, or STDIN (when no body
-          # flag is given). Neither supports `--body-file`. Piping via STDIN
-          # avoids shell-escaping multi-line SSH keys or JSON that contains
-          # quotes. `gh` overwrites existing values, making this idempotent.
+          # `gh secret set` and `gh variable set` accept STDIN when no --body
+          # flag is given (--body-file is NOT supported by either subcommand
+          # in gh CLI 2.x). Piping via STDIN avoids shell-escaping multi-line
+          # SSH keys or JSON with quotes. `gh` overwrites existing values,
+          # making the whole workflow safely idempotent.
+
+          set_secret()   { printf '%s' "$2" | gh secret   set "$1" --env "$3" --repo "$REPO"; }
+          set_variable() { printf '%s' "$2" | gh variable set "$1" --env "$3" --repo "$REPO"; }
+
           for env_name in ai-foundry-base ai-foundry-workload; do
             echo "-> Populating '$env_name'"
 
-            printf '%s' "$SSH_PUB_KEY" | \
-              gh secret set ADMIN_SSH_PUBLIC_KEY \
-                --env "$env_name" --repo "${{ github.repository }}"
+            # Shared Azure auth (tenant + subscription are the same across both;
+            # AZURE_CLIENT_ID is base-only — see loop postscript).
+            set_secret AZURE_TENANT_ID       "$AZ_TENANT_ID"       "$env_name"
+            set_secret AZURE_SUBSCRIPTION_ID "$AZ_SUBSCRIPTION_ID" "$env_name"
+            set_secret TAGS                  "$TAGS"               "$env_name"
 
-            printf '%s' "$RUNNER_PAT" | \
-              gh secret set GH_RUNNER_PAT \
-                --env "$env_name" --repo "${{ github.repository }}"
+            # Personal inputs (SSH + runner PAT + allowlists)
+            set_secret   ADMIN_SSH_PUBLIC_KEY            "$SSH_PUB_KEY"   "$env_name"
+            set_secret   GH_RUNNER_PAT                   "$RUNNER_PAT"    "$env_name"
+            set_variable ALLOWED_SSH_SOURCE_PREFIXES     "$ALLOWED_CIDRS" "$env_name"
+            set_variable JUMPBOX_ENTRA_ADMIN_OBJECT_IDS  "$ADMIN_IDS"     "$env_name"
 
-            printf '%s' "$ALLOWED_CIDRS" | \
-              gh variable set ALLOWED_SSH_SOURCE_PREFIXES \
-                --env "$env_name" --repo "${{ github.repository }}"
+            # Shared config (Azure + state SA shape)
+            set_variable RESOURCE_GROUP                        "$RG_NAME"                                "$env_name"
+            set_variable LOCATION                              "$LOCATION"                               "$env_name"
+            set_variable STORAGE_ACCOUNT                       "$SA_NAME"                                "$env_name"
+            set_variable STORAGE_ACCOUNT_SKU                   "$STORAGE_ACCOUNT_SKU"                    "$env_name"
+            set_variable STORAGE_ACCOUNT_ENCRYPTION_SERVICES   "$STORAGE_ACCOUNT_ENCRYPTION_SERVICES"    "$env_name"
+            set_variable STORAGE_ACCOUNT_MIN_TLS_VERSION       "$STORAGE_ACCOUNT_MIN_TLS_VERSION"        "$env_name"
+            set_variable STORAGE_ACCOUNT_PUBLIC_NETWORK_ACCESS "$STORAGE_ACCOUNT_PUBLIC_NETWORK_ACCESS"  "$env_name"
+            set_variable TERRAFORM_STATE_CONTAINER             "$TERRAFORM_STATE_CONTAINER"              "$env_name"
 
-            printf '%s' "$ADMIN_IDS" | \
-              gh variable set JUMPBOX_ENTRA_ADMIN_OBJECT_IDS \
-                --env "$env_name" --repo "${{ github.repository }}"
-
-            echo "   done: ADMIN_SSH_PUBLIC_KEY, GH_RUNNER_PAT, ALLOWED_SSH_SOURCE_PREFIXES, JUMPBOX_ENTRA_ADMIN_OBJECT_IDS"
+            echo "   done: 5 shared secrets + 9 shared variables"
           done
 
+          # AZURE_CLIENT_ID — base ONLY. The bootstrap principal is federated
+          # for `repo:{owner}/{repo}:environment:ai-foundry-base` only, so
+          # writing it into ai-foundry-workload would break workload auth.
+          # The workload env's AZURE_CLIENT_ID is set by the base apply's
+          # post-apply step to point at the runner UAMI (which HAS a federated
+          # credential trusting ai-foundry-workload). Skipping the workload
+          # write here keeps this workflow safely re-runnable.
+          set_secret AZURE_CLIENT_ID "$AZ_CLIENT_ID" ai-foundry-base
+          echo "-> ai-foundry-base: AZURE_CLIENT_ID set to bootstrap principal"
+          echo "-> ai-foundry-workload: AZURE_CLIENT_ID intentionally NOT written (set later by base apply)"
+
+          # Per-env terraform working directory + state blob key
+          set_variable TERRAFORM_STATE_BLOB        "base.tfstate"                                  ai-foundry-base
+          set_variable TERRAFORM_WORKING_DIRECTORY "environments/ai-foundry/base/terraform"        ai-foundry-base
+          set_variable TERRAFORM_STATE_BLOB        "workload.tfstate"                              ai-foundry-workload
+          set_variable TERRAFORM_WORKING_DIRECTORY "environments/ai-foundry/workload/terraform"    ai-foundry-workload
+
           echo ""
-          echo "All four inputs populated in both environments."
-          echo "github_org / github_repo are auto-derived at workflow runtime — no storage needed."
+          echo "Bootstrap complete."
+          echo "ai-foundry-base    : 6 secrets, 11 variables"
+          echo "ai-foundry-workload: 5 secrets, 11 variables (AZURE_CLIENT_ID left for base apply)"
+          echo ""
+          echo "Next: run 'Terraform Init Remote Backend' with environment=ai-foundry-base."
