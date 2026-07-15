@@ -1,0 +1,119 @@
+#cloud-config
+# ------------------------------------------------------------------------------
+# Cloud-init template for the CI/CD runner VM.
+#
+# Substitutions provided by Terraform via `templatefile()`:
+#   admin_username   — local user that owns the actions-runner install
+#   github_org       — GitHub org / user that owns the repo
+#   github_repo      — repo name the runner registers against
+#   github_pat       — Fine-grained PAT with `Administration: read/write`
+#                      on the target repo (used to mint a registration token
+#                      at boot; never leaves the VM afterwards)
+#   runner_labels    — Comma-separated labels applied to the runner
+#   runner_version   — GitHub Actions runner release tag (e.g. 2.320.0)
+#   runner_group     — Runner group name (empty for default)
+# ------------------------------------------------------------------------------
+package_update: true
+package_upgrade: false
+
+packages:
+  - curl
+  - jq
+  - unzip
+  - ca-certificates
+  - apt-transport-https
+  - gnupg
+  - lsb-release
+
+write_files:
+  - path: /usr/local/sbin/install-github-runner.sh
+    permissions: "0700"
+    owner: root:root
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+
+      RUNNER_USER="${admin_username}"
+      RUNNER_HOME="/home/$RUNNER_USER/actions-runner"
+      GITHUB_ORG="${github_org}"
+      GITHUB_REPO="${github_repo}"
+      GITHUB_PAT="${github_pat}"
+      RUNNER_LABELS="${runner_labels}"
+      RUNNER_VERSION="${runner_version}"
+      RUNNER_GROUP="${runner_group}"
+
+      # --- Install Microsoft Azure CLI --------------------------------------
+      if ! command -v az >/dev/null 2>&1; then
+        curl -sL https://aka.ms/InstallAzureCLIDeb | bash
+      fi
+
+      # --- Install HashiCorp Terraform + tflint -----------------------------
+      if ! command -v terraform >/dev/null 2>&1; then
+        curl -fsSL https://apt.releases.hashicorp.com/gpg | \
+          gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+        echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] \
+      https://apt.releases.hashicorp.com $(lsb_release -cs) main" \
+          > /etc/apt/sources.list.d/hashicorp.list
+        apt-get update -y
+        apt-get install -y terraform
+      fi
+
+      if ! command -v tflint >/dev/null 2>&1; then
+        curl -s https://raw.githubusercontent.com/terraform-linters/tflint/master/install_linux.sh | bash
+      fi
+
+      # --- Download and unpack the GitHub Actions runner --------------------
+      mkdir -p "$RUNNER_HOME"
+      cd "$RUNNER_HOME"
+
+      if [ ! -f ./config.sh ]; then
+        curl -o actions-runner.tar.gz -L \
+          "https://github.com/actions/runner/releases/download/v$${RUNNER_VERSION}/actions-runner-linux-x64-$${RUNNER_VERSION}.tar.gz"
+        tar xzf ./actions-runner.tar.gz
+        rm -f ./actions-runner.tar.gz
+      fi
+
+      chown -R "$RUNNER_USER:$RUNNER_USER" "$RUNNER_HOME"
+
+      # --- Mint a fresh registration token from the PAT ---------------------
+      # Registration tokens are short-lived (~1h). Minting one at boot avoids
+      # the caller having to keep it fresh between `terraform apply` runs.
+      REGISTRATION_TOKEN=$(curl -sX POST \
+        -H "Accept: application/vnd.github+json" \
+        -H "Authorization: Bearer $GITHUB_PAT" \
+        -H "X-GitHub-Api-Version: 2022-11-28" \
+        "https://api.github.com/repos/$GITHUB_ORG/$GITHUB_REPO/actions/runners/registration-token" \
+        | jq -r .token)
+
+      if [ -z "$REGISTRATION_TOKEN" ] || [ "$REGISTRATION_TOKEN" = "null" ]; then
+        echo "Failed to mint runner registration token — check PAT scopes."
+        exit 1
+      fi
+
+      # --- Register the runner as an unattended service ---------------------
+      RUNNER_NAME="$(hostname)"
+
+      # Idempotent: if config already exists (VM was re-run cloud-init), skip.
+      if [ ! -f "$RUNNER_HOME/.runner" ]; then
+        GROUP_ARG=""
+        if [ -n "$RUNNER_GROUP" ]; then
+          GROUP_ARG="--runnergroup $RUNNER_GROUP"
+        fi
+
+        sudo -u "$RUNNER_USER" -H bash -c \
+          "cd $RUNNER_HOME && ./config.sh \
+            --url https://github.com/$GITHUB_ORG/$GITHUB_REPO \
+            --token $REGISTRATION_TOKEN \
+            --name $RUNNER_NAME \
+            --labels $RUNNER_LABELS \
+            $GROUP_ARG \
+            --unattended \
+            --replace"
+      fi
+
+      cd "$RUNNER_HOME"
+      ./svc.sh install "$RUNNER_USER"
+      ./svc.sh start
+
+runcmd:
+  - [ /usr/local/sbin/install-github-runner.sh ]

@@ -9,7 +9,8 @@ on:
         type: choice
         options:
           - kaito-on-aks
-          - ai-foundry
+          - ai-foundry-base
+          - ai-foundry-workload
           - apim-lab
           - apim-mcp
           - backend-pool-load-balancing
@@ -26,10 +27,19 @@ jobs:
     uses: ./.github/workflows/terraform-plan.yaml
     with:
       environment: ${{ inputs.environment }}
-    secrets:
-      azureClientId: ${{ secrets.AZURE_CLIENT_ID }}
-      azureTenantId: ${{ secrets.AZURE_TENANT_ID }}
-      azureSubscriptionId: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      # ai-foundry-workload lives behind private endpoints; it can only
+      # be planned/applied from the self-hosted runner deployed by the
+      # ai-foundry-base stack. Every other environment stays on the
+      # standard GitHub-hosted runner.
+      runs_on: ${{ inputs.environment == 'ai-foundry-workload' && '["self-hosted", "ai-foundry"]' || '"ubuntu-latest"' }}
+    # `secrets: inherit` forwards every repo/environment secret to the
+    # called workflow. The called workflow's job selects the environment
+    # via `environment: ${{ inputs.environment }}`, so env-scoped secrets
+    # (AZURE_CLIENT_ID, GH_RUNNER_PAT, ADMIN_SSH_PUBLIC_KEY, ...) resolve
+    # correctly. Explicit `secrets: { key: value }` would resolve values in
+    # the CALLER's context, which has no environment selected and cannot
+    # see environment-scoped secrets.
+    secrets: inherit
 
   
   manual-approval:
@@ -53,7 +63,5 @@ jobs:
     uses: ./.github/workflows/terraform-apply.yaml
     with:
       environment: ${{ inputs.environment }}
-    secrets:
-      azureClientId: ${{ secrets.AZURE_CLIENT_ID }}
-      azureTenantId: ${{ secrets.AZURE_TENANT_ID }}
-      azureSubscriptionId: ${{ secrets.AZURE_SUBSCRIPTION_ID }}  
+      runs_on: ${{ inputs.environment == 'ai-foundry-workload' && '["self-hosted", "ai-foundry"]' || '"ubuntu-latest"' }}
+    secrets: inherit

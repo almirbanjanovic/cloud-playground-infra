@@ -1,5 +1,5 @@
 module "apim" {
-  source              = "../../../iac-modules/terraform/apim"
+  source              = "../../../iac-modules/terraform/apim/v1"
   base_name           = "mcp"
   environment         = "dev"
   location            = "centralus"

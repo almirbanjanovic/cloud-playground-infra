@@ -5,12 +5,12 @@ terraform {
 
     azurerm = {
       source  = "hashicorp/azurerm"
-      version = "~>4.41.0"
+      version = "~> 4.81"
     }
 
     azapi = {
       source  = "azure/azapi"
-      version = "~>2.6.0"
+      version = "~> 2.10"
     }
 
     random = {
@@ -26,6 +26,7 @@ terraform {
 provider "azurerm" {
   features {}
 
+  storage_use_azuread             = true
   resource_provider_registrations = "none"
 }
 

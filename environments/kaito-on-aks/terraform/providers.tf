@@ -5,22 +5,22 @@ terraform {
 
     azurerm = {
       source  = "hashicorp/azurerm"
-      version = "~>4.58.0"
+      version = "~> 4.81"
     }
 
     azapi = {
       source  = "azure/azapi"
-      version = "~>2.8.0"
+      version = "~> 2.10"
     }
 
     kubernetes = {
       source  = "hashicorp/kubernetes"
-      version = "~>3.0.1"
+      version = "~> 3.2"
     }
 
     kubectl = {
       source  = "gavinbunney/kubectl"
-      version = "~>1.18.0"
+      version = "~> 1.19"
     }
   }
 
@@ -37,6 +37,7 @@ provider "azurerm" {
     }
   }
 
+  storage_use_azuread             = true
   resource_provider_registrations = "none"
 }
 

@@ -1,0 +1,135 @@
+name: Bootstrap GitHub Environments
+
+# ------------------------------------------------------------------------------
+# One-click population of the ai-foundry-base and ai-foundry-workload GitHub
+# environments with the per-user inputs that Terraform (base stack) needs.
+#
+# Populates:
+#   Secret ADMIN_SSH_PUBLIC_KEY              (both environments)
+#   Secret GH_RUNNER_PAT                     (both environments)
+#   Variable ALLOWED_SSH_SOURCE_PREFIXES     (both environments)
+#   Variable JUMPBOX_ENTRA_ADMIN_OBJECT_IDS  (both environments)
+#
+# NOT populated (auto-derived at workflow runtime, no storage needed):
+#   github_org  → ${{ github.repository_owner }}
+#   github_repo → ${{ github.event.repository.name }}
+#
+# Prereq (the ONLY manual GitHub-UI step in the whole flow):
+#   Create a repository secret named `GH_ADMIN_PAT` with a fine-grained
+#   Personal Access Token that has these permissions on this repo:
+#     - Environments        : Read and write
+#     - Secrets             : Read and write
+#     - Variables           : Read and write
+#     - Metadata            : Read (always required)
+#
+# After that, run this workflow once. Re-runs are idempotent (they overwrite
+# whatever value is currently stored), which makes it safe for rotating any
+# of the four values later.
+# ------------------------------------------------------------------------------
+
+on:
+  workflow_dispatch:
+    inputs:
+      admin_ssh_public_key:
+        description: 'OpenSSH public key for the jumpbox + runner admin user. Paste the full "ssh-ed25519 AAAA... user@host" line.'
+        required: true
+        type: string
+      github_runner_pat:
+        description: 'Fine-grained PAT with `Administration: read/write` on this repo (used by cloud-init to mint runner registration tokens). Will be masked in logs.'
+        required: true
+        type: string
+      allowed_ssh_source_prefixes:
+        description: 'JSON list of CIDRs allowed to SSH the jumpbox. Example: ["203.0.113.42/32"]. Never ["0.0.0.0/0"].'
+        required: true
+        type: string
+        default: '[]'
+      jumpbox_entra_admin_object_ids:
+        description: 'JSON list of Entra object IDs (users or groups) granted `Virtual Machine Administrator Login` on the jumpbox. Example: ["11111111-2222-3333-4444-555555555555"].'
+        required: true
+        type: string
+        default: '[]'
+
+permissions:
+  contents: read
+
+jobs:
+  populate:
+    name: Populate ai-foundry-base and ai-foundry-workload
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Mask sensitive workflow inputs in logs
+        # Workflow-dispatch inputs are NOT auto-masked by GitHub Actions.
+        # Explicitly add the runner PAT to the mask list so it can't leak
+        # through `set -x`, downstream tool output, or accidental echo.
+        # The SSH public key is not sensitive (public by definition).
+        env:
+          RUNNER_PAT: ${{ inputs.github_runner_pat }}
+        run: |
+          echo "::add-mask::$RUNNER_PAT"
+
+      - name: Validate JSON list inputs
+        # `gh variable set` accepts any body verbatim; catching JSON errors
+        # here beats debugging a Terraform "invalid JSON" 30 minutes later.
+        # Validate BOTH the container type AND that every element is a string
+        # — Terraform declares both as `list(string)`, so mixed-type arrays
+        # like [42, "foo"] would fail apply.
+        env:
+          ALLOWED: ${{ inputs.allowed_ssh_source_prefixes }}
+          ADMIN_IDS: ${{ inputs.jumpbox_entra_admin_object_ids }}
+        run: |
+          set -euo pipefail
+          jq_check='type == "array" and all(.[]; type == "string")'
+          printf '%s' "$ALLOWED"   | jq -e "$jq_check" >/dev/null || { echo "ALLOWED_SSH_SOURCE_PREFIXES is not a JSON array of strings"; exit 1; }
+          printf '%s' "$ADMIN_IDS" | jq -e "$jq_check" >/dev/null || { echo "JUMPBOX_ENTRA_ADMIN_OBJECT_IDS is not a JSON array of strings"; exit 1; }
+
+      - name: Ensure GitHub environments exist
+        env:
+          GH_TOKEN: ${{ secrets.GH_ADMIN_PAT }}
+        run: |
+          set -euo pipefail
+          for env_name in ai-foundry-base ai-foundry-workload; do
+            gh api -X PUT "repos/${{ github.repository }}/environments/$env_name" >/dev/null
+            echo "Ensured environment '$env_name' exists."
+          done
+
+      - name: Populate secrets and variables in both environments
+        env:
+          GH_TOKEN:      ${{ secrets.GH_ADMIN_PAT }}
+          SSH_PUB_KEY:   ${{ inputs.admin_ssh_public_key }}
+          RUNNER_PAT:    ${{ inputs.github_runner_pat }}
+          ALLOWED_CIDRS: ${{ inputs.allowed_ssh_source_prefixes }}
+          ADMIN_IDS:     ${{ inputs.jumpbox_entra_admin_object_ids }}
+        run: |
+          set -euo pipefail
+
+          # `gh secret set` and `gh variable set` (both in gh CLI 2.x) accept
+          # values via `--body`, positional argument, or STDIN (when no body
+          # flag is given). Neither supports `--body-file`. Piping via STDIN
+          # avoids shell-escaping multi-line SSH keys or JSON that contains
+          # quotes. `gh` overwrites existing values, making this idempotent.
+          for env_name in ai-foundry-base ai-foundry-workload; do
+            echo "-> Populating '$env_name'"
+
+            printf '%s' "$SSH_PUB_KEY" | \
+              gh secret set ADMIN_SSH_PUBLIC_KEY \
+                --env "$env_name" --repo "${{ github.repository }}"
+
+            printf '%s' "$RUNNER_PAT" | \
+              gh secret set GH_RUNNER_PAT \
+                --env "$env_name" --repo "${{ github.repository }}"
+
+            printf '%s' "$ALLOWED_CIDRS" | \
+              gh variable set ALLOWED_SSH_SOURCE_PREFIXES \
+                --env "$env_name" --repo "${{ github.repository }}"
+
+            printf '%s' "$ADMIN_IDS" | \
+              gh variable set JUMPBOX_ENTRA_ADMIN_OBJECT_IDS \
+                --env "$env_name" --repo "${{ github.repository }}"
+
+            echo "   done: ADMIN_SSH_PUBLIC_KEY, GH_RUNNER_PAT, ALLOWED_SSH_SOURCE_PREFIXES, JUMPBOX_ENTRA_ADMIN_OBJECT_IDS"
+          done
+
+          echo ""
+          echo "All four inputs populated in both environments."
+          echo "github_org / github_repo are auto-derived at workflow runtime — no storage needed."

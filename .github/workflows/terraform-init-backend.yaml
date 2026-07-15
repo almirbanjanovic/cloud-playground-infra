@@ -9,7 +9,8 @@ on:
         type: choice
         options:
           - kaito-on-aks
-          - ai-foundry
+          - ai-foundry-base
+          - ai-foundry-workload
           - apim-lab
           - apim-mcp
           - backend-pool-load-balancing

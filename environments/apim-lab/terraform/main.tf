@@ -28,6 +28,11 @@ resource "azurerm_storage_account" "example" {
   location                 = azurerm_resource_group.example.location
   account_tier             = var.sa_account_tier
   account_replication_type = var.sa_account_replication_type
+
+  # Enforce managed identity / Entra ID auth only.
+  shared_access_key_enabled       = false
+  default_to_oauth_authentication = true
+  min_tls_version                 = "TLS1_2"
 }
 
 # Create a storage container
@@ -73,13 +78,24 @@ resource "azurerm_function_app_flex_consumption" "example" {
 
   storage_container_type      = "blobContainer"
   storage_container_endpoint  = "${azurerm_storage_account.example.primary_blob_endpoint}${azurerm_storage_container.example.name}"
-  storage_authentication_type = "StorageAccountConnectionString"
-  storage_access_key          = azurerm_storage_account.example.primary_access_key
+  storage_authentication_type = "SystemAssignedIdentity"
   runtime_name                = var.runtime_name
   runtime_version             = var.runtime_version
   maximum_instance_count      = 50
   instance_memory_in_mb       = 2048
 
+  identity {
+    type = "SystemAssigned"
+  }
+
   site_config {
   }
+}
+
+# Grant the Function App's managed identity access to the deployment storage.
+resource "azurerm_role_assignment" "function_storage_blob_data_owner" {
+  scope                = azurerm_storage_account.example.id
+  role_definition_name = "Storage Blob Data Owner"
+  principal_id         = azurerm_function_app_flex_consumption.example.identity[0].principal_id
+  principal_type       = "ServicePrincipal"
 }

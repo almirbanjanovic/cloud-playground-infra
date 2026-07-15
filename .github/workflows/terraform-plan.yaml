@@ -4,21 +4,47 @@ on:
       environment:
         required: true
         type: string
-    secrets:
-      azureClientId:
-        required: true
-      azureTenantId:
-        required: true
-      azureSubscriptionId:
-        required: true
+      # Optional runner selection. Value must be a JSON-encoded string:
+      #   '"ubuntu-latest"'                    (single label)
+      #   '["self-hosted", "ai-foundry"]'      (multiple labels)
+      # Default preserves the historical `runs-on: ubuntu-latest` behavior
+      # so existing callers keep working without change.
+      runs_on:
+        required: false
+        type: string
+        default: '"ubuntu-latest"'
+    # Secrets are consumed via `secrets: inherit` in the caller so that
+    # GitHub-Environment-scoped secrets are visible to the job that
+    # selects the environment. No explicit `secrets:` mapping is required.
 
+# Environment variables forwarded to every Terraform step.
+#
+# - `TF_VAR_resource_group_name` — shared by every env in this repo.
+# - The remaining `TF_VAR_*` entries feed the ai-foundry base stack
+#   (jumpbox + self-hosted runner). For any env that doesn't declare
+#   those variables, unmatched `TF_VAR_*` values are ignored by
+#   Terraform (soft warning only) so this is safe for kaito-on-aks,
+#   apim-lab, apim-mcp, backend-pool-load-balancing.
+# - Reading missing GitHub `secrets` / `vars` evaluates to an empty
+#   string, not an error.
 env:
   TF_VAR_resource_group_name: ${{ vars.RESOURCE_GROUP }}
+  # Base stack inputs (ai-foundry-base). Ignored where not declared.
+  TF_VAR_admin_ssh_public_key: ${{ secrets.ADMIN_SSH_PUBLIC_KEY }}
+  TF_VAR_github_pat: ${{ secrets.GH_RUNNER_PAT }}
+  # github_org and github_repo are derived from GitHub context so they don't
+  # need to be stored as env vars. `github.repository_owner` is the org/user;
+  # `github.event.repository.name` is the repo name. Both are populated for
+  # any trigger this workflow supports (workflow_call, workflow_dispatch).
+  TF_VAR_github_org: ${{ github.repository_owner }}
+  TF_VAR_github_repo: ${{ github.event.repository.name }}
+  TF_VAR_allowed_ssh_source_prefixes: ${{ vars.ALLOWED_SSH_SOURCE_PREFIXES }}
+  TF_VAR_jumpbox_entra_admin_object_ids: ${{ vars.JUMPBOX_ENTRA_ADMIN_OBJECT_IDS }}
 
 jobs: 
   terraform-plan:
     name: Terraform Plan
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(inputs.runs_on) }}
     environment: ${{ inputs.environment}}
 
     defaults:
@@ -33,20 +59,22 @@ jobs:
     - name: Login to Azure using OIDC
       uses: azure/login@v2
       with:
-        client-id: ${{ secrets.azureClientId }}
-        tenant-id: ${{ secrets.azureTenantId }}
-        subscription-id: ${{ secrets.azureSubscriptionId }}
+        client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v3
 
     - name: Setup TFLint
       uses: terraform-linters/setup-tflint@v1
-    
+
     - name: Terraform Format Check
       id: fmt
-      run: terraform fmt -check
-      continue-on-error: true  
+      # -chdir must target the actual stack directory, not repo root,
+      # otherwise `terraform fmt` finds no .tf files to check.
+      run: terraform -chdir=${{ vars.TERRAFORM_WORKING_DIRECTORY }} fmt -check
+      continue-on-error: true
     
     - name: Enable public access for backend storage account
       run: |
@@ -69,30 +97,34 @@ jobs:
         -backend-config="container_name=${{ vars.TERRAFORM_STATE_CONTAINER }}" \
         -backend-config="key=${{ vars.TERRAFORM_STATE_BLOB }}"
       env:
-        ARM_CLIENT_ID: ${{ secrets.azureClientId }}
-        ARM_TENANT_ID: ${{ secrets.azureTenantId }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.azureSubscriptionId }}
+        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         ARM_USE_OIDC: true
         ARM_USE_AZUREAD: true
 
     - name: Terraform Validate
       id: validate
-      run: terraform validate
+      # -chdir here would run without init state; the init above set up
+      # .terraform inside the stack dir, so we chdir into the same one.
+      run: terraform -chdir=${{ vars.TERRAFORM_WORKING_DIRECTORY }} validate
 
     - name: Init TFLint
+      working-directory: ${{ vars.TERRAFORM_WORKING_DIRECTORY }}
       run: tflint --init
 
     - name: Run TFLint
+      working-directory: ${{ vars.TERRAFORM_WORKING_DIRECTORY }}
       run: tflint -f compact
 
     - name: Terraform plan
       id: plan
       run: terraform -chdir=${{ vars.TERRAFORM_WORKING_DIRECTORY}} plan --out=out.tfplan
       env:
-        ARM_CLIENT_ID: ${{ secrets.azureClientId }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.azureSubscriptionId }}
-        ARM_TENANT_ID: ${{ secrets.azureTenantId }}
-        ARM_USE_OIDC: true  
+        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        ARM_USE_OIDC: true
         ARM_USE_AZUREAD: true
 
     - name: Upload the plan

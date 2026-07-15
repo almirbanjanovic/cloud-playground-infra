@@ -4,21 +4,37 @@ on:
       environment:
         required: true
         type: string
-    secrets:
-      azureClientId:
-        required: true
-      azureTenantId:
-        required: true
-      azureSubscriptionId:
-        required: true
+      # Optional runner selection. Value must be a JSON-encoded string:
+      #   '"ubuntu-latest"'                    (single label)
+      #   '["self-hosted", "ai-foundry"]'      (multiple labels)
+      # Default preserves the historical `runs-on: ubuntu-latest` behavior
+      # so existing callers keep working without change.
+      runs_on:
+        required: false
+        type: string
+        default: '"ubuntu-latest"'
+    # Secrets are consumed via `secrets: inherit` in the caller so that
+    # GitHub-Environment-scoped secrets are visible to the job that
+    # selects the environment. No explicit `secrets:` mapping is required.
 
+# Environment variables forwarded to every Terraform step.
+# See terraform-plan.yaml for the full rationale on why unmatched
+# `TF_VAR_*` values are safe for envs that don't declare those variables.
 env:
   TF_VAR_resource_group_name: ${{ vars.RESOURCE_GROUP }}
+  TF_VAR_admin_ssh_public_key: ${{ secrets.ADMIN_SSH_PUBLIC_KEY }}
+  TF_VAR_github_pat: ${{ secrets.GH_RUNNER_PAT }}
+  # github_org and github_repo are derived from GitHub context so they don't
+  # need to be stored as env vars. See terraform-plan.yaml for details.
+  TF_VAR_github_org: ${{ github.repository_owner }}
+  TF_VAR_github_repo: ${{ github.event.repository.name }}
+  TF_VAR_allowed_ssh_source_prefixes: ${{ vars.ALLOWED_SSH_SOURCE_PREFIXES }}
+  TF_VAR_jumpbox_entra_admin_object_ids: ${{ vars.JUMPBOX_ENTRA_ADMIN_OBJECT_IDS }}
 
 jobs: 
   terraform-apply:
     name: Terraform Apply
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(inputs.runs_on) }}
     environment: ${{ inputs.environment}}
 
     defaults:
@@ -33,9 +49,9 @@ jobs:
     - name: Login to Azure using OIDC
       uses: azure/login@v2
       with:
-        client-id: ${{ secrets.azureClientId }}
-        tenant-id: ${{ secrets.azureTenantId }}
-        subscription-id: ${{ secrets.azureSubscriptionId }}
+        client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v3
@@ -61,9 +77,9 @@ jobs:
         -backend-config="container_name=${{ vars.TERRAFORM_STATE_CONTAINER }}" \
         -backend-config="key=${{ vars.TERRAFORM_STATE_BLOB }}"
       env:
-        ARM_CLIENT_ID: ${{ secrets.azureClientId }}
-        ARM_TENANT_ID: ${{ secrets.azureTenantId }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.azureSubscriptionId }}
+        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         ARM_USE_OIDC: true
         ARM_USE_AZUREAD: true
 
@@ -77,9 +93,9 @@ jobs:
       id: apply
       run: terraform -chdir=${{ vars.TERRAFORM_WORKING_DIRECTORY }} apply -auto-approve out.tfplan
       env:
-        ARM_CLIENT_ID: ${{ secrets.azureClientId }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.azureSubscriptionId }}
-        ARM_TENANT_ID: ${{ secrets.azureTenantId }}
+        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
         ARM_USE_OIDC: true
         ARM_USE_AZUREAD: true
 
