@@ -1,0 +1,254 @@
+name: Bootstrap Azure Identity
+
+# ------------------------------------------------------------------------------
+# One-click creation of the Azure user-assigned managed identity (UAMI) that
+# subsequent GitHub Actions workflows use to deploy the ai-foundry env.
+#
+# What it does (all idempotent — safe to re-run):
+#   1. Log into Azure using a TEMPORARY service-principal client-secret stored
+#      in repo secrets (the only reasonable way to bootstrap — Azure needs an
+#      identity to call it with, and federated OIDC requires the identity we
+#      are creating).
+#   2. Create resource group + UAMI.
+#   3. Grant the UAMI subscription-scope Owner AND Storage Blob Data
+#      Contributor (Owner alone doesn't include data-plane blob actions).
+#   4. Add a federated credential trusting
+#      `repo:{owner}/{repo}:environment:ai-foundry-base`.
+#   5. Use `GH_ADMIN_PAT` to populate the resulting AZURE_CLIENT_ID /
+#      AZURE_TENANT_ID / AZURE_SUBSCRIPTION_ID as env-scoped secrets:
+#        - Both envs get AZURE_TENANT_ID + AZURE_SUBSCRIPTION_ID (same value).
+#        - Only ai-foundry-base gets AZURE_CLIENT_ID (bootstrap principal).
+#        - ai-foundry-workload's AZURE_CLIENT_ID is set later by the base
+#          apply's post-apply step to point at the runner UAMI.
+#
+# Prereqs (all one-time, ~3 minutes total):
+#   1. Repo secrets:
+#        AZ_BOOTSTRAP_CLIENT_ID       Temporary SP client (`appId`)
+#        AZ_BOOTSTRAP_CLIENT_SECRET   Temporary SP secret (`password`)
+#        AZ_BOOTSTRAP_TENANT_ID       Azure tenant ID
+#        GH_ADMIN_PAT                 Fine-grained PAT: Environments+Secrets+
+#                                     Variables r/w on this repo
+#      Create the SP once from Azure Cloud Shell (browser):
+#        az ad sp create-for-rbac \
+#          --name cpi-bootstrap-temp \
+#          --role Owner \
+#          --scopes /subscriptions/<YOUR_SUBSCRIPTION_ID>
+#      then paste appId/password/tenant into the three AZ_BOOTSTRAP_* repo
+#      secrets. Also create GH_ADMIN_PAT and store it.
+#   2. That's it — no other manual Azure or GitHub-UI work.
+#
+# After this workflow succeeds, DELETE the temporary SP for security:
+#     az ad sp delete --id <AZ_BOOTSTRAP_CLIENT_ID>
+# and delete the three AZ_BOOTSTRAP_* repo secrets. The permanent UAMI is
+# what every subsequent workflow uses.
+# ------------------------------------------------------------------------------
+
+on:
+  workflow_dispatch:
+    inputs:
+      azure_subscription_id:
+        description: 'Azure subscription ID (where the UAMI, RG, and all ai-foundry resources will live).'
+        required: true
+        type: string
+      identity_resource_group_name:
+        description: 'Resource group that will hold the bootstrap UAMI. Kept separate from the ai-foundry RG so the identity survives if you tear down the workload.'
+        required: false
+        type: string
+        default: 'rg-shared-identity'
+      identity_name:
+        description: 'Name of the user-assigned managed identity to create.'
+        required: false
+        type: string
+        default: 'uami-cpi-bootstrap'
+      location:
+        description: 'Azure region for the identity RG. Keep as centralus unless you have a specific reason to change.'
+        required: false
+        type: string
+        default: 'centralus'
+
+permissions:
+  contents: read
+
+jobs:
+  bootstrap-identity:
+    name: Create UAMI + populate GitHub env secrets
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Login to Azure with temporary bootstrap SP
+        # `creds` uses the classic client-secret JSON shape. This is the only
+        # `azure/login@v2` mode that works before a federated credential
+        # exists. Once this workflow succeeds, subsequent workflows use OIDC
+        # via `client-id/tenant-id/subscription-id` and the UAMI created here.
+        uses: azure/login@v2
+        with:
+          creds: >-
+            {
+              "clientId":       "${{ secrets.AZ_BOOTSTRAP_CLIENT_ID }}",
+              "clientSecret":   "${{ secrets.AZ_BOOTSTRAP_CLIENT_SECRET }}",
+              "tenantId":       "${{ secrets.AZ_BOOTSTRAP_TENANT_ID }}",
+              "subscriptionId": "${{ inputs.azure_subscription_id }}"
+            }
+
+      - name: Create UAMI, role assignments, and federated credential
+        id: identity
+        env:
+          RG:               ${{ inputs.identity_resource_group_name }}
+          IDENTITY:         ${{ inputs.identity_name }}
+          LOCATION:         ${{ inputs.location }}
+          SUBSCRIPTION_ID:  ${{ inputs.azure_subscription_id }}
+          REPO:             ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # RG (idempotent)
+          if ! az group show --name "$RG" >/dev/null 2>&1; then
+            echo "Creating RG '$RG' in $LOCATION..."
+            az group create --name "$RG" --location "$LOCATION" >/dev/null
+          else
+            echo "RG '$RG' already exists."
+          fi
+
+          # UAMI (idempotent — az identity create is safe to re-run)
+          echo "Ensuring UAMI '$IDENTITY' exists..."
+          az identity create \
+            --name "$IDENTITY" \
+            --resource-group "$RG" \
+            --location "$LOCATION" >/dev/null
+
+          UAMI_CLIENT_ID=$(az identity show -n "$IDENTITY" -g "$RG" --query clientId    -o tsv)
+          UAMI_PRINCIPAL_ID=$(az identity show -n "$IDENTITY" -g "$RG" --query principalId -o tsv)
+          TENANT_ID=$(az account show --query tenantId -o tsv)
+
+          echo "  UAMI client ID:    $UAMI_CLIENT_ID"
+          echo "  UAMI principal ID: $UAMI_PRINCIPAL_ID"
+          echo "  Tenant ID:         $TENANT_ID"
+
+          # Role assignments (idempotent — swallow "already exists"; retry
+          # against Entra ID replication delay after creating a fresh UAMI,
+          # which can briefly return PrincipalNotFound on the first RBAC
+          # write).
+          for role in "Owner" "Storage Blob Data Contributor"; do
+            echo "Granting '$role' at subscription scope..."
+            for attempt in 1 2 3 4 5 6; do
+              if az role assignment create \
+                   --assignee-object-id "$UAMI_PRINCIPAL_ID" \
+                   --assignee-principal-type ServicePrincipal \
+                   --role "$role" \
+                   --scope "/subscriptions/$SUBSCRIPTION_ID" 2>&1 | tee /tmp/rbac.log; then
+                echo "  '$role' granted (attempt $attempt)."
+                break
+              fi
+              if grep -q "already exists" /tmp/rbac.log; then
+                echo "  '$role' already granted — continuing."
+                break
+              fi
+              if grep -qi "PrincipalNotFound\|does not exist in the directory" /tmp/rbac.log; then
+                echo "  Entra ID propagation lag (attempt $attempt/6). Sleeping 10s..."
+                sleep 10
+                continue
+              fi
+              echo "  Failed to grant '$role' (attempt $attempt): unexpected error."
+              [[ "$attempt" -eq 6 ]] && exit 1
+              sleep 5
+            done
+          done
+
+          # Federated credential (idempotent AND drift-corrected). `show` +
+          # `create` alone doesn't detect subject/audience drift, e.g. after
+          # a repo rename — the credential name would still match but the
+          # subject would be stale. Use `update` when it already exists so
+          # every field is reconciled to the current desired state.
+          FEDCRED_NAME="gh-actions-ai-foundry-base"
+          SUBJECT="repo:${REPO}:environment:ai-foundry-base"
+          ISSUER="https://token.actions.githubusercontent.com"
+          echo "Reconciling federated credential '$FEDCRED_NAME' subject: $SUBJECT"
+          if az identity federated-credential show \
+                --identity-name "$IDENTITY" \
+                --resource-group "$RG" \
+                --name "$FEDCRED_NAME" >/dev/null 2>&1; then
+            az identity federated-credential update \
+              --name "$FEDCRED_NAME" \
+              --identity-name "$IDENTITY" \
+              --resource-group "$RG" \
+              --issuer   "$ISSUER" \
+              --subject  "$SUBJECT" \
+              --audiences "api://AzureADTokenExchange" >/dev/null
+            echo "  Updated (subject/audiences/issuer reconciled to current desired state)."
+          else
+            az identity federated-credential create \
+              --name "$FEDCRED_NAME" \
+              --identity-name "$IDENTITY" \
+              --resource-group "$RG" \
+              --issuer   "$ISSUER" \
+              --subject  "$SUBJECT" \
+              --audiences "api://AzureADTokenExchange" >/dev/null
+            echo "  Created."
+          fi
+
+          # Expose IDs to later steps
+          echo "uami_client_id=$UAMI_CLIENT_ID" >> "$GITHUB_OUTPUT"
+          echo "tenant_id=$TENANT_ID"           >> "$GITHUB_OUTPUT"
+
+      - name: Ensure ai-foundry-base and ai-foundry-workload GitHub environments exist
+        env:
+          GH_TOKEN: ${{ secrets.GH_ADMIN_PAT }}
+        run: |
+          set -euo pipefail
+          for env_name in ai-foundry-base ai-foundry-workload; do
+            gh api -X PUT "repos/${{ github.repository }}/environments/$env_name" >/dev/null
+            echo "Ensured environment '$env_name' exists."
+          done
+
+      - name: Populate Azure identity secrets in GitHub environments
+        env:
+          GH_TOKEN:         ${{ secrets.GH_ADMIN_PAT }}
+          REPO:             ${{ github.repository }}
+          UAMI_CLIENT_ID:   ${{ steps.identity.outputs.uami_client_id }}
+          TENANT_ID:        ${{ steps.identity.outputs.tenant_id }}
+          SUBSCRIPTION_ID:  ${{ inputs.azure_subscription_id }}
+        run: |
+          set -euo pipefail
+
+          # Both envs share the same tenant + subscription.
+          for env_name in ai-foundry-base ai-foundry-workload; do
+            printf '%s' "$TENANT_ID"       | gh secret set AZURE_TENANT_ID       --env "$env_name" --repo "$REPO"
+            printf '%s' "$SUBSCRIPTION_ID" | gh secret set AZURE_SUBSCRIPTION_ID --env "$env_name" --repo "$REPO"
+            echo "-> $env_name: AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID set."
+          done
+
+          # AZURE_CLIENT_ID goes ONLY into ai-foundry-base. The workload env
+          # gets its AZURE_CLIENT_ID set later by the base apply's post-apply
+          # step, pointing at the runner UAMI (which HAS a federated credential
+          # for ai-foundry-workload). Writing the bootstrap UAMI here would
+          # cause workload auth to fail because THIS UAMI is federated only
+          # for ai-foundry-base.
+          printf '%s' "$UAMI_CLIENT_ID" | gh secret set AZURE_CLIENT_ID --env ai-foundry-base --repo "$REPO"
+          echo "-> ai-foundry-base: AZURE_CLIENT_ID set to bootstrap UAMI ($UAMI_CLIENT_ID)."
+          echo "-> ai-foundry-workload: AZURE_CLIENT_ID intentionally NOT set here (base apply will set it)."
+
+      - name: Cleanup instructions
+        # Do NOT map AZ_BOOTSTRAP_CLIENT_ID into an env var here — GitHub
+        # Actions would mask the value in the printed message, so the user
+        # would see `***` and can't copy-paste. Print a placeholder plus a
+        # lookup command so they can retrieve it from Azure directly.
+        run: |
+          echo ""
+          echo "==========================================================================="
+          echo "  Azure bootstrap identity created and GitHub env secrets populated."
+          echo "==========================================================================="
+          echo ""
+          echo "SECURITY: Delete the temporary bootstrap SP now that the UAMI exists."
+          echo "  1. In Azure Cloud Shell, find and delete the bootstrap SP:"
+          echo "       BOOTSTRAP_APP_ID=\$(az ad sp list \\"
+          echo "         --display-name cpi-bootstrap-temp \\"
+          echo "         --query '[0].appId' -o tsv)"
+          echo "       az ad sp delete --id \"\$BOOTSTRAP_APP_ID\""
+          echo "       az ad app delete --id \"\$BOOTSTRAP_APP_ID\""
+          echo "     (Replace 'cpi-bootstrap-temp' if you used a different name.)"
+          echo "  2. In Repo -> Settings -> Secrets and variables -> Actions, delete:"
+          echo "       AZ_BOOTSTRAP_CLIENT_ID"
+          echo "       AZ_BOOTSTRAP_CLIENT_SECRET"
+          echo "       AZ_BOOTSTRAP_TENANT_ID"
+          echo ""
+          echo "Next: run 'Bootstrap GitHub Environments' with your personal inputs."
