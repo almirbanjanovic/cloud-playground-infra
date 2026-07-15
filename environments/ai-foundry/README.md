@@ -13,7 +13,7 @@ Why the split: workload data-plane operations (Cosmos SQL role assignments, Foun
 
 ## Architecture
 
-Source diagram: [assets/architecture.drawio](assets/architecture.drawio) &nbsp; · &nbsp; Icons: [assets/icons/](assets/icons/)
+Source diagram: [assets/architecture.drawio](assets/architecture.png) &nbsp; · &nbsp; Icons: [assets/icons/](assets/icons/)
 
 **Structure (following Azure diagramming best practices):**
 
