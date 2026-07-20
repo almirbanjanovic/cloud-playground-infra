@@ -13,7 +13,9 @@ Why the split: workload data-plane operations (Cosmos SQL role assignments, Foun
 
 ## Architecture
 
-Source diagram: [assets/architecture.png](assets/architecture.png) &nbsp; · &nbsp; Icons: [assets/icons/](assets/icons/)
+![AI Foundry BYO stateful stack — architecture](assets/architecture.png)
+
+Source: [assets/architecture.drawio](assets/architecture.drawio) (editable) &nbsp; · &nbsp; PNG: [assets/architecture.png](assets/architecture.png) &nbsp; · &nbsp; Icons: [assets/icons/](assets/icons/)
 
 **Structure (following Azure diagramming best practices):**
 
@@ -27,9 +29,10 @@ Everything on the right (Foundry account + BYO services) has `public network acc
 
 ### Viewing / editing the diagram
 
+- **Inline**: the PNG above is regenerated from `assets/architecture.drawio`. Re-export whenever the source changes so GitHub picks it up.
 - **VS Code**: install the [Draw.io Integration](https://marketplace.visualstudio.com/items?itemName=hediet.vscode-drawio) extension and open the `.drawio` file — it renders inline and stays editable.
 - **Browser**: open [diagrams.net](https://app.diagrams.net) → *File → Open from Device* and pick the `.drawio` file (make sure the `icons/` folder is beside it so the SVG references resolve).
-- **Export a PNG for GitHub inline rendering**: *File → Export as → PNG*, save to `assets/architecture.png`, and swap the `Source diagram:` reference to that PNG.
+- **Regenerate the PNG**: *File → Export as → PNG*, save to `assets/architecture.png`.
 
 ## What each stack creates
 
