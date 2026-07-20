@@ -1,4 +1,4 @@
-# AI Foundry Lab
+# AI Foundry Private Networking Lab
 
 Foundry Agent Service with a **BYO stateful stack** — Storage, Cosmos DB, and AI Search stay in your subscription and are wired to Foundry via managed-identity connections and capability hosts, with a fully-private VNet.
 
