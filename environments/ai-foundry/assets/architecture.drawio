@@ -1,6 +1,6 @@
 <mxfile host="65bd71144e">
     <diagram name="AI Foundry — Architecture &amp; Deployment" id="ai-foundry-arch">
-        <mxGraphModel dx="2686" dy="2106" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1620" pageHeight="1440" math="0" shadow="0">
+        <mxGraphModel dx="3834" dy="2823" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1620" pageHeight="1440" math="0" shadow="0">
             <root>
                 <mxCell id="0"/>
                 <mxCell id="1" parent="0"/>
@@ -124,7 +124,7 @@
                     </mxGeometry>
                 </mxCell>
                 <mxCell id="azure_sub" value="Azure Subscription" style="shape=swimlane;html=1;whiteSpace=wrap;startSize=32;fillColor=#F5FBFF;strokeColor=#0078D4;strokeWidth=2;fontSize=15;fontStyle=1;align=left;verticalAlign=middle;spacingLeft=42;fontColor=#0078D4;rounded=1;" parent="1" vertex="1">
-                    <mxGeometry x="30" y="610" width="1560" height="770" as="geometry"/>
+                    <mxGeometry x="30" y="610" width="1590" height="770" as="geometry"/>
                 </mxCell>
                 <mxCell id="azure_arm_note" value="Terraform reaches ARM control plane over the public endpoint · workload data planes (Cognitive / Storage / Cosmos / AI Search) require private endpoints from inside the VNet" style="text;html=1;strokeColor=none;fillColor=none;align=right;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontStyle=2;fontColor=#57606A;" parent="azure_sub" vertex="1">
                     <mxGeometry x="105.5" y="6" width="875" height="22" as="geometry"/>
@@ -133,7 +133,7 @@
                     <mxGeometry x="40" y="616" width="24" height="24" as="geometry"/>
                 </mxCell>
                 <mxCell id="rg_box" value="Resource group   (default: rg-ai-foundry-dev · configurable via workflow variable RESOURCE_GROUP)" style="shape=swimlane;html=1;whiteSpace=wrap;startSize=30;fillColor=#FFFFFF;strokeColor=#0078D4;strokeWidth=1;dashed=1;fontSize=13;fontStyle=1;align=left;verticalAlign=middle;spacingLeft=38;fontColor=#0078D4;rounded=1;" parent="1" vertex="1">
-                    <mxGeometry x="50" y="655" width="1520" height="710" as="geometry"/>
+                    <mxGeometry x="50" y="655" width="1540" height="710" as="geometry"/>
                 </mxCell>
                 <mxCell id="rg_icon" value="" style="shape=image;image=data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2218%22%20height%3D%2218%22%20viewBox%3D%220%200%2018%2018%22%3E%3Cdefs%3E%3ClinearGradient%20id%3D%22rg-grad%22%20x1%3D%229%22%20y1%3D%223%22%20x2%3D%229%22%20y2%3D%2216%22%20gradientUnits%3D%22userSpaceOnUse%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%233CCBF4%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%230078D4%22%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%3Cpath%20d%3D%22M2%205%20L2%2015%20A1%201%200%200%200%203%2016%20L15%2016%20A1%201%200%200%200%2016%2015%20L16%206%20A1%201%200%200%200%2015%205%20L9%205%20L7%203%20L3%203%20A1%201%200%200%200%202%204%20Z%22%20fill%3D%22url%28%23rg-grad%29%22%2F%3E%3Crect%20x%3D%225%22%20y%3D%229%22%20width%3D%222.5%22%20height%3D%224%22%20fill%3D%22%23fff%22%20opacity%3D%220.85%22%2F%3E%3Crect%20x%3D%228%22%20y%3D%229%22%20width%3D%222.5%22%20height%3D%224%22%20fill%3D%22%23fff%22%20opacity%3D%220.85%22%2F%3E%3Crect%20x%3D%2211%22%20y%3D%229%22%20width%3D%222.5%22%20height%3D%224%22%20fill%3D%22%23fff%22%20opacity%3D%220.85%22%2F%3E%3C%2Fsvg%3E;html=1;imageAspect=1;" parent="1" vertex="1">
                     <mxGeometry x="60" y="661" width="22" height="22" as="geometry"/>
