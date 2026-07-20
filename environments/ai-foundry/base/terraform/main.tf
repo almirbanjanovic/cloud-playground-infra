@@ -17,18 +17,24 @@
 #   5. CI/CD self-hosted GitHub Actions runner — the ONLY runner able to
 #      reach the workload stack's services (which will have
 #      `public_network_access_enabled = false`).
-#   6. UAMI on the runner VM (attached but unused by CI). Both terraform
-#      workflows authenticate to Azure as a single App Registration
-#      created manually in Entra ID with ONE federated credential trusting
-#      the `ai-foundry` GitHub environment — see the ai-foundry README
-#      for the auth model.
+#   6. User-Assigned Managed Identity (UAMI) on the runner VM. It's
+#      created + attached by the shared `cicd_runner/v1` module but is
+#      NOT used by CI — CI workflows authenticate to Azure as a single
+#      App Registration created manually in Entra ID with ONE federated
+#      credential trusting the `ai-foundry` GitHub environment. The UAMI
+#      currently has no role assignments and no federated credentials, so
+#      it's effectively dormant. See the ai-foundry README for the full
+#      auth model.
 #
 # Why split from workload:
-#   Workload data-plane operations (Cosmos SQL role assignments, Foundry
-#   capability hosts, Storage container access) require reaching resources
-#   with public network access disabled — which a GitHub-hosted runner
-#   cannot do. This stack provisions the private runner so those workload
-#   applies can run from inside the VNet.
+#   The workload stack has `public_network_access_enabled = false` on
+#   every service data plane (Foundry / Cognitive, Storage, Cosmos,
+#   AI Search). Foundry capability-host provisioning (done by the workload
+#   apply via azapi calls to the Foundry control plane) and its post-apply
+#   validation checks reach those services through their private endpoints,
+#   so the client running `terraform apply` must sit inside this VNet. A
+#   GitHub-hosted runner cannot; the self-hosted runner provisioned here
+#   can.
 #
 # Where this stack runs from:
 #   `ubuntu-latest` (GitHub-hosted). It has to — the private runner
@@ -46,8 +52,10 @@ locals {
 
   vnet_name = "vnet-${local.base_name}-${local.environment}-${local.location}"
 
-  # Same 10.0.0.0/16 space the workload stack uses. Class A is required
-  # by Foundry Agent Service in centralus per
+  # 10.0.0.0/16 is a Class A range supported by Foundry Agent Service in
+  # centralus. Foundry accepts any RFC1918 range in supported regions;
+  # we use Class A here because it aligns with Microsoft's Foundry
+  # Standard Setup examples and leaves plenty of room to grow.
   # https://learn.microsoft.com/azure/foundry/agents/concepts/limits-quotas-regions#supported-regions
   vnet_address_space = ["10.0.0.0/16"]
 
@@ -283,15 +291,19 @@ module "cicd_runner" {
 
 # ------------------------------------------------------------------------------
 # NOTE ON AUTH:
-#   No federated identity credential or role assignments on the runner UAMI.
-#   Following the repo's standard OIDC pattern (see root README), every
-#   Terraform workflow authenticates to Azure using a SINGLE App Registration
-#   created manually in Entra ID with ONE federated credential trusting the
-#   `ai-foundry` GitHub environment. Both Terraform stacks (base and
-#   workload) run under that environment, differentiated at dispatch time
-#   by the `stack` input on the deploy workflow.
+#   The runner VM's UAMI has NO federated identity credential and NO role
+#   assignments — it's dormant. Every terraform workflow authenticates to
+#   Azure using a SINGLE App Registration created manually in Entra ID with
+#   ONE federated credential trusting the `ai-foundry` GitHub environment.
+#   Both Terraform stacks (base and workload) run under that environment,
+#   differentiated at dispatch time by the `stack` input on the deploy
+#   workflow.
 #
-#   The runner VM's UAMI stays attached for potential future use by scripts
-#   on the VM (via `az login --identity`), but the CI workflows don't rely
-#   on it.
+#   The UAMI is created + attached because the shared `cicd_runner/v1`
+#   module always provisions one (its default expectation is a per-runner
+#   federated identity pattern that this stack opts out of). We keep it as
+#   an attachment point for potential future scripts running on the VM
+#   itself (`az login --identity`) that would need Azure API access without
+#   a PAT — but no such scripts exist today, so if you never add role
+#   assignments to this UAMI, it's just an inert Entra object.
 # ------------------------------------------------------------------------------

@@ -27,7 +27,7 @@ The diagram is a single source of truth for both the target Azure topology *and*
 - **Azure Subscription** (bottom) contains the resource group with the state Storage Account (two containers, `tfstate-base` and `tfstate-workload`), the VNet with all subnets (CI/CD, jumpbox, agent, and 4 PE subnets), and the workload stack (Foundry + BYO Storage / Cosmos / AI Search).
 - **Runner VM** in `snet-cicd` registers itself back to GitHub via `GH_RUNNER_PAT` at first boot (Step ④, dashed line).
 - **Private endpoints** are the only ingress path to the workload — everything on the right has `public_network_access_enabled = false`.
-- The state Storage Account's public network access is **toggled Enabled** during Steps ②, ③, ⑤ (so the GitHub-hosted runner and OIDC principal can reach the blob) and **disabled on workflow exit** via a shell `trap`.
+- The state Storage Account's public network access is **toggled Enabled** during Steps ②, ③, ⑤ (so the GitHub-hosted runner and OIDC principal can reach the blob) and **disabled at the end of the workflow run** — via a shell `trap` in `terraform-init-backend.yaml`, and via a final `if: always()` step in `terraform-plan.yaml` / `terraform-apply.yaml`.
 
 ### Viewing / editing the diagram
 
@@ -43,7 +43,7 @@ The `.drawio` is fully self-contained — every icon is inlined as a URL-encoded
 
 ### `base/` — network, jumpbox, runner
 
-- **1 VNet** (`10.0.0.0/16`) with **7 subnets** via [subnet/v1](../../iac-modules/terraform/subnet/v1/main.tf):
+- **1 VNet** (`10.0.0.0/16`) with **7 subnets** via [subnet/v1](../../iac-modules/terraform/subnet/v1/main.tf) (actual Azure names include the `-playground-dev` suffix from the shared `local.base_name` / `local.environment` — see the diagram for full names + CIDRs):
   - 4 private-endpoint subnets: `snet-cognitive`, `snet-storage`, `snet-cosmos`, `snet-search`
   - 1 agent-runtime subnet delegated to `Microsoft.App/environments`
   - `snet-cicd` for the GitHub Actions runner
@@ -174,11 +174,11 @@ Every workload data-plane service has `public_network_access_enabled = false`:
 - Cosmos DB
 - AI Search
 
-The **state storage account** starts each terraform workflow with public network access toggled ON (so the runner can reach the blob endpoint from its NAT-gateway public egress) and gets toggled OFF at exit via a `trap`. Final state after every workflow run is `Disabled`.
+The **state storage account** starts each terraform workflow with public network access toggled ON (so the runner can reach the blob endpoint from its NAT-gateway public egress) and gets toggled OFF at exit — via a shell `trap` in `terraform-init-backend.yaml`, and via a final `if: always()` step in both `terraform-plan.yaml` and `terraform-apply.yaml`. Final state after every workflow run is `Disabled` (a force-cancelled or crashed runner is the one edge case that can leave it Enabled — re-run the same workflow to normalize, or toggle Disabled from the Portal).
 
 ## Prereq resource providers
 
-Registered idempotently via `resource_providers_to_register` in each stack's `providers.tf`. Combined across both stacks: `Microsoft.App`, `Microsoft.CognitiveServices`, `Microsoft.Compute`, `Microsoft.ContainerService`, `Microsoft.DocumentDB`, `Microsoft.KeyVault`, `Microsoft.MachineLearningServices`, `Microsoft.ManagedIdentity`, `Microsoft.Network`, `Microsoft.Search`, `Microsoft.Storage`.
+Registered idempotently by the **base stack** at first apply (workload's `providers.tf` sets `resource_provider_registrations = "none"` because base runs first and covers everything). Namespaces covered: `Microsoft.App`, `Microsoft.CognitiveServices`, `Microsoft.Compute`, `Microsoft.ContainerService`, `Microsoft.DocumentDB`, `Microsoft.KeyVault`, `Microsoft.MachineLearningServices`, `Microsoft.ManagedIdentity`, `Microsoft.Network`, `Microsoft.Search`, `Microsoft.Storage`.
 
 ---
 
@@ -190,6 +190,13 @@ Four workflow runs (the last two are stack-specific and each need one manual app
 ### Prereq A. Create the App Registration in Entra ID (~5 minutes)
 
 Portal UI, all clicks — no local CLI. Same pattern the root README describes for every other env in this repo.
+
+> **What you personally need to be able to do this**
+>
+> - In your Entra tenant: permission to **create App Registrations** (the built-in `Application Developer` role is enough; `Application Administrator` or Global Administrator also work). Most tenants allow all users to register apps by default.
+> - On the target Azure subscription: **`Owner`** or **`User Access Administrator`** (needed to grant the two role assignments in step 4 below). Subscription `Contributor` alone cannot grant role assignments and will silently fail step 4.
+>
+> Ask your tenant / subscription admin if you're not sure whether you have these.
 
 1. Azure Portal → **Microsoft Entra ID** → **App registrations** → **New registration**.
    - Name: e.g. `cpi-ai-foundry` (any name works).
@@ -250,7 +257,7 @@ Fill in 5 required inputs + 2 optional. `github_runner_pat` is masked in logs.
 | Input | Value |
 |---|---|
 | `state_storage_account_name` | Globally-unique 3-24 lowercase alphanumerics, e.g. `staifoundry123456`. |
-| `admin_ssh_public_key` | Output of `cat ~/.ssh/id_ed25519.pub` on your laptop. |
+| `admin_ssh_public_key` | Output of `cat ~/.ssh/id_ed25519.pub` on your laptop. If you don't have a key yet: `ssh-keygen -t ed25519 -C "ai-foundry"` (accept defaults, no passphrase for the lab), then `cat ~/.ssh/id_ed25519.pub`. On Windows PowerShell: `ssh-keygen -t ed25519 -C "ai-foundry"` then `Get-Content $HOME\.ssh\id_ed25519.pub`. |
 | `github_runner_pat` | `GH_RUNNER_PAT` from Prereq B. |
 | `allowed_ssh_source_prefixes` | JSON list of CIDRs allowed to SSH the jumpbox, e.g. `["203.0.113.42/32"]`. Get your egress IP at https://ifconfig.me. Never `["0.0.0.0/0"]`. |
 | `jumpbox_entra_admin_object_ids` | JSON list of Entra object IDs (users/groups) allowed to `az ssh vm` the jumpbox. Find yours in Entra ID → Users → your account → Object ID. |
@@ -279,7 +286,7 @@ Environment: **`ai-foundry`**. Takes ~2 minutes.
 
 Creates the resource group + state storage account + **both** state containers (`tfstate-base` and `tfstate-workload` — the two Terraform stacks get physically separate containers). Public network access ends `Disabled` (the workflow's `trap`).
 
-**Verify**: workflow log shows both container-create steps succeeding.
+**Verify**: workflow log ends with `Creating storage container 'tfstate-base'...` and `Creating storage container 'tfstate-workload'...` (or `already exists` on a re-run). Public network access ends `Disabled` (workflow's `trap`).
 
 ---
 
@@ -289,7 +296,7 @@ Environment: **`ai-foundry`**, **stack: `base`**. Runs on `ubuntu-latest`. Takes
 
 The workflow derives the working directory (`environments/ai-foundry/base/terraform`), the state container (`tfstate-base`), and the state blob (`base.tfstate`) automatically from the stack input.
 
-When the approval issue opens, comment `approved` (or click the button in the issue) to continue.
+When the approval issue opens, comment **`approve`** (or `approved`, `lgtm`, `yes`) in the issue — the [`trstringer/manual-approval` action](https://github.com/trstringer/manual-approval) is comment-driven; there is no button. The workflow assigns the issue to `${{ github.repository_owner }}` (your GitHub username for personal repos; the org login for org repos — in an org repo, that principal must be able to comment on the issue).
 
 **Verify**: workflow log shows `Apply complete!` and lists the outputs (VNet name, jumpbox / runner VM names, jumpbox public IP). Wait for the runner to come online (Step 4) before running the workload stack.
 
@@ -297,7 +304,9 @@ When the approval issue opens, comment `approved` (or click the button in the is
 
 ### Step 4. (~5–15 minutes wait) Verify the self-hosted runner is online
 
-Repo → Settings → Actions → Runners. Wait for `vm-playground-dev-runner` to show `Idle` with labels `self-hosted, linux, ai-foundry`. Cloud-init downloads and installs packages, so first-boot registration takes 5–15 minutes after Step 3 finishes.
+Repo → Settings → Actions → Runners. Wait for `vm-playground-dev-runner` to show `Idle` with labels `self-hosted`, `linux`, `ai-foundry` (plus GitHub's auto-added `X64`). Cloud-init downloads and installs packages, so first-boot registration takes 5–15 minutes after Step 3 finishes.
+
+> If you dispatch Step 5 before the runner is `Idle`, the workflow will **sit queued silently** waiting for a matching runner — there is no error until GitHub eventually times out the job (24h default). Always confirm the runner is `Idle` first.
 
 If the runner doesn't come online after 15 minutes, see the [troubleshooting appendix](#appendix-a--optional-local-debugging).
 
@@ -307,7 +316,7 @@ If the runner doesn't come online after 15 minutes, see the [troubleshooting app
 
 Environment: **`ai-foundry`**, **stack: `workload`**. The caller workflow auto-selects `runs-on: [self-hosted, ai-foundry]` when `stack=workload`, so it lands on the runner from Step 4. Working directory becomes `environments/ai-foundry/workload/terraform`; state lives in `tfstate-workload/workload.tfstate`.
 
-Takes **~15–20 minutes** (Storage + Cosmos + AI Search + Foundry account + 4 private endpoints + capability hosts + 60s RBAC-propagation wait).
+Takes **~15–20 minutes** (Storage + Cosmos + AI Search + Foundry account + **9 private endpoints** — 1 for Cognitive, 6 for Storage (blob/file/queue/table/web/dfs), 1 for Cosmos, 1 for Search — plus capability hosts + 60s RBAC-propagation wait).
 
 Approve the plan when the issue opens.
 
@@ -318,6 +327,8 @@ Approve the plan when the issue opens.
 ## Appendix A — Optional local debugging
 
 Nothing below is required for the happy path. Use only if a workflow fails and you need to poke at the deployed resources.
+
+> **RG name in the commands below:** these examples hard-code `rg-ai-foundry-dev`. If you overrode `resource_group_name` in Step 1, substitute your value throughout (or `export RG=<your-rg>` and use `$RG` in place of the literal). VM / SA names use the shared `local.base_name = "playground"` and are unaffected by the RG override.
 
 ### Diagnose runner cloud-init from your laptop
 
@@ -341,9 +352,9 @@ Common failures:
 
 | Log line contains | Cause | Fix |
 |---|---|---|
-| `Failed to mint runner registration token` | `GH_RUNNER_PAT` scope is wrong | Regenerate with `Administration: r/w`, re-run Step 1, then re-run Step 3 (base apply). The runner VM is tainted implicitly if the cloud-init input changes; otherwise `terraform taint module.cicd_runner.azurerm_linux_virtual_machine.this` first. |
+| `Failed to mint runner registration token` | `GH_RUNNER_PAT` scope is wrong | Regenerate the PAT with `Administration: r/w`, re-run Step 1 (bootstrap re-writes the env secret), then re-dispatch Step 3 (base plan/apply). If the cloud-init input didn't change, force VM recreation by re-running Step 3 after tainting via the reusable workflow — easiest path: delete the runner in Repo → Settings → Actions → Runners, then re-dispatch Step 3 with the same inputs and Terraform will detect the missing registration and recreate the VM on the next apply. |
 | `Could not resolve host: api.github.com` | NAT gateway not attached | Should not happen if base applied cleanly; check `azurerm_subnet_nat_gateway_association.cicd` in state. |
-| `Runner already exists` (from a prior half-registration) | Cloud-init's `runcmd` only fires on first boot — a restart does NOT re-run it | Delete the orphaned runner in Repo → Settings → Actions → Runners, then recreate the VM to trigger cloud-init: `terraform taint module.cicd_runner.azurerm_linux_virtual_machine.this && terraform apply`. |
+| `Runner already exists` (from a prior half-registration) | Cloud-init's `runcmd` only fires on first boot — a restart does NOT re-run it | Delete the orphaned runner in Repo → Settings → Actions → Runners, then re-dispatch Step 3 to force a fresh apply that recreates the VM (Terraform sees the runner's cloud-init token is invalidated and rebuilds the VM). |
 
 ### Validate private connectivity from the jumpbox
 
@@ -402,7 +413,7 @@ az storage account update --name <STORAGE_ACCOUNT> --resource-group rg-ai-foundr
 | `azure/login@v2` fails with `AADSTS70021: No matching federated identity record found` | The App Registration's federated credential subject doesn't match the GitHub environment the workflow selected | In Azure Portal → App Registration → Federated credentials, confirm the subject `repo:{owner}/{repo}:environment:ai-foundry` exists. Use the exact string the Portal wizard generates for your repo. |
 | Base apply fails with `AuthorizationFailed` on role assignment | App Registration has Contributor but not Owner (or UAA) | Grant the App Registration Owner (or Contributor + User Access Administrator) at subscription scope — see Prereq A. |
 | Base apply fails with `SubscriptionNotRegistered` | RP registration failed | Grant the App Registration subscription-scope Owner, or manually run `az provider register --namespace <RP>` for each namespace in `base/terraform/providers.tf`. |
-| Step 5 workflow shows `No runner matching the labels was found` | Self-hosted runner not online yet | Wait 5–15 minutes after Step 3 completes; check Repo → Settings → Actions → Runners. Use the run-command diagnostics in Appendix A if it's still missing. |
+| Step 5 job stays **queued** with no logs (`Waiting for a runner...`) | Self-hosted runner not online yet | Wait 5–15 minutes after Step 3 completes; check Repo → Settings → Actions → Runners for `vm-playground-dev-runner` in `Idle`. If it never shows up, use the run-command diagnostics in Appendix A. The workflow does **not** error out immediately — it will sit queued until a matching runner appears or GitHub times out (24h default). |
 | Step 5 apply fails on Cosmos SQL role assignment with a network error | Workflow accidentally ran on `ubuntu-latest` | Confirm you selected `stack=workload` (not `base`) when dispatching the workflow. |
 | Step 5 apply fails on `azurerm_cognitive_account_capability_host` | Foundry data-plane RBAC hasn't propagated | Wait a couple of minutes and re-run apply; the `time_sleep` module is 60s which is usually enough but Azure control-plane RBAC can lag longer under load. |
 

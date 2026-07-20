@@ -35,7 +35,7 @@ provider "azurerm" {
     "Microsoft.DocumentDB",              # Cosmos DB accounts (workload)
     "Microsoft.KeyVault",                # Foundry secrets management
     "Microsoft.MachineLearningServices", # Capability host backing workspace
-    "Microsoft.ManagedIdentity",         # UAMI for runner
+    "Microsoft.ManagedIdentity",         # User-Assigned Managed Identity (UAMI) attached to the runner VM
     "Microsoft.Network",                 # VNet, subnets, PE, NAT, DNS zones
     "Microsoft.Search",                  # AI Search (workload)
     "Microsoft.Storage",                 # Storage accounts (workload + state)

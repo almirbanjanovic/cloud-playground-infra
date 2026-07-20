@@ -28,7 +28,7 @@ output "subnet_names" {
 }
 
 output "jumpbox_public_ip" {
-  description = "Public IP of the jumpbox. Use with `ssh azureuser@<ip>` or `az ssh vm --name <name>`."
+  description = "Public IP of the jumpbox. Use with `ssh <admin_username>@<ip>` (SSH key auth), or preferably `az ssh vm --name <name> --resource-group <rg>` (Entra ID auth via the AADSSHLoginForLinux extension)."
   value       = module.jumpbox.public_ip_address
 }
 

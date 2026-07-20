@@ -2,11 +2,15 @@
 # AI Foundry — WORKLOAD stack.
 #
 # This stack owns the Foundry account + project + BYO stateful stack
-# (Storage, Cosmos DB, AI Search) and their private endpoints. Every
-# resource in here has `public_network_access_enabled = false` and can
-# ONLY be reached from inside the VNet — which is why this stack MUST be
-# deployed via the self-hosted GitHub Actions runner created by the
-# `base` stack (or from the jumpbox for hand-testing).
+# (Storage, Cosmos DB, AI Search) and their private endpoints. The four
+# data-plane services (Foundry / Cognitive, Storage, Cosmos, AI Search)
+# all set `public_network_access_enabled = false` and can ONLY be reached
+# from inside the VNet — which is why this stack MUST be deployed via the
+# self-hosted GitHub Actions runner created by the `base` stack (or from
+# the jumpbox for hand-testing). Non-data-plane resources (RBAC
+# assignments, connections, capability hosts) live in ARM control plane
+# and don't have that setting; they're reachable from any authenticated
+# principal, but their creation depends on the private services above.
 #
 # Prereqs (owned by the base stack):
 #   - Resource group (created by terraform-init-backend.yaml)
@@ -19,16 +23,21 @@
 #     environment; the runner VM only provides a network path into the VNet)
 #
 # Cross-stack coupling:
-#   Workload reads base outputs by NAME (via `data` sources), not via
-#   `terraform_remote_state`. This means the two stacks share only the
-#   naming convention below — not each other's state files.
+#   Workload looks up base-created Azure resources by NAME via `data`
+#   sources (see section 2 below). It does NOT read base's Terraform
+#   `outputs`. Base's outputs are for humans (`terraform output` after
+#   base apply). This means the two stacks share only the naming convention
+#   below — not each other's state files.
 #
 # RBAC prerequisite:
-#   The deploying principal (the App Registration used by the workflow, or
-#   your own user when running by hand) must have Owner (or Contributor +
-#   User Access Administrator) on the RG — the foundry_project module
-#   creates role assignments, and Contributor alone lacks
-#   `Microsoft.Authorization/roleAssignments/write`.
+#   The deploying principal must be able to create the resources in this
+#   RG AND grant role assignments (the foundry_project module creates
+#   Phase-3 / Phase-5 assignments on the Foundry project MI). The README
+#   documents granting the App Registration subscription-scope Owner +
+#   Storage Blob Data Contributor, which covers this stack, the state
+#   backend, and RP registration. A narrower RG-scope Owner would work for
+#   this stack alone, but only if providers are already registered and the
+#   state backend is separately reachable.
 #
 # Ref: Microsoft's Foundry Standard Agent Setup docs
 #      https://learn.microsoft.com/azure/ai-foundry/agents/concepts/standard-agent-setup
@@ -80,7 +89,8 @@ locals {
 #----------------------------------------------------------------
 # 2. Data sources — everything the base stack created.
 #
-# All lookups are by NAME in the shared RG. No `terraform_remote_state`,
+# All lookups are by NAME in the shared RG using azurerm data sources.
+# No `terraform_remote_state` and no reads of base's Terraform outputs,
 # so the two stacks aren't coupled through state files.
 #----------------------------------------------------------------
 
