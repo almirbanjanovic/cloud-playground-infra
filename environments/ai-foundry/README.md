@@ -55,11 +55,11 @@ Everything on the right (Foundry account + BYO services) has `public network acc
 - **Foundry account** via [cognitive_account/v1](../../iac-modules/terraform/cognitive_account/v1/main.tf) — `kind = "AIServices"`, `project_management_enabled = true`, network injection into the agent subnet from `base/`.
 - **Foundry project + capability hosts** via [foundry_project/v1](../../iac-modules/terraform/foundry_project/v1/main.tf) — creates the project MI, grants Phase-3 and Phase-5 RBAC, waits 60s for RBAC propagation, then creates the account and project capability hosts that bind the three BYO connections into Agent Service.
 
-Workload references everything in `base/` via `data` sources (by name), so the two stacks don't share state files — only the naming convention encoded in `locals` at the top of both `main.tf` files.
+Workload references everything in `base/` via `data` sources (by name), so the two stacks don't share state files or state containers — only the naming convention encoded in `locals` at the top of both `main.tf` files.
 
 ## Authentication model
 
-Pure OIDC + managed identities. **Zero client secrets, zero account keys, anywhere.** Follows the standard pattern documented in the [root README](../../README.md#configure-new-app-registration-in-microsoft-entra-id) — one App Registration federated to specific GitHub environments.
+Pure OIDC + managed identities. **Zero client secrets, zero account keys, anywhere.** Follows the standard pattern documented in the [root README](../../README.md#configure-new-app-registration-in-microsoft-entra-id) — one App Registration federated to the `ai-foundry` GitHub environment, no matter which stack the workflow is deploying.
 
 ### Identities
 
