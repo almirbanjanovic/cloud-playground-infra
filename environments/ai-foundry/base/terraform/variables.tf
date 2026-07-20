@@ -52,9 +52,3 @@ variable "github_pat" {
   description = "Fine-grained GitHub PAT with repository `Administration: read/write` on the target repo. Used by cloud-init to mint a runner registration token at boot."
   sensitive   = true
 }
-
-variable "workload_github_environment" {
-  type        = string
-  description = "Name of the GitHub environment the workload workflow runs in. The runner UAMI's federated credential trusts `repo:{org}/{repo}:environment:{this}`."
-  default     = "ai-foundry-workload"
-}

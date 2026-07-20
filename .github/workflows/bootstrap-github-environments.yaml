@@ -2,9 +2,8 @@ name: Bootstrap GitHub Environments
 
 # ------------------------------------------------------------------------------
 # One-click population of the ai-foundry-base and ai-foundry-workload GitHub
-# environments with the non-Azure secrets/vars that the terraform workflows
-# need. Complements `bootstrap-azure-identity.yaml`, which handles the
-# Azure identity + AZURE_* secrets.
+# environments with the state-backend config + personal secrets/vars the
+# terraform workflows need.
 #
 # Populates in BOTH environments (unless noted):
 #   Secrets:
@@ -27,17 +26,26 @@ name: Bootstrap GitHub Environments
 #     TERRAFORM_STATE_BLOB          base.tfstate  |  workload.tfstate
 #     TERRAFORM_WORKING_DIRECTORY   environments/ai-foundry/{base,workload}/terraform
 #
-# NOT touched by this workflow (managed elsewhere):
+# NOT touched by this workflow (set by the operator following the root README):
 #   AZURE_CLIENT_ID / AZURE_TENANT_ID / AZURE_SUBSCRIPTION_ID
-#     Written by `bootstrap-azure-identity.yaml` (initial values) and by the
-#     base apply's post-apply step (workload AZURE_CLIENT_ID).
+#     Set as REPO-level secrets pointing at a single App Registration in
+#     Entra ID with two federated credentials (one per environment). Both
+#     ai-foundry-base and ai-foundry-workload authenticate as this same App
+#     Registration — the OIDC token subject controls which environment can
+#     use it. See root README > "Configure new App Registration in
+#     Microsoft Entra ID".
 #   TF_VAR_github_org / TF_VAR_github_repo
 #     Auto-derived at workflow runtime from GitHub context.
 #
-# Prereqs:
-#   1. Run `bootstrap-azure-identity.yaml` FIRST — creates the UAMI and
-#      populates AZURE_* secrets in both envs.
-#   2. Repo secret GH_ADMIN_PAT — same as above workflow.
+# Prereqs (see environments/ai-foundry/README.md):
+#   1. App Registration in Entra ID with:
+#        - subscription-scope Owner + Storage Blob Data Contributor
+#        - federated credential for repo:{owner}/{repo}:environment:ai-foundry-base
+#        - federated credential for repo:{owner}/{repo}:environment:ai-foundry-workload
+#   2. Three REPO-level secrets: AZURE_CLIENT_ID, AZURE_TENANT_ID,
+#      AZURE_SUBSCRIPTION_ID.
+#   3. Repo secret GH_ADMIN_PAT — fine-grained PAT with Environments r/w,
+#      Secrets r/w, Variables r/w on this repo.
 #
 # Idempotent — re-run any time to rotate GH_RUNNER_PAT, update the SSH
 # allowlist, change the RG name, etc.
@@ -133,43 +141,74 @@ jobs:
             exit 1
           fi
 
-      - name: Preflight — verify Azure identity workflow has run
-        # Every AZURE_* env-scoped secret populated by
-        # `bootstrap-azure-identity.yaml` must exist before we proceed. A
-        # partial failure of that workflow could leave some but not all
-        # present, so we probe each one individually rather than trust a
-        # single witness.
+      - name: Preflight — verify OIDC identity secrets are set at repo level
+        # Following the repo's standard OIDC pattern (root README), the user
+        # sets AZURE_CLIENT_ID / AZURE_TENANT_ID / AZURE_SUBSCRIPTION_ID as
+        # REPO-level secrets pointing at a single App Registration in Entra
+        # ID (with federated credentials for both ai-foundry-base and
+        # ai-foundry-workload environments). Verify those exist before we
+        # write env-scoped state config on top of them.
         env:
           GH_TOKEN: ${{ secrets.GH_ADMIN_PAT }}
         run: |
           set -euo pipefail
 
-          check_env_secret() {
-            local env_name="$1"
-            local secret_name="$2"
-            if ! gh api "repos/${{ github.repository }}/environments/$env_name/secrets/$secret_name" >/dev/null 2>&1; then
-              echo "MISSING: $secret_name on environment '$env_name'"
-              return 1
+          # Distinguish 404 (missing secret) from 401/403 (bad PAT scope) so
+          # the user gets a useful error rather than "MISSING" for everything.
+          probe() {
+            local name="$1"
+            local http_code
+            http_code=$(gh api "repos/${{ github.repository }}/actions/secrets/$name" \
+              --silent --include 2>/dev/null | awk '/^HTTP\// {print $2; exit}')
+            # Fallback if --include isn't emitting a status line for some reason
+            if [[ -z "${http_code:-}" ]]; then
+              if gh api "repos/${{ github.repository }}/actions/secrets/$name" >/dev/null 2>&1; then
+                http_code=200
+              else
+                http_code=unknown
+              fi
             fi
-            echo "OK:      $secret_name on environment '$env_name'"
+            printf '%s' "$http_code"
           }
 
           missing=0
-          check_env_secret ai-foundry-base     AZURE_CLIENT_ID       || missing=1
-          check_env_secret ai-foundry-base     AZURE_TENANT_ID       || missing=1
-          check_env_secret ai-foundry-base     AZURE_SUBSCRIPTION_ID || missing=1
-          check_env_secret ai-foundry-workload AZURE_TENANT_ID       || missing=1
-          check_env_secret ai-foundry-workload AZURE_SUBSCRIPTION_ID || missing=1
+          fatal=0
+          for name in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID; do
+            code=$(probe "$name")
+            case "$code" in
+              200) echo "OK      $name (HTTP 200)" ;;
+              404) echo "MISSING $name (HTTP 404)"; missing=1 ;;
+              401|403) echo "FORBIDDEN $name (HTTP $code) \u2014 GH_ADMIN_PAT lacks Secrets: read on this repo"; fatal=1 ;;
+              *)   echo "UNEXPECTED $name (HTTP $code)"; fatal=1 ;;
+            esac
+          done
+
+          if [[ "$fatal" -eq 1 ]]; then
+            echo ""
+            echo "GH_ADMIN_PAT permission or API problem \u2014 cannot verify secret state."
+            echo "Confirm the token has fine-grained permissions on this repo:"
+            echo "  Environments: Read and write"
+            echo "  Secrets:      Read and write"
+            echo "  Variables:    Read and write"
+            echo "  Metadata:     Read"
+            exit 1
+          fi
 
           if [[ "$missing" -eq 1 ]]; then
             echo ""
-            echo "One or more Azure identity secrets are missing. Run the"
-            echo "'Bootstrap Azure Identity' workflow first — it creates the"
-            echo "Azure UAMI and populates AZURE_CLIENT_ID / AZURE_TENANT_ID /"
-            echo "AZURE_SUBSCRIPTION_ID as env-scoped secrets."
+            echo "One or more OIDC identity secrets are missing at the REPO level."
+            echo "Follow the root README section 'Configure new App Registration in"
+            echo "Microsoft Entra ID' to create an App Registration with two federated"
+            echo "credentials (one for repo:{owner}/{repo}:environment:ai-foundry-base,"
+            echo "one for :environment:ai-foundry-workload), then set these three"
+            echo "REPOSITORY secrets:"
+            echo "  AZURE_CLIENT_ID       = Application (client) ID"
+            echo "  AZURE_TENANT_ID       = Directory (tenant) ID"
+            echo "  AZURE_SUBSCRIPTION_ID = Target subscription ID"
             exit 1
           fi
           echo "Preflight OK."
+
       - name: Ensure GitHub environments exist
         env:
           GH_TOKEN: ${{ secrets.GH_ADMIN_PAT }}

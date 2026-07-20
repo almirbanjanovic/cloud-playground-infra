@@ -3,9 +3,8 @@
 #
 # The workload stack reads these via data sources (by name), not
 # `terraform_remote_state`, so it stays decoupled from base's state file.
-# These outputs still exist for humans / other consumers (e.g. printing the
-# jumpbox IP after apply, wiring the runner UAMI's client ID into GitHub
-# environment secrets).
+# These outputs exist for humans (printing the jumpbox IP after apply,
+# looking up VM names for `az ssh vm` / `az vm run-command invoke`).
 #================================================================================
 
 output "vnet_id" {
@@ -36,16 +35,6 @@ output "jumpbox_public_ip" {
 output "jumpbox_vm_name" {
   description = "Jumpbox VM name."
   value       = module.jumpbox.vm_name
-}
-
-output "runner_uami_client_id" {
-  description = "Client ID of the CI/CD runner's user-assigned managed identity. Set this as the `azureClientId` secret in the `ai-foundry-workload` GitHub environment."
-  value       = module.cicd_runner.user_assigned_client_id
-}
-
-output "runner_uami_principal_id" {
-  description = "Principal ID of the CI/CD runner's UAMI."
-  value       = module.cicd_runner.user_assigned_principal_id
 }
 
 output "runner_vm_name" {

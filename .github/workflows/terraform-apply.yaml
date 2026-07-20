@@ -99,34 +99,6 @@ jobs:
         ARM_USE_OIDC: true
         ARM_USE_AZUREAD: true
 
-    # -------------------------------------------------------------------------
-    # ai-foundry-base ONLY: propagate the runner UAMI's client_id into the
-    # ai-foundry-workload GitHub environment so the workload workflow
-    # authenticates as the self-hosted runner UAMI (not the bootstrap
-    # principal). Runs only on successful apply of the base env. No-op for
-    # every other environment.
-    #
-    # Requires `GH_ADMIN_PAT` (repo-level secret, inherited via
-    # `secrets: inherit` in the caller). The bootstrap workflow required the
-    # same secret, so it's already present.
-    # -------------------------------------------------------------------------
-    - name: Propagate runner UAMI client_id to ai-foundry-workload env
-      if: success() && inputs.environment == 'ai-foundry-base'
-      env:
-        GH_TOKEN: ${{ secrets.GH_ADMIN_PAT }}
-      run: |
-        set -euo pipefail
-        RUNNER_CLIENT_ID=$(terraform -chdir=${{ vars.TERRAFORM_WORKING_DIRECTORY }} output -raw runner_uami_client_id)
-        if [[ -z "$RUNNER_CLIENT_ID" ]]; then
-          echo "runner_uami_client_id output is empty — skipping propagation."
-          exit 1
-        fi
-        printf '%s' "$RUNNER_CLIENT_ID" | \
-          gh secret set AZURE_CLIENT_ID \
-            --env ai-foundry-workload \
-            --repo "${{ github.repository }}"
-        echo "AZURE_CLIENT_ID on ai-foundry-workload updated to runner UAMI (${RUNNER_CLIENT_ID:0:8}...)."
-
     - name: Disable public access for backend storage account
       if: always()
       run: |

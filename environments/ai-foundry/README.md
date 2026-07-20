@@ -6,7 +6,7 @@ This lab is split into two Terraform stacks:
 
 | Stack | Purpose | Runs from |
 |---|---|---|
-| [`base/`](base/terraform/) | Shared network (VNet, subnets, NAT, DNS zones) + jumpbox + self-hosted GitHub Actions runner + federated identity for the workload stack. | `ubuntu-latest` (GitHub-hosted) |
+| [`base/`](base/terraform/) | Shared network (VNet, subnets, NAT, DNS zones) + jumpbox + self-hosted GitHub Actions runner. | `ubuntu-latest` (GitHub-hosted) |
 | [`workload/`](workload/terraform/) | Foundry account, project, capability hosts + BYO Storage/Cosmos/AI Search + private endpoints. Everything here has `public_network_access_enabled = false`. | `[self-hosted, ai-foundry]` (the runner from `base/`) |
 
 Why the split: workload data-plane operations (Cosmos SQL role assignments, Foundry capability host provisioning, Storage container access) need to reach services whose public network access is disabled. A GitHub-hosted runner can't reach them — the self-hosted runner living inside the VNet can.
@@ -44,8 +44,7 @@ Everything on the right (Foundry account + BYO services) has `public network acc
 - **NAT gateway** attached to `snet-cicd` + `snet-jumpbox` so both VMs have outbound Internet to GitHub, apt, and Azure ARM.
 - **Jumpbox** via [jumpbox/v1](../../iac-modules/terraform/jumpbox/v1/main.tf) — Ubuntu 22.04, public IP with SSH allowlist, Entra ID SSH login enabled.
 - **CI/CD runner** via [cicd_runner/v1](../../iac-modules/terraform/cicd_runner/v1/main.tf) — Ubuntu 22.04, no public IP, UAMI, cloud-init that installs Azure CLI + Terraform + tflint and registers the runner against your repo with a fresh registration token minted from your PAT.
-- **Federated identity credential** on the runner UAMI trusting `repo:${github_org}/${github_repo}:environment:ai-foundry-workload` so the workload workflow can `azure/login@v2` as this UAMI.
-- **RBAC**: runner UAMI is Owner of the resource group (required so the workload apply can create the phase-3 / phase-5 role assignments the foundry_project module needs).
+- **Auth**: both terraform workflows authenticate to Azure as a single App Registration you create manually in Prereq A (see [Authentication model](#authentication-model)). The runner VM's UAMI is only attached for potential future VM-local use; the CI workflows don't rely on it.
 
 ### `workload/` — Foundry, BYO services, capability hosts
 
@@ -55,21 +54,77 @@ Everything on the right (Foundry account + BYO services) has `public network acc
 
 Workload references everything in `base/` via `data` sources (by name), so the two stacks don't share state files — only the naming convention encoded in `locals` at the top of both `main.tf` files.
 
-## Auth model — no keys anywhere
+## Authentication model
 
-Every path is managed-identity + Entra ID:
+Pure OIDC + managed identities. **Zero client secrets, zero account keys, anywhere.** Follows the standard pattern documented in the [root README](../../README.md#configure-new-app-registration-in-microsoft-entra-id) — one App Registration federated to specific GitHub environments.
 
-| From | To | Auth |
+### Identities
+
+| # | Identity | Kind | Created by | Used for |
+|---|---|---|---|---|
+| 1 | `cpi-ai-foundry` App Registration | Entra ID App Registration (no client secret) | You, once, in Prereq A (Azure Portal) | `azure/login@v2` OIDC from every terraform workflow |
+| 2 | Foundry project MI | SystemAssigned on `azurerm_cognitive_account_project` | Workload Terraform | Foundry Agent Service runtime → BYO Storage/Cosmos/Search |
+
+Plus SystemAssigned MIs on Storage, Cosmos, AI Search, Cognitive account (created by their modules for outbound integrations if ever needed) and a UAMI attached to the runner VM (for potential future VM-local scripts via `az login --identity` — not used for CI auth).
+
+### All auth flows
+
+| # | From | To | Mechanism |
+|---|---|---|---|
+| 1 | Bootstrap GitHub Environments workflow | GitHub API | `gh` CLI with `GH_TOKEN=GH_ADMIN_PAT` — writes env-scoped secrets/vars |
+| 2 | Terraform Init Remote Backend (base) | Azure ARM + Storage data plane | App Registration via OIDC (`repo:{owner}/{repo}:environment:ai-foundry-base` subject) |
+| 3 | Base plan/apply | Azure ARM + Storage state backend | App Registration via OIDC (`ARM_USE_OIDC=true` + `ARM_USE_AZUREAD=true`); backend needs Storage Blob Data Contributor at subscription scope |
+| 4 | Runner VM cloud-init | GitHub API | Fine-grained PAT `GH_RUNNER_PAT` — mints a runner-registration token at first boot |
+| 5 | Workload plan/apply | Azure ARM + Storage state backend + Cognitive/Cosmos/Search/Storage data planes | Same App Registration via OIDC — but the workflow's GitHub environment is `ai-foundry-workload`, so the OIDC token subject matches the **second** federated credential on the App Registration. Runner VM only provides network path into the VNet. |
+| 6 | Foundry project MI | Storage / Cosmos / AI Search | Entra ID over private endpoints, routed through the three `azurerm_cognitive_account_connection_entra_id` records that the project capability host binds into Agent Service. RBAC granted during workload apply (see roster below). |
+| 7 | Operator | Jumpbox VM | `az ssh vm` (Entra ID SSH) via `AADSSHLoginForLinux` VM extension |
+| 8 | Operator | Runner VM (diagnostics only) | `az vm run-command invoke` — control-plane; no SSH (runner NSG denies inbound at priority 4000) |
+
+**Local (key-based) auth is disabled** on the Cognitive account, Storage, Cosmos, and AI Search. `storage_use_azuread = true` in the workload provider forces Terraform's storage data-plane calls through Entra ID.
+
+> **A note on OIDC subject format.** The subjects above (`repo:{owner}/{repo}:environment:...`) are GitHub's traditional format. Some newer repositories use immutable subjects that include repo/org IDs (`repo:{owner}@{owner-id}/{repo}@{repo-id}:environment:...`). The Azure Portal wizard for GitHub Actions federated credentials fills in whichever your repo uses — always accept exactly what the wizard generates, don't hand-type it.
+
+### GitHub secrets & variables inventory
+
+**Repo-level secrets** (set manually in Prereq B):
+
+| Name | Purpose |
+|---|---|
+| `AZURE_CLIENT_ID` | App Registration client ID — used by every workflow via `azure/login@v2` |
+| `AZURE_TENANT_ID` | Directory (tenant) ID |
+| `AZURE_SUBSCRIPTION_ID` | Target subscription ID |
+| `GH_ADMIN_PAT` | Fine-grained PAT — bootstrap workflow uses this to write env-scoped secrets/vars |
+
+**Env-scoped secrets** (populated by Step 1 into both `ai-foundry-base` and `ai-foundry-workload`):
+
+| Name | Value used for |
+|---|---|
+| `TAGS` | Applied to the RG at creation time by `terraform-init-backend.yaml` |
+| `ADMIN_SSH_PUBLIC_KEY` | `TF_VAR_admin_ssh_public_key` — jumpbox + runner SSH key |
+| `GH_RUNNER_PAT` | `TF_VAR_github_pat` — cloud-init on runner VM |
+
+**Env-scoped variables** (populated by Step 1, identical across both envs except the last two):
+
+| Name | Purpose |
+|---|---|
+| `RESOURCE_GROUP`, `LOCATION`, `STORAGE_ACCOUNT`, `STORAGE_ACCOUNT_SKU`, `STORAGE_ACCOUNT_ENCRYPTION_SERVICES`, `STORAGE_ACCOUNT_MIN_TLS_VERSION`, `STORAGE_ACCOUNT_PUBLIC_NETWORK_ACCESS`, `TERRAFORM_STATE_CONTAINER` | RG + state backend shape |
+| `ALLOWED_SSH_SOURCE_PREFIXES` | `TF_VAR_allowed_ssh_source_prefixes` — jumpbox NSG allowlist |
+| `JUMPBOX_ENTRA_ADMIN_OBJECT_IDS` | `TF_VAR_jumpbox_entra_admin_object_ids` — VM Admin Login grantees |
+| `TERRAFORM_STATE_BLOB` | Per-env: `base.tfstate` vs `workload.tfstate` |
+| `TERRAFORM_WORKING_DIRECTORY` | Per-env: `environments/ai-foundry/{base,workload}/terraform` |
+
+`TF_VAR_github_org` and `TF_VAR_github_repo` are NOT stored — they're derived at workflow runtime from `${{ github.repository_owner }}` and `${{ github.event.repository.name }}`.
+
+### RBAC roster
+
+**App Registration** — `cpi-ai-foundry` (granted manually in Prereq A):
+
+| Role | Scope | Why |
 |---|---|---|
-| Foundry runtime (project MI) | Storage, Cosmos, Search | Entra ID (private endpoint) |
-| Terraform (workload stack) | Foundry account, connections, cap hosts | Entra ID |
-| Terraform data-plane calls | Storage | `storage_use_azuread = true` in provider |
-| GitHub Actions (workload) → Azure | — | OIDC federated to the runner UAMI |
-| Operator → Jumpbox | — | Entra ID SSH (`az ssh vm`) |
+| Owner | Subscription | Create RG + all Azure resources during both base and workload apply; grant phase-3/5 role assignments during workload apply |
+| Storage Blob Data Contributor | Subscription | Terraform state backend via `ARM_USE_AZUREAD=true`; `az storage container create --auth-mode login` in init-backend |
 
-Local (key-based) auth is disabled on the Cognitive account, Storage, Cosmos, and AI Search. No connection strings or account keys appear in state.
-
-## RBAC (all granted to project MI, by the workload stack)
+**Foundry project MI** (SystemAssigned, granted by `foundry_project/v1`):
 
 | Phase | Role | Scope | Why |
 |---|---|---|---|
@@ -80,7 +135,33 @@ Local (key-based) auth is disabled on the Cognitive account, Storage, Cosmos, an
 | 5 | Storage Blob Data Owner | Storage account | Agents read/write files in the auto-created containers |
 | 5 | Cosmos DB Built-in Data Contributor | Cosmos account | Agents read/write threads in `enterprise_memory` |
 
-**Prerequisites for the principal running `terraform apply`:** Owner, User Access Administrator, or Role Based Access Administrator on the resource group (Contributor is NOT enough — it lacks `Microsoft.Authorization/roleAssignments/write`). The runner UAMI is granted Owner by `base/`.
+**Jumpbox operator logins** — Entra objects listed in `JUMPBOX_ENTRA_ADMIN_OBJECT_IDS` (granted by `jumpbox/v1`):
+
+| Role | Scope | Why |
+|---|---|---|
+| Virtual Machine Administrator Login | Jumpbox VM | Enables `az ssh vm` with AAD auth (via `AADSSHLoginForLinux` extension) |
+
+### Federated identity credentials
+
+Both live on the SAME App Registration created in Prereq A:
+
+| Subject | Used from |
+|---|---|
+| `repo:{owner}/{repo}:environment:ai-foundry-base` | Base workflow (init-backend + apply) |
+| `repo:{owner}/{repo}:environment:ai-foundry-workload` | Workload workflow |
+
+Issuer: `https://token.actions.githubusercontent.com`. Audience: `api://AzureADTokenExchange`.
+
+### Public network access
+
+Every workload data-plane service has `public_network_access_enabled = false`:
+
+- Foundry account (Cognitive AIServices)
+- Storage account
+- Cosmos DB
+- AI Search
+
+The **state storage account** starts each terraform workflow with public network access toggled ON (so the runner can reach the blob endpoint from its NAT-gateway public egress) and gets toggled OFF at exit via a `trap`. Final state after every workflow run is `Disabled`.
 
 ## Prereq resource providers
 
@@ -91,75 +172,70 @@ Registered idempotently via `resource_providers_to_register` in each stack's `pr
 
 ## Deploy — CI-only
 
-Five workflow runs (two need one manual approval each). The only manual prerequisites are creating a **temporary Azure service principal** (one command in Cloud Shell) and creating **two GitHub PATs** (browser UI). Everything else is a click.
+Four workflow runs (two need one manual approval each). The prereqs follow the standard repo pattern documented in the [root README](../../README.md#configure-new-app-registration-in-microsoft-entra-id) — one App Registration in Entra ID with two federated credentials, no client secret anywhere.
 
-### Prereq A. Create a temporary Azure bootstrap SP (~1 minute)
+### Prereq A. Create the App Registration in Entra ID (~5 minutes)
 
-The Azure identity workflow needs *something* to authenticate as on its first run — Azure has no way to auth without a pre-existing identity. Create a throwaway service principal with a client secret, use it once, then delete it.
+Portal UI, all clicks — no local CLI. Same pattern the root README describes for every other env in this repo, just with **two** federated credentials on the same App Registration (one per environment we deploy).
 
-Open [Azure Cloud Shell](https://shell.azure.com) (browser, no local install) and run:
+1. Azure Portal → **Microsoft Entra ID** → **App registrations** → **New registration**.
+   - Name: e.g. `cpi-ai-foundry` (any name works).
+   - Supported account types: default (single tenant).
+   - Redirect URI: leave blank.
+   - Click **Register**.
+2. On the app's overview page, copy three values into a scratchpad — you'll set them as GitHub secrets in Prereq B:
+   - **Application (client) ID** → `AZURE_CLIENT_ID`
+   - **Directory (tenant) ID** → `AZURE_TENANT_ID`
+   - Then Azure Portal → **Subscriptions** → your subscription → copy the ID → `AZURE_SUBSCRIPTION_ID`
+3. On the app: **Certificates & secrets** → **Federated credentials** → **Add credential**. Add TWO:
 
-```bash
-az account set --subscription "<YOUR_SUBSCRIPTION_ID>"
+   **Credential 1** (for `ai-foundry-base`):
+   - Federated credential scenario: **GitHub Actions deploying Azure resources**
+   - Organization: your GitHub org / username
+   - Repository: this repo name
+   - Entity type: **Environment**
+   - GitHub environment name: `ai-foundry-base`
+   - Name (auto-suggested is fine): `ai-foundry-base`
+   - Save.
 
-az ad sp create-for-rbac \
-  --name cpi-bootstrap-temp \
-  --role Owner \
-  --scopes "/subscriptions/<YOUR_SUBSCRIPTION_ID>"
-```
+   **Credential 2** (for `ai-foundry-workload`):
+   - Same as above but with GitHub environment name: `ai-foundry-workload`
+   - Name: `ai-foundry-workload`
+   - Save.
 
-The command prints JSON with `appId`, `password`, and `tenant`. You'll paste these into three repo secrets in Prereq B.
+4. Grant the App Registration the roles it needs at **subscription scope**:
+   - **Owner** — to create the RG and all resources, and to grant phase-3/5 role assignments during workload apply.
+   - **Storage Blob Data Contributor** — for the Terraform state backend (which uses `ARM_USE_AZUREAD=true`) and for `az storage container create --auth-mode login` in the init-backend workflow.
 
-> The SP has subscription-scope Owner temporarily. You delete it as soon as the Azure identity workflow succeeds (Step 1 prints exact cleanup instructions), so exposure is minutes.
+   Portal: **Subscriptions** → your subscription → **Access control (IAM)** → **Add role assignment**. Twice, once for each role. Assign to the app registration you just created.
 
-### Prereq B. Create GitHub PATs and store all repo secrets (~4 minutes)
+> Contributor + User Access Administrator is functionally equivalent to Owner if you prefer least-privilege naming, but you still need Storage Blob Data Contributor separately either way.
 
-Two fine-grained PATs are needed. Create both at https://github.com/settings/personal-access-tokens/new. **Scope each to only this repository.**
+### Prereq B. Create GitHub PATs + repo secrets (~4 minutes)
+
+**Two fine-grained PATs.** Create both at https://github.com/settings/personal-access-tokens/new — scope each to only this repository.
 
 | PAT | Repository permissions | Purpose |
 |---|---|---|
-| `GH_ADMIN_PAT` | Environments r/w · Secrets r/w · Variables r/w · Metadata r | Both bootstrap workflows use this to create environments and write env-scoped secrets. Also used by the base apply post-step. |
-| `GH_RUNNER_PAT` | Administration r/w · Metadata r | Cloud-init on the runner VM uses this to mint fresh runner-registration tokens. Passed to the GitHub-envs workflow as an input. |
+| `GH_ADMIN_PAT` | Environments r/w · Secrets r/w · Variables r/w · Metadata r | The bootstrap workflow uses this to create the two environments and write their scoped secrets/vars. |
+| `GH_RUNNER_PAT` | Administration r/w · Metadata r | Cloud-init on the runner VM uses this to mint fresh runner-registration tokens. Passed to the bootstrap workflow as an input. |
 
-Now set **four repo-level secrets** in Repo → Settings → Secrets and variables → Actions → *New repository secret*:
+**Four repo-level secrets.** Repo → Settings → Secrets and variables → Actions → *New repository secret*:
 
 | Name | Value |
 |---|---|
-| `GH_ADMIN_PAT` | The admin PAT you just created. |
-| `AZ_BOOTSTRAP_CLIENT_ID` | `appId` from Prereq A. |
-| `AZ_BOOTSTRAP_CLIENT_SECRET` | `password` from Prereq A. |
-| `AZ_BOOTSTRAP_TENANT_ID` | `tenant` from Prereq A. |
+| `AZURE_CLIENT_ID` | Application (client) ID from Prereq A step 2 |
+| `AZURE_TENANT_ID` | Directory (tenant) ID from Prereq A step 2 |
+| `AZURE_SUBSCRIPTION_ID` | Subscription ID from Prereq A step 2 |
+| `GH_ADMIN_PAT` | The admin PAT you just created |
 
-Hold on to `GH_RUNNER_PAT` — it's an input to Step 2.
+Hold on to `GH_RUNNER_PAT` — it's an input to Step 1.
 
----
-
-### Step 1. Actions → *Bootstrap Azure Identity* → *Run workflow*
-
-Input: your Azure `subscription_id`. Everything else has sensible defaults.
-
-Takes ~30 seconds. The workflow:
-
-1. Logs into Azure using the temporary SP (via the `AZ_BOOTSTRAP_*` repo secrets).
-2. Creates a resource group `rg-shared-identity` and a UAMI `uami-cpi-bootstrap` inside it.
-3. Grants the UAMI subscription-scope `Owner` and `Storage Blob Data Contributor` (with retries against Entra ID replication delay).
-4. Creates (or updates) a federated credential trusting `repo:{owner}/{repo}:environment:ai-foundry-base`.
-5. Uses `GH_ADMIN_PAT` to write `AZURE_CLIENT_ID` (base only), `AZURE_TENANT_ID`, and `AZURE_SUBSCRIPTION_ID` as env-scoped secrets in both `ai-foundry-base` and `ai-foundry-workload`.
-6. Prints cleanup instructions — copy them into Cloud Shell to delete the temporary SP and note which repo secrets to remove.
-
-**Verify** (workflow log tail):
-
-```
-Azure bootstrap identity created and GitHub env secrets populated.
-```
-
-After a successful run, delete the temporary SP + its 3 repo secrets per the printed instructions. You don't need them again unless you have to recreate the UAMI (rare).
-
-Re-run any time to reconcile drift (repo rename, subscription change, etc.). Idempotent.
+> **Why repo-level and not env-level for AZURE_***? Both `ai-foundry-base` and `ai-foundry-workload` authenticate as the **same** App Registration; the federated-credential subject controls which environment can use it. Repo-level avoids six duplicate secret entries and matches the root README pattern.
 
 ---
 
-### Step 2. Actions → *Bootstrap GitHub Environments* → *Run workflow*
+### Step 1. Actions → *Bootstrap GitHub Environments* → *Run workflow*
 
 Fill in 5 required inputs + 2 optional. `github_runner_pat` is masked in logs.
 
@@ -173,7 +249,7 @@ Fill in 5 required inputs + 2 optional. `github_runner_pat` is masked in logs.
 | `resource_group_name` (optional) | Default `rg-ai-foundry-dev`. |
 | `tags` (optional) | Default `environment=dev workload=ai-foundry`. |
 
-Takes ~15 seconds. Preflight verifies that Step 1 ran successfully (all 5 Azure secrets present in both envs) before writing anything.
+Takes ~15 seconds. Preflight verifies that Prereq B set the three `AZURE_*` repo secrets before writing anything.
 
 **Verify** (workflow log tail):
 
@@ -183,11 +259,11 @@ ai-foundry-base    : 3 secrets + 11 variables (from this workflow)
 ai-foundry-workload: 3 secrets + 11 variables (from this workflow)
 ```
 
-Re-run any time to rotate `GH_RUNNER_PAT`, change the allowlist, etc. It's idempotent and never touches the Azure identity secrets.
+Re-run any time to rotate `GH_RUNNER_PAT`, change the SSH allowlist, etc. — it's idempotent.
 
 ---
 
-### Step 3. Actions → *Terraform Init Remote Backend* → *Run workflow*
+### Step 2. Actions → *Terraform Init Remote Backend* → *Run workflow*
 
 Environment: **`ai-foundry-base`**. Takes ~2 minutes.
 
@@ -197,34 +273,27 @@ Creates the resource group + state storage account + `tfstate` container. Public
 
 ---
 
-### Step 4. Actions → *Terraform Plan, Approve, Apply* → *Run workflow*
+### Step 3. Actions → *Terraform Plan, Approve, Apply* → *Run workflow*
 
 Environment: **`ai-foundry-base`**. Runs on `ubuntu-latest`. Takes **~10–15 minutes** end-to-end.
 
 When the approval issue opens, comment `approved` (or click the button in the issue) to continue.
 
-On successful apply, this workflow automatically:
-
-1. Reads `runner_uami_client_id` from Terraform outputs.
-2. Uses `GH_ADMIN_PAT` to update `AZURE_CLIENT_ID` in the `ai-foundry-workload` environment to point at the runner UAMI (which has its own federated credential trusting `ai-foundry-workload`, created by base's Terraform).
-
-That's what makes Step 6 work — no manual copy/paste needed.
-
-**Verify**: workflow log shows `Apply complete!` and a line like `AZURE_CLIENT_ID on ai-foundry-workload updated to runner UAMI (abcd1234...).`
+**Verify**: workflow log shows `Apply complete!` and lists the outputs (VNet name, jumpbox / runner VM names, jumpbox public IP). Wait for the runner to come online (Step 4) before running the workload workflow.
 
 ---
 
-### Step 5. (~5–15 minutes wait) Verify the self-hosted runner is online
+### Step 4. (~5–15 minutes wait) Verify the self-hosted runner is online
 
-Repo → Settings → Actions → Runners. Wait for `vm-playground-dev-runner` to show `Idle` with labels `self-hosted, linux, ai-foundry`. Cloud-init downloads and installs packages, so first-boot registration takes 5–15 minutes after the base apply finishes.
+Repo → Settings → Actions → Runners. Wait for `vm-playground-dev-runner` to show `Idle` with labels `self-hosted, linux, ai-foundry`. Cloud-init downloads and installs packages, so first-boot registration takes 5–15 minutes after Step 3 finishes.
 
 If the runner doesn't come online after 15 minutes, see the [troubleshooting appendix](#appendix-a--optional-local-debugging).
 
 ---
 
-### Step 6. Actions → *Terraform Plan, Approve, Apply* → *Run workflow*
+### Step 5. Actions → *Terraform Plan, Approve, Apply* → *Run workflow*
 
-Environment: **`ai-foundry-workload`**. The caller workflow auto-selects `runs-on: [self-hosted, ai-foundry]` for this environment name, so it lands on the runner from Step 5.
+Environment: **`ai-foundry-workload`**. The caller workflow auto-selects `runs-on: [self-hosted, ai-foundry]` for this environment name, so it lands on the runner from Step 4. Both envs authenticate as the same App Registration; GitHub's OIDC-token subject (`repo:{owner}/{repo}:environment:ai-foundry-workload`) matches the second federated credential you added in Prereq A.
 
 Takes **~15–20 minutes** (Storage + Cosmos + AI Search + Foundry account + 4 private endpoints + capability hosts + 60s RBAC-propagation wait).
 
@@ -289,13 +358,12 @@ curl -sI https://cog-acc-playground-dev-centralus.cognitiveservices.azure.com | 
 
 ### Fetch Terraform outputs from your laptop
 
-Not needed for the CI flow (the base apply logs the outputs and the workflow auto-propagates the important one). But if you want to poke at state:
+Not needed for the CI flow (the base apply logs the outputs). But if you want to poke at state directly:
 
 ```bash
-# Requires an interactive identity that has Storage Blob Data Contributor
-# on the state SA (grant it temporarily, or use the bootstrap principal via
-# an Azure VM/automation context assigned to that UAMI — laptops cannot
-# assume a UAMI directly).
+# Requires an interactive Azure identity that has Storage Blob Data
+# Contributor on the state SA. If you're running as your own user, grant
+# yourself the role temporarily on the RG.
 # Temporarily enable public access on the state SA (workflow does this
 # automatically; from laptop you do it manually):
 az storage account update --name <STORAGE_ACCOUNT> --resource-group rg-ai-foundry-dev --public-network-access Enabled
@@ -318,10 +386,11 @@ az storage account update --name <STORAGE_ACCOUNT> --resource-group rg-ai-foundr
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | Bootstrap workflow fails on `gh api` with `HTTP 403` | `GH_ADMIN_PAT` lacks Environments/Secrets/Variables r/w | Regenerate PAT with correct scopes, update the repo secret, re-run Step 1. |
-| Base apply fails with `AuthorizationFailed` on role assignment | Bootstrap principal has Contributor but not Owner | Grant Owner (or User Access Administrator alongside Contributor) on the subscription — see Prereq A. |
-| Base apply fails with `SubscriptionNotRegistered` | RP registration failed | Grant subscription Owner to the bootstrap principal, or manually run `az provider register --namespace <RP>` for each namespace in `base/terraform/providers.tf`. |
-| Base post-apply step fails with `gh: HTTP 404 on repos/.../environments/ai-foundry-workload/secrets` | `ai-foundry-workload` env doesn't exist | Run Step 1 (bootstrap workflow) first — it creates both environments. |
-| Step 5 workflow shows `No runner matching the labels was found` | Self-hosted runner not online yet | Wait 5–15 minutes after Step 3 completes, check Repo → Settings → Actions → Runners. Use the run-command diagnostics in Appendix A if it's still missing. |
+| Bootstrap workflow preflight says `MISSING repo secret: AZURE_CLIENT_ID` | You skipped Prereq B (or the App Registration secrets weren't stored at REPO level) | Complete Prereq B — set `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` as repository-level secrets. |
+| `azure/login@v2` fails with `AADSTS70021: No matching federated identity record found` | The App Registration's federated credential subject doesn't match the GitHub environment the workflow selected | In Azure Portal → App Registration → Federated credentials, confirm BOTH subjects exist: `repo:{owner}/{repo}:environment:ai-foundry-base` AND `:environment:ai-foundry-workload`. Use the exact string the Portal wizard generates for your repo. |
+| Base apply fails with `AuthorizationFailed` on role assignment | App Registration has Contributor but not Owner (or UAA) | Grant the App Registration Owner (or Contributor + User Access Administrator) at subscription scope — see Prereq A. |
+| Base apply fails with `SubscriptionNotRegistered` | RP registration failed | Grant the App Registration subscription-scope Owner, or manually run `az provider register --namespace <RP>` for each namespace in `base/terraform/providers.tf`. |
+| Step 5 workflow shows `No runner matching the labels was found` | Self-hosted runner not online yet | Wait 5–15 minutes after Step 3 completes; check Repo → Settings → Actions → Runners. Use the run-command diagnostics in Appendix A if it's still missing. |
 | Step 5 apply fails on Cosmos SQL role assignment with a network error | Workflow accidentally ran on `ubuntu-latest` | Confirm you selected `ai-foundry-workload` (not `ai-foundry-base`) as the environment. |
 | Step 5 apply fails on `azurerm_cognitive_account_capability_host` | Foundry data-plane RBAC hasn't propagated | Wait a couple of minutes and re-run apply; the `time_sleep` module is 60s which is usually enough but Azure control-plane RBAC can lag longer under load. |
 

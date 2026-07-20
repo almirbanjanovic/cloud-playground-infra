@@ -14,10 +14,10 @@ locals {
   cluster_name = "aks-${local.workload}-${local.env}-${var.location}"
 
   # AKS configuration
-  cluster_version           = "1.34.2"
-  default_nodepool_name     = "system"
-  default_nodepool_vm       = "Standard_D2s_v3"
-  custom_cpu_inference_vm   = "Standard_D16s_v5"
+  cluster_version         = "1.34.2"
+  default_nodepool_name   = "system"
+  default_nodepool_vm     = "Standard_D2s_v3"
+  custom_cpu_inference_vm = "Standard_D16s_v5"
 
   # Kubernetes resource names
   custom_cpu_inference_namespace = "kaito-custom-cpu-inference"

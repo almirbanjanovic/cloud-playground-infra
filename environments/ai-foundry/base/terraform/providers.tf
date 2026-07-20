@@ -17,11 +17,12 @@ provider "azurerm" {
   # -----------------------------------------------------------------------------
   # RP registration — the base stack owns registration for BOTH stacks.
   #
-  # Base runs from a bootstrap principal (typically GitHub-hosted runner with
-  # subscription-scoped permissions) that CAN register resource providers. The
-  # workload stack runs as the runner UAMI which only has RG-scope Owner and
-  # cannot register RPs — so we register everything here and workload sets
-  # `resource_provider_registrations = "none"` with an empty registration list.
+  # Both terraform workflows (base and workload) authenticate as the same
+  # subscription-scope App Registration (see ai-foundry README > Auth model),
+  # which has permission to register resource providers. Base runs first, so
+  # it does the registration for every namespace both stacks consume; workload
+  # then sets `resource_provider_registrations = "none"` with no list, so it
+  # never attempts registration.
   #
   # Idempotent: registering an already-registered RP is a no-op.
   # -----------------------------------------------------------------------------

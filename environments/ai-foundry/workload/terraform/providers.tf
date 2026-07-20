@@ -32,11 +32,10 @@ provider "azurerm" {
   # ---------------------------------------------------------------------------
   # RP registration is owned by the BASE stack.
   #
-  # Workload runs as the runner UAMI, which has only RG-scope Owner on the
-  # target RG. RP registration is a SUBSCRIPTION-scope operation and would
-  # fail from this principal. The base stack (running as a bootstrap principal
-  # with sub-scope perms) has already registered every namespace both stacks
-  # use — see environments/ai-foundry/base/terraform/providers.tf.
+  # Both stacks authenticate as the same App Registration (see ai-foundry
+  # README > Auth model). Base runs first and registers every namespace both
+  # stacks consume, so workload doesn't need to (and shouldn't — double
+  # registration is harmless but adds latency and log noise).
   #
   # Setting `resource_provider_registrations = "none"` with no
   # `resource_providers_to_register` list disables all registration attempts

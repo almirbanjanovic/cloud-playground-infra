@@ -100,10 +100,8 @@ resource "azurerm_kubernetes_cluster" "this" {
   depends_on = [
     azurerm_user_assigned_identity.this,
     azurerm_role_assignment.uami_managed_identity_operator,
-    azurerm_role_assignment.aks_api_server_subnet,
     azurerm_role_assignment.aks_node_subnet,
     azurerm_role_assignment.aks_pod_subnet,
-    azurerm_role_assignment.aks_private_dns_zone
   ]
 }
 

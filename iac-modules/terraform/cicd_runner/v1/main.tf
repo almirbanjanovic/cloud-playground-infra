@@ -8,10 +8,12 @@
 # Design decisions:
 #   - No public IP. Egress is via the VNet's NAT gateway (caller wires
 #     that separately at the subnet level).
-#   - SystemAssigned + UserAssigned MI. The UAMI is intended to receive a
-#     federated identity credential trusting GitHub Actions OIDC — that
-#     wiring is caller-owned so we don't hard-code an audience or subject
-#     shape here.
+#   - SystemAssigned + UserAssigned MI attached to the VM. The UAMI is NOT
+#     used for CI workflow authentication (workflows use OIDC federation on
+#     an App Registration owned by the caller — see the ai-foundry README).
+#     The UAMI is provisioned for potential future VM-local use via
+#     `az login --identity`. Callers who DO want to use it should attach a
+#     federated credential + role assignments in the caller's stack.
 #   - GitHub runner registration is done by cloud-init using a fine-grained
 #     PAT (`github_pat`) that mints a fresh registration token at boot.
 #     The PAT stays in the VM's user-data blob (encrypted at rest by SSE)

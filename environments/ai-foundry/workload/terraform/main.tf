@@ -23,11 +23,11 @@
 #   naming convention below — not each other's state files.
 #
 # RBAC prerequisite:
-#   The deploying principal (the runner UAMI when running from CI, or
-#   the user on the jumpbox when running by hand) must have Owner /
-#   User Access Administrator / Role Based Access Administrator on the
-#   RG — because the foundry_project module creates role assignments.
-#   Contributor alone is NOT enough.
+#   The deploying principal (the App Registration used by the workflow, or
+#   your own user when running by hand) must have Owner (or Contributor +
+#   User Access Administrator) on the RG — the foundry_project module
+#   creates role assignments, and Contributor alone lacks
+#   `Microsoft.Authorization/roleAssignments/write`.
 #
 # Ref: Microsoft's Foundry Standard Agent Setup docs
 #      https://learn.microsoft.com/azure/ai-foundry/agents/concepts/standard-agent-setup

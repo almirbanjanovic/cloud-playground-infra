@@ -17,8 +17,11 @@
 #   5. CI/CD self-hosted GitHub Actions runner — the ONLY runner able to
 #      reach the workload stack's services (which will have
 #      `public_network_access_enabled = false`).
-#   6. UAMI + federated identity credential + RBAC so the runner UAMI can
-#      terraform-apply the workload stack via GitHub Actions OIDC.
+#   6. UAMI on the runner VM (attached but unused by CI). Both terraform
+#      workflows authenticate to Azure as a single App Registration
+#      created manually in Entra ID with federated credentials for the
+#      ai-foundry-base and ai-foundry-workload GitHub environments — see
+#      the ai-foundry README for the auth model.
 #
 # Why split from workload:
 #   Workload data-plane operations (Cosmos SQL role assignments, Foundry
@@ -278,52 +281,14 @@ module "cicd_runner" {
   runner_labels = ["self-hosted", "linux", "ai-foundry"]
 }
 
-#----------------------------------------------------------------
-# 7. Federated identity credential on the runner UAMI + RBAC.
-#
-# Trust GitHub Actions OIDC for the `ai-foundry-workload` GitHub
-# environment on this repo. The workflow deploying workload authenticates
-# to Azure via `azure/login@v2 (client-id = runner UAMI client ID)`.
-#
-# Role: Owner on the resource group so the workload apply can
-#   (a) create resources and (b) create role assignments needed by
-#   the Foundry project setup (phase 3 + phase 5 RBAC — see
-#   iac-modules/terraform/foundry_project/v1/main.tf).
-#----------------------------------------------------------------
-
-resource "azurerm_federated_identity_credential" "runner_workload" {
-  name                = "github-actions-${var.github_org}-${var.github_repo}-workload"
-  resource_group_name = var.resource_group_name
-  parent_id           = module.cicd_runner.user_assigned_identity_id
-  audience            = ["api://AzureADTokenExchange"]
-  issuer              = "https://token.actions.githubusercontent.com"
-  subject             = "repo:${var.github_org}/${var.github_repo}:environment:${var.workload_github_environment}"
-}
-
-data "azurerm_resource_group" "this" {
-  name = var.resource_group_name
-}
-
-resource "azurerm_role_assignment" "runner_rg_owner" {
-  scope                = data.azurerm_resource_group.this.id
-  role_definition_name = "Owner"
-  principal_id         = module.cicd_runner.user_assigned_principal_id
-}
-
 # ------------------------------------------------------------------------------
-# Storage Blob Data Contributor on the RG for the runner UAMI.
-#
-# `Owner` above grants ARM control-plane perms but NOT data-plane blob access.
-# Terraform's azurerm backend runs with `ARM_USE_AZUREAD=true`, which
-# authenticates to blob storage via Entra ID and requires a data-plane role
-# on the state storage account. Granting at RG scope covers the state SA
-# (created by terraform-init-backend.yaml in the same RG) plus any workload
-# storage accounts the runner needs to reach.
-#
-# Ref: https://learn.microsoft.com/azure/storage/blobs/authorize-access-azure-active-directory
+# NOTE ON AUTH:
+#   No federated identity credential or role assignments on the runner UAMI.
+#   Following the repo's standard OIDC pattern (see root README), every
+#   Terraform workflow authenticates to Azure using a SINGLE App Registration
+#   created manually in Entra ID with TWO federated credentials — one for
+#   `environment:ai-foundry-base`, one for `environment:ai-foundry-workload`.
+#   The runner VM's UAMI stays attached for potential future use by scripts
+#   on the VM (via `az login --identity`), but the CI workflows don't rely
+#   on it.
 # ------------------------------------------------------------------------------
-resource "azurerm_role_assignment" "runner_rg_blob_data_contributor" {
-  scope                = data.azurerm_resource_group.this.id
-  role_definition_name = "Storage Blob Data Contributor"
-  principal_id         = module.cicd_runner.user_assigned_principal_id
-}
