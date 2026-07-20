@@ -11,28 +11,33 @@ This lab is split into two Terraform stacks:
 
 Why the split: workload data-plane operations (Cosmos SQL role assignments, Foundry capability host provisioning, Storage container access) need to reach services whose public network access is disabled. A GitHub-hosted runner can't reach them — the self-hosted runner living inside the VNet can.
 
-## Architecture
+## Architecture & Deployment
 
-![AI Foundry BYO stateful stack — architecture](assets/architecture.png)
+![AI Foundry BYO stateful stack — architecture & deployment](assets/architecture.png)
 
 Source: [assets/architecture.drawio](assets/architecture.drawio) (editable) &nbsp; · &nbsp; PNG: [assets/architecture.png](assets/architecture.png) &nbsp; · &nbsp; Icons: [assets/icons/](assets/icons/)
 
-**Structure (following Azure diagramming best practices):**
+The diagram is a single source of truth for both the target Azure topology *and* the CI/CD flow that deploys it.
 
-- The **Customer VNet** is the outermost container on the left.
-- Each **subnet** is a nested container inside the VNet.
-- Each **private endpoint** (PE) icon sits *inside* its subnet.
-- Lines go from each PE **out to the target service** (Foundry account or a BYO service) on the right.
-- The **agent runtime subnet** has a separate red arrow to the Foundry account labelled "network injection" — that subnet's IPs are consumed by Foundry Agent Service compute, not by a private endpoint.
+**How to read it (top → bottom):**
 
-Everything on the right (Foundry account + BYO services) has `public network access = Disabled`, so those PE lines are the *only* way in.
+- **GitHub** (top-left) holds the 4 repo secrets, the `ai-foundry` GitHub Environment (3 env secrets + 10 env vars), and the numbered Terraform workflows ① – ⑤. Steps ①–③ execute on `ubuntu-latest`; Step ⑤ executes on the self-hosted `[ai-foundry]` runner deployed by Step ③.
+- **Microsoft Entra ID** (top-right) holds the single `cpi-ai-foundry` identity: one App Registration with a federated credential trusting `repo:{owner}/{repo}:environment:ai-foundry`, plus the service principal that receives Azure RBAC (`Owner` + `Storage Blob Data Contributor` at subscription scope). Steps ②, ③, ⑤ all authenticate here via OIDC — no client secret anywhere.
+- **User** (person icon, top-left) does the two one-time prerequisites: Ⓐ create the App Registration + federated credential + role assignments in Entra, and Ⓑ set the 4 repo secrets in GitHub.
+- **Azure Subscription** (bottom) contains the resource group with the state Storage Account (two containers, `tfstate-base` and `tfstate-workload`), the VNet with all subnets (CI/CD, jumpbox, agent, and 4 PE subnets), and the workload stack (Foundry + BYO Storage / Cosmos / AI Search).
+- **Runner VM** in `snet-cicd` registers itself back to GitHub via `GH_RUNNER_PAT` at first boot (Step ④, dashed line).
+- **Private endpoints** are the only ingress path to the workload — everything on the right has `public_network_access_enabled = false`.
+- The state Storage Account's public network access is **toggled Enabled** during Steps ②, ③, ⑤ (so the GitHub-hosted runner and OIDC principal can reach the blob) and **disabled on workflow exit** via a shell `trap`.
 
 ### Viewing / editing the diagram
 
+The `.drawio` is fully self-contained — every icon is inlined as a URL-encoded SVG data URI, so no external files are needed to render it.
+
 - **Inline**: the PNG above is regenerated from `assets/architecture.drawio`. Re-export whenever the source changes so GitHub picks it up.
 - **VS Code**: install the [Draw.io Integration](https://marketplace.visualstudio.com/items?itemName=hediet.vscode-drawio) extension and open the `.drawio` file — it renders inline and stays editable.
-- **Browser**: open [diagrams.net](https://app.diagrams.net) → *File → Open from Device* and pick the `.drawio` file (make sure the `icons/` folder is beside it so the SVG references resolve).
+- **Browser**: open [diagrams.net](https://app.diagrams.net) → *File → Open from Device* and pick the `.drawio` file.
 - **Regenerate the PNG**: *File → Export as → PNG*, save to `assets/architecture.png`.
+- **Source SVGs**: [`assets/icons/`](assets/icons/) holds the original per-icon SVG files — kept as reference only (useful when editing an icon design; re-inline into the drawio afterwards).
 
 ## What each stack creates
 
@@ -258,7 +263,7 @@ Takes ~15 seconds. Preflight verifies that Prereq B set the three `AZURE_*` repo
 
 ```
 Bootstrap complete.
-  ai-foundry: 3 secrets + 9 variables
+  ai-foundry: 3 secrets + 10 variables
 
 TERRAFORM_STATE_CONTAINER and TERRAFORM_STATE_BLOB are NOT stored;
 they are derived at dispatch time from the 'stack' input.
