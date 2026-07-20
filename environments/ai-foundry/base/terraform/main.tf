@@ -19,9 +19,9 @@
 #      `public_network_access_enabled = false`).
 #   6. UAMI on the runner VM (attached but unused by CI). Both terraform
 #      workflows authenticate to Azure as a single App Registration
-#      created manually in Entra ID with federated credentials for the
-#      ai-foundry-base and ai-foundry-workload GitHub environments — see
-#      the ai-foundry README for the auth model.
+#      created manually in Entra ID with ONE federated credential trusting
+#      the `ai-foundry` GitHub environment — see the ai-foundry README
+#      for the auth model.
 #
 # Why split from workload:
 #   Workload data-plane operations (Cosmos SQL role assignments, Foundry
@@ -286,8 +286,11 @@ module "cicd_runner" {
 #   No federated identity credential or role assignments on the runner UAMI.
 #   Following the repo's standard OIDC pattern (see root README), every
 #   Terraform workflow authenticates to Azure using a SINGLE App Registration
-#   created manually in Entra ID with TWO federated credentials — one for
-#   `environment:ai-foundry-base`, one for `environment:ai-foundry-workload`.
+#   created manually in Entra ID with ONE federated credential trusting the
+#   `ai-foundry` GitHub environment. Both Terraform stacks (base and
+#   workload) run under that environment, differentiated at dispatch time
+#   by the `stack` input on the deploy workflow.
+#
 #   The runner VM's UAMI stays attached for potential future use by scripts
 #   on the VM (via `az login --identity`), but the CI workflows don't rely
 #   on it.

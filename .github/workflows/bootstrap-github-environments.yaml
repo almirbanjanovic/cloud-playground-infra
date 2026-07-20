@@ -1,53 +1,52 @@
 name: Bootstrap GitHub Environments
 
 # ------------------------------------------------------------------------------
-# One-click population of the ai-foundry-base and ai-foundry-workload GitHub
-# environments with the state-backend config + personal secrets/vars the
-# terraform workflows need.
+# Creates and populates the `ai-foundry` GitHub environment with everything
+# the terraform workflows need: personal secrets, jumpbox allowlist, state
+# SA config, and the shared working directory.
 #
-# Populates in BOTH environments (unless noted):
+# Populates in `ai-foundry`:
 #   Secrets:
 #     TAGS                    (space-separated key=value for the RG)
 #     ADMIN_SSH_PUBLIC_KEY
 #     GH_RUNNER_PAT           (masked in logs)
 #   Variables:
 #     RESOURCE_GROUP
-#     LOCATION                (hardcoded to centralus — matches Terraform locals)
+#     LOCATION                (hardcoded to centralus \u2014 matches Terraform locals)
 #     STORAGE_ACCOUNT
 #     STORAGE_ACCOUNT_SKU                    (Standard_LRS)
 #     STORAGE_ACCOUNT_ENCRYPTION_SERVICES    (blob)
 #     STORAGE_ACCOUNT_MIN_TLS_VERSION        (TLS1_2)
-#     STORAGE_ACCOUNT_PUBLIC_NETWORK_ACCESS  (Enabled — init-backend trap
+#     STORAGE_ACCOUNT_PUBLIC_NETWORK_ACCESS  (Enabled \u2014 init-backend trap
 #                                             disables it at exit)
-#     TERRAFORM_STATE_CONTAINER              (tfstate)
 #     ALLOWED_SSH_SOURCE_PREFIXES
 #     JUMPBOX_ENTRA_ADMIN_OBJECT_IDS
-#   Variables (per-env, hardcoded):
-#     TERRAFORM_STATE_BLOB          base.tfstate  |  workload.tfstate
-#     TERRAFORM_WORKING_DIRECTORY   environments/ai-foundry/{base,workload}/terraform
+#     TERRAFORM_WORKING_DIRECTORY            (base path: environments/ai-foundry)
 #
-# NOT touched by this workflow (set by the operator following the root README):
+# NOT touched (managed elsewhere):
 #   AZURE_CLIENT_ID / AZURE_TENANT_ID / AZURE_SUBSCRIPTION_ID
-#     Set as REPO-level secrets pointing at a single App Registration in
-#     Entra ID with two federated credentials (one per environment). Both
-#     ai-foundry-base and ai-foundry-workload authenticate as this same App
-#     Registration — the OIDC token subject controls which environment can
-#     use it. See root README > "Configure new App Registration in
-#     Microsoft Entra ID".
+#     REPO-level secrets pointing at your App Registration (see root
+#     README > Configure new App Registration in Microsoft Entra ID).
+#   TERRAFORM_STATE_CONTAINER / TERRAFORM_STATE_BLOB
+#     Derived at dispatch time from the `stack` input (base -> tfstate-base
+#     + base.tfstate, workload -> tfstate-workload + workload.tfstate).
 #   TF_VAR_github_org / TF_VAR_github_repo
 #     Auto-derived at workflow runtime from GitHub context.
+#
+# Also cleans up legacy split environments (`ai-foundry-base`,
+# `ai-foundry-workload`) if they exist \u2014 the current design uses one
+# environment differentiated by the `stack` input.
 #
 # Prereqs (see environments/ai-foundry/README.md):
 #   1. App Registration in Entra ID with:
 #        - subscription-scope Owner + Storage Blob Data Contributor
-#        - federated credential for repo:{owner}/{repo}:environment:ai-foundry-base
-#        - federated credential for repo:{owner}/{repo}:environment:ai-foundry-workload
+#        - ONE federated credential for repo:{owner}/{repo}:environment:ai-foundry
 #   2. Three REPO-level secrets: AZURE_CLIENT_ID, AZURE_TENANT_ID,
 #      AZURE_SUBSCRIPTION_ID.
-#   3. Repo secret GH_ADMIN_PAT — fine-grained PAT with Environments r/w,
+#   3. Repo secret GH_ADMIN_PAT \u2014 fine-grained PAT with Environments r/w,
 #      Secrets r/w, Variables r/w on this repo.
 #
-# Idempotent — re-run any time to rotate GH_RUNNER_PAT, update the SSH
+# Idempotent \u2014 re-run any time to rotate GH_RUNNER_PAT, update the SSH
 # allowlist, change the RG name, etc.
 # ------------------------------------------------------------------------------
 
@@ -91,29 +90,22 @@ permissions:
   contents: read
 
 env:
-  # Hardcoded shape values — not per-deployment secrets, so they don't need
-  # to be inputs. Change these together with local.location in base/workload
-  # main.tf if you need a different region.
   LOCATION: centralus
   STORAGE_ACCOUNT_SKU: Standard_LRS
   STORAGE_ACCOUNT_ENCRYPTION_SERVICES: blob
   STORAGE_ACCOUNT_MIN_TLS_VERSION: TLS1_2
-  # `Enabled` at creation; the init-backend workflow's `trap` disables it at
-  # exit so the final state is `Disabled`. Setting `Disabled` here would
-  # break the first init run — ubuntu-latest can't reach a private data plane.
   STORAGE_ACCOUNT_PUBLIC_NETWORK_ACCESS: Enabled
-  TERRAFORM_STATE_CONTAINER: tfstate
+  TERRAFORM_WORKING_DIRECTORY: environments/ai-foundry
+  TARGET_ENV: ai-foundry
+  LEGACY_ENVS: ai-foundry-base ai-foundry-workload
 
 jobs:
   populate:
-    name: Populate ai-foundry-base and ai-foundry-workload
+    name: Populate ai-foundry environment
     runs-on: ubuntu-latest
 
     steps:
       - name: Mask sensitive workflow inputs in logs
-        # workflow_dispatch inputs are NOT auto-masked. Explicitly mask the
-        # runner PAT so it can't leak through downstream tool output or
-        # accidental echo. The SSH public key is not sensitive.
         env:
           RUNNER_PAT: ${{ inputs.github_runner_pat }}
         run: |
@@ -127,40 +119,34 @@ jobs:
         run: |
           set -euo pipefail
 
-          # JSON list inputs: verify shape AND element types up front so we
-          # fail before writing anything (partial population is worse).
           jq_check='type == "array" and all(.[]; type == "string")'
           printf '%s' "$ALLOWED"   | jq -e "$jq_check" >/dev/null \
             || { echo "ALLOWED_SSH_SOURCE_PREFIXES is not a JSON array of strings"; exit 1; }
           printf '%s' "$ADMIN_IDS" | jq -e "$jq_check" >/dev/null \
             || { echo "JUMPBOX_ENTRA_ADMIN_OBJECT_IDS is not a JSON array of strings"; exit 1; }
 
-          # Storage account name rules per Azure: 3-24 lowercase alphanumerics.
           if [[ ! "$SA_NAME" =~ ^[a-z0-9]{3,24}$ ]]; then
             echo "state_storage_account_name '$SA_NAME' is invalid: must be 3-24 lowercase alphanumerics."
             exit 1
           fi
 
       - name: Preflight — verify OIDC identity secrets are set at repo level
-        # Following the repo's standard OIDC pattern (root README), the user
-        # sets AZURE_CLIENT_ID / AZURE_TENANT_ID / AZURE_SUBSCRIPTION_ID as
+        # Follows the standard OIDC pattern (root README): the user sets
+        # AZURE_CLIENT_ID / AZURE_TENANT_ID / AZURE_SUBSCRIPTION_ID as
         # REPO-level secrets pointing at a single App Registration in Entra
-        # ID (with federated credentials for both ai-foundry-base and
-        # ai-foundry-workload environments). Verify those exist before we
-        # write env-scoped state config on top of them.
+        # ID (with a federated credential for repo:{owner}/{repo}:environment:ai-foundry).
+        # Distinguish 404 (missing) from 401/403 (bad PAT) so the user gets
+        # a useful error rather than "MISSING" for everything.
         env:
           GH_TOKEN: ${{ secrets.GH_ADMIN_PAT }}
         run: |
           set -euo pipefail
 
-          # Distinguish 404 (missing secret) from 401/403 (bad PAT scope) so
-          # the user gets a useful error rather than "MISSING" for everything.
           probe() {
             local name="$1"
             local http_code
             http_code=$(gh api "repos/${{ github.repository }}/actions/secrets/$name" \
               --silent --include 2>/dev/null | awk '/^HTTP\// {print $2; exit}')
-            # Fallback if --include isn't emitting a status line for some reason
             if [[ -z "${http_code:-}" ]]; then
               if gh api "repos/${{ github.repository }}/actions/secrets/$name" >/dev/null 2>&1; then
                 http_code=200
@@ -178,14 +164,14 @@ jobs:
             case "$code" in
               200) echo "OK      $name (HTTP 200)" ;;
               404) echo "MISSING $name (HTTP 404)"; missing=1 ;;
-              401|403) echo "FORBIDDEN $name (HTTP $code) \u2014 GH_ADMIN_PAT lacks Secrets: read on this repo"; fatal=1 ;;
+              401|403) echo "FORBIDDEN $name (HTTP $code) — GH_ADMIN_PAT lacks Secrets: read on this repo"; fatal=1 ;;
               *)   echo "UNEXPECTED $name (HTTP $code)"; fatal=1 ;;
             esac
           done
 
           if [[ "$fatal" -eq 1 ]]; then
             echo ""
-            echo "GH_ADMIN_PAT permission or API problem \u2014 cannot verify secret state."
+            echo "GH_ADMIN_PAT permission or API problem — cannot verify secret state."
             echo "Confirm the token has fine-grained permissions on this repo:"
             echo "  Environments: Read and write"
             echo "  Secrets:      Read and write"
@@ -198,10 +184,9 @@ jobs:
             echo ""
             echo "One or more OIDC identity secrets are missing at the REPO level."
             echo "Follow the root README section 'Configure new App Registration in"
-            echo "Microsoft Entra ID' to create an App Registration with two federated"
-            echo "credentials (one for repo:{owner}/{repo}:environment:ai-foundry-base,"
-            echo "one for :environment:ai-foundry-workload), then set these three"
-            echo "REPOSITORY secrets:"
+            echo "Microsoft Entra ID' to create an App Registration with a federated"
+            echo "credential for repo:{owner}/{repo}:environment:ai-foundry, then set"
+            echo "these three REPOSITORY secrets:"
             echo "  AZURE_CLIENT_ID       = Application (client) ID"
             echo "  AZURE_TENANT_ID       = Directory (tenant) ID"
             echo "  AZURE_SUBSCRIPTION_ID = Target subscription ID"
@@ -209,17 +194,52 @@ jobs:
           fi
           echo "Preflight OK."
 
-      - name: Ensure GitHub environments exist
+      - name: Delete legacy split environments (if any)
+        # Earlier iterations of this repo used two GitHub environments
+        # (`ai-foundry-base`, `ai-foundry-workload`). The current design
+        # collapses them into one (`ai-foundry`) + a `stack` input on the
+        # deploy workflow. Deleting the legacy envs keeps the UI clean and
+        # prevents accidental workflow runs against them.
+        #
+        # Distinguish 404 (not present, skip) from other HTTP errors
+        # (surface a clear message and fail) so a bad PAT scope doesn't
+        # get misreported as a clean state.
         env:
           GH_TOKEN: ${{ secrets.GH_ADMIN_PAT }}
         run: |
           set -euo pipefail
-          for env_name in ai-foundry-base ai-foundry-workload; do
-            gh api -X PUT "repos/${{ github.repository }}/environments/$env_name" >/dev/null
-            echo "Ensured environment '$env_name' exists."
+          for legacy in $LEGACY_ENVS; do
+            http_code=$(gh api "repos/${{ github.repository }}/environments/$legacy" \
+              --silent --include 2>/dev/null | awk '/^HTTP\// {print $2; exit}')
+            case "${http_code:-unknown}" in
+              200)
+                echo "Deleting legacy environment '$legacy'..."
+                gh api -X DELETE "repos/${{ github.repository }}/environments/$legacy" >/dev/null
+                echo "  Deleted."
+                ;;
+              404)
+                echo "Legacy environment '$legacy' not present — skipping."
+                ;;
+              401|403)
+                echo "::error::GH_ADMIN_PAT lacks Environments write on this repo (HTTP $http_code checking '$legacy')"
+                exit 1
+                ;;
+              *)
+                echo "::error::Unexpected HTTP $http_code from GitHub API while checking '$legacy'"
+                exit 1
+                ;;
+            esac
           done
 
-      - name: Populate both environments
+      - name: Ensure ai-foundry environment exists
+        env:
+          GH_TOKEN: ${{ secrets.GH_ADMIN_PAT }}
+        run: |
+          set -euo pipefail
+          gh api -X PUT "repos/${{ github.repository }}/environments/$TARGET_ENV" >/dev/null
+          echo "Ensured environment '$TARGET_ENV' exists."
+
+      - name: Populate ai-foundry environment
         env:
           GH_TOKEN:      ${{ secrets.GH_ADMIN_PAT }}
           TAGS:          ${{ inputs.tags }}
@@ -242,38 +262,36 @@ jobs:
           set_secret()   { printf '%s' "$2" | gh secret   set "$1" --env "$3" --repo "$REPO"; }
           set_variable() { printf '%s' "$2" | gh variable set "$1" --env "$3" --repo "$REPO"; }
 
-          for env_name in ai-foundry-base ai-foundry-workload; do
-            echo "-> Populating '$env_name'"
+          echo "-> Populating '$TARGET_ENV'"
 
-            # Personal inputs (SSH + runner PAT + allowlists + tags)
-            set_secret   TAGS                            "$TAGS"          "$env_name"
-            set_secret   ADMIN_SSH_PUBLIC_KEY            "$SSH_PUB_KEY"   "$env_name"
-            set_secret   GH_RUNNER_PAT                   "$RUNNER_PAT"    "$env_name"
-            set_variable ALLOWED_SSH_SOURCE_PREFIXES     "$ALLOWED_CIDRS" "$env_name"
-            set_variable JUMPBOX_ENTRA_ADMIN_OBJECT_IDS  "$ADMIN_IDS"     "$env_name"
+          # Personal secrets
+          set_secret   TAGS                            "$TAGS"          "$TARGET_ENV"
+          set_secret   ADMIN_SSH_PUBLIC_KEY            "$SSH_PUB_KEY"   "$TARGET_ENV"
+          set_secret   GH_RUNNER_PAT                   "$RUNNER_PAT"    "$TARGET_ENV"
 
-            # Shared config (RG + state SA shape)
-            set_variable RESOURCE_GROUP                        "$RG_NAME"                                "$env_name"
-            set_variable LOCATION                              "$LOCATION"                               "$env_name"
-            set_variable STORAGE_ACCOUNT                       "$SA_NAME"                                "$env_name"
-            set_variable STORAGE_ACCOUNT_SKU                   "$STORAGE_ACCOUNT_SKU"                    "$env_name"
-            set_variable STORAGE_ACCOUNT_ENCRYPTION_SERVICES   "$STORAGE_ACCOUNT_ENCRYPTION_SERVICES"    "$env_name"
-            set_variable STORAGE_ACCOUNT_MIN_TLS_VERSION       "$STORAGE_ACCOUNT_MIN_TLS_VERSION"        "$env_name"
-            set_variable STORAGE_ACCOUNT_PUBLIC_NETWORK_ACCESS "$STORAGE_ACCOUNT_PUBLIC_NETWORK_ACCESS"  "$env_name"
-            set_variable TERRAFORM_STATE_CONTAINER             "$TERRAFORM_STATE_CONTAINER"              "$env_name"
+          # RG + state backend shape
+          set_variable RESOURCE_GROUP                        "$RG_NAME"                                "$TARGET_ENV"
+          set_variable LOCATION                              "$LOCATION"                               "$TARGET_ENV"
+          set_variable STORAGE_ACCOUNT                       "$SA_NAME"                                "$TARGET_ENV"
+          set_variable STORAGE_ACCOUNT_SKU                   "$STORAGE_ACCOUNT_SKU"                    "$TARGET_ENV"
+          set_variable STORAGE_ACCOUNT_ENCRYPTION_SERVICES   "$STORAGE_ACCOUNT_ENCRYPTION_SERVICES"    "$TARGET_ENV"
+          set_variable STORAGE_ACCOUNT_MIN_TLS_VERSION       "$STORAGE_ACCOUNT_MIN_TLS_VERSION"        "$TARGET_ENV"
+          set_variable STORAGE_ACCOUNT_PUBLIC_NETWORK_ACCESS "$STORAGE_ACCOUNT_PUBLIC_NETWORK_ACCESS"  "$TARGET_ENV"
 
-            echo "   done: 3 secrets + 9 variables"
-          done
+          # Jumpbox access controls
+          set_variable ALLOWED_SSH_SOURCE_PREFIXES     "$ALLOWED_CIDRS" "$TARGET_ENV"
+          set_variable JUMPBOX_ENTRA_ADMIN_OBJECT_IDS  "$ADMIN_IDS"     "$TARGET_ENV"
 
-          # Per-env terraform working directory + state blob key
-          set_variable TERRAFORM_STATE_BLOB        "base.tfstate"                                  ai-foundry-base
-          set_variable TERRAFORM_WORKING_DIRECTORY "environments/ai-foundry/base/terraform"        ai-foundry-base
-          set_variable TERRAFORM_STATE_BLOB        "workload.tfstate"                              ai-foundry-workload
-          set_variable TERRAFORM_WORKING_DIRECTORY "environments/ai-foundry/workload/terraform"    ai-foundry-workload
+          # Terraform working-dir BASE path. The deploy workflow appends
+          # `/base/terraform` or `/workload/terraform` per the `stack` input.
+          set_variable TERRAFORM_WORKING_DIRECTORY     "$TERRAFORM_WORKING_DIRECTORY" "$TARGET_ENV"
 
           echo ""
           echo "Bootstrap complete."
-          echo "ai-foundry-base    : 3 secrets + 11 variables (from this workflow)"
-          echo "ai-foundry-workload: 3 secrets + 11 variables (from this workflow)"
+          echo "  ai-foundry: 3 secrets + 10 variables"
           echo ""
-          echo "Next: run 'Terraform Init Remote Backend' with environment=ai-foundry-base."
+          echo "TERRAFORM_STATE_CONTAINER and TERRAFORM_STATE_BLOB are NOT stored;"
+          echo "they are derived at dispatch time from the 'stack' input."
+          echo ""
+          echo "Next: run 'Terraform Init Remote Backend' with environment=ai-foundry"
+          echo "(creates BOTH tfstate-base and tfstate-workload containers)."

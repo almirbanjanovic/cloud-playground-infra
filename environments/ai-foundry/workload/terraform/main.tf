@@ -14,8 +14,9 @@
 #     Microsoft.App/environments, plus cognitive/storage/cosmos/search
 #     PE subnets)
 #   - Private DNS zones, VNet-linked, for every service below
-#   - Jumpbox + CI/CD runner (with federated identity trusting the
-#     `ai-foundry-workload` GitHub environment)
+#   - Jumpbox + CI/CD runner (bare VM — CI workflows authenticate as the
+#     App Registration federated to the shared `ai-foundry` GitHub
+#     environment; the runner VM only provides a network path into the VNet)
 #
 # Cross-stack coupling:
 #   Workload reads base outputs by NAME (via `data` sources), not via

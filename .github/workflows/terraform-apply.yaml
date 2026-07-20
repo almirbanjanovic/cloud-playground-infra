@@ -4,42 +4,51 @@ on:
       environment:
         required: true
         type: string
-      # Optional runner selection. Value must be a JSON-encoded string:
-      #   '"ubuntu-latest"'                    (single label)
-      #   '["self-hosted", "ai-foundry"]'      (multiple labels)
-      # Default preserves the historical `runs-on: ubuntu-latest` behavior
-      # so existing callers keep working without change.
       runs_on:
         required: false
         type: string
         default: '"ubuntu-latest"'
-    # Secrets are consumed via `secrets: inherit` in the caller so that
-    # GitHub-Environment-scoped secrets are visible to the job that
-    # selects the environment. No explicit `secrets:` mapping is required.
+      # See terraform-plan.yaml for the full stack semantics — this is the
+      # same contract, and both workflows resolve TF_WORKING_DIR /
+      # TF_STATE_CONTAINER / TF_STATE_BLOB identically.
+      stack:
+        required: false
+        type: string
+        default: ''
+    # Secrets consumed via `secrets: inherit` in the caller.
 
-# Environment variables forwarded to every Terraform step.
-# See terraform-plan.yaml for the full rationale on why unmatched
-# `TF_VAR_*` values are safe for envs that don't declare those variables.
 env:
   TF_VAR_resource_group_name: ${{ vars.RESOURCE_GROUP }}
   TF_VAR_admin_ssh_public_key: ${{ secrets.ADMIN_SSH_PUBLIC_KEY }}
   TF_VAR_github_pat: ${{ secrets.GH_RUNNER_PAT }}
-  # github_org and github_repo are derived from GitHub context so they don't
-  # need to be stored as env vars. See terraform-plan.yaml for details.
   TF_VAR_github_org: ${{ github.repository_owner }}
   TF_VAR_github_repo: ${{ github.event.repository.name }}
   TF_VAR_allowed_ssh_source_prefixes: ${{ vars.ALLOWED_SSH_SOURCE_PREFIXES }}
   TF_VAR_jumpbox_entra_admin_object_ids: ${{ vars.JUMPBOX_ENTRA_ADMIN_OBJECT_IDS }}
 
-jobs: 
+jobs:
   terraform-apply:
     name: Terraform Apply
     runs-on: ${{ fromJSON(inputs.runs_on) }}
-    environment: ${{ inputs.environment}}
+    environment: ${{ inputs.environment }}
+
+    env:
+      TF_WORKING_DIR: >-
+        ${{ inputs.stack != ''
+          && format('{0}/{1}/terraform', vars.TERRAFORM_WORKING_DIRECTORY, inputs.stack)
+          || vars.TERRAFORM_WORKING_DIRECTORY }}
+      TF_STATE_CONTAINER: >-
+        ${{ inputs.stack != ''
+          && format('tfstate-{0}', inputs.stack)
+          || vars.TERRAFORM_STATE_CONTAINER }}
+      TF_STATE_BLOB: >-
+        ${{ inputs.stack != ''
+          && format('{0}.tfstate', inputs.stack)
+          || vars.TERRAFORM_STATE_BLOB }}
 
     defaults:
-        run:
-          shell: bash
+      run:
+        shell: bash
 
     steps:
 
@@ -63,19 +72,17 @@ jobs:
         --resource-group ${{ vars.RESOURCE_GROUP }} \
         --public-network-access Enabled
 
-        # Wait for 10 seconds
         echo "Enabling public network access and waiting for 10 seconds."
         sleep 10
-        
 
     - name: Terraform Init
       id: init
       run: |
-        terraform -chdir=${{ vars.TERRAFORM_WORKING_DIRECTORY }} init \
+        terraform -chdir=${{ env.TF_WORKING_DIR }} init \
         -backend-config="resource_group_name=${{ vars.RESOURCE_GROUP }}" \
         -backend-config="storage_account_name=${{ vars.STORAGE_ACCOUNT }}" \
-        -backend-config="container_name=${{ vars.TERRAFORM_STATE_CONTAINER }}" \
-        -backend-config="key=${{ vars.TERRAFORM_STATE_BLOB }}"
+        -backend-config="container_name=${{ env.TF_STATE_CONTAINER }}" \
+        -backend-config="key=${{ env.TF_STATE_BLOB }}"
       env:
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
         ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
@@ -87,11 +94,11 @@ jobs:
       uses: actions/download-artifact@v4
       with:
         name: tf-plan
-        path: ${{ vars.TERRAFORM_WORKING_DIRECTORY }}/
+        path: ${{ env.TF_WORKING_DIR }}/
 
     - name: Apply the plan
       id: apply
-      run: terraform -chdir=${{ vars.TERRAFORM_WORKING_DIRECTORY }} apply -auto-approve out.tfplan
+      run: terraform -chdir=${{ env.TF_WORKING_DIR }} apply -auto-approve out.tfplan
       env:
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
         ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}

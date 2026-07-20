@@ -13,6 +13,22 @@ on:
         required: false
         type: string
         default: '"ubuntu-latest"'
+      # Optional stack selector for envs that colocate multiple Terraform
+      # stacks under one GitHub environment. Currently used by ai-foundry,
+      # which has `base` and `workload` stacks under a single
+      # `ai-foundry` env. When set, the job derives:
+      #   - working dir: `${vars.TERRAFORM_WORKING_DIRECTORY}/${stack}/terraform`
+      #   - state container: `tfstate-${stack}`
+      #   - state blob:  `${stack}.tfstate`
+      # Path composition happens INSIDE this workflow because env-scoped
+      # `vars.*` are only resolvable in a job that declares `environment:`
+      # (the caller job that does `uses: ./...` doesn't). Empty string
+      # (the default) preserves the current single-stack behavior for
+      # every other env.
+      stack:
+        required: false
+        type: string
+        default: ''
     # Secrets are consumed via `secrets: inherit` in the caller so that
     # GitHub-Environment-scoped secrets are visible to the job that
     # selects the environment. No explicit `secrets:` mapping is required.
@@ -29,7 +45,7 @@ on:
 #   string, not an error.
 env:
   TF_VAR_resource_group_name: ${{ vars.RESOURCE_GROUP }}
-  # Base stack inputs (ai-foundry-base). Ignored where not declared.
+  # ai-foundry base stack inputs. Ignored where the target env doesn't declare them.
   TF_VAR_admin_ssh_public_key: ${{ secrets.ADMIN_SSH_PUBLIC_KEY }}
   TF_VAR_github_pat: ${{ secrets.GH_RUNNER_PAT }}
   # github_org and github_repo are derived from GitHub context so they don't
@@ -41,15 +57,33 @@ env:
   TF_VAR_allowed_ssh_source_prefixes: ${{ vars.ALLOWED_SSH_SOURCE_PREFIXES }}
   TF_VAR_jumpbox_entra_admin_object_ids: ${{ vars.JUMPBOX_ENTRA_ADMIN_OBJECT_IDS }}
 
-jobs: 
+jobs:
   terraform-plan:
     name: Terraform Plan
     runs-on: ${{ fromJSON(inputs.runs_on) }}
-    environment: ${{ inputs.environment}}
+    environment: ${{ inputs.environment }}
+
+    # Job-level env resolves working-dir + backend config once per run using
+    # env-scoped `vars.*` (available here because this job selects an
+    # environment). `stack` toggles between single-stack (default) and
+    # multi-stack (ai-foundry) behavior.
+    env:
+      TF_WORKING_DIR: >-
+        ${{ inputs.stack != ''
+          && format('{0}/{1}/terraform', vars.TERRAFORM_WORKING_DIRECTORY, inputs.stack)
+          || vars.TERRAFORM_WORKING_DIRECTORY }}
+      TF_STATE_CONTAINER: >-
+        ${{ inputs.stack != ''
+          && format('tfstate-{0}', inputs.stack)
+          || vars.TERRAFORM_STATE_CONTAINER }}
+      TF_STATE_BLOB: >-
+        ${{ inputs.stack != ''
+          && format('{0}.tfstate', inputs.stack)
+          || vars.TERRAFORM_STATE_BLOB }}
 
     defaults:
-        run:
-          shell: bash
+      run:
+        shell: bash
 
     steps:
 
@@ -73,9 +107,9 @@ jobs:
       id: fmt
       # -chdir must target the actual stack directory, not repo root,
       # otherwise `terraform fmt` finds no .tf files to check.
-      run: terraform -chdir=${{ vars.TERRAFORM_WORKING_DIRECTORY }} fmt -check
+      run: terraform -chdir=${{ env.TF_WORKING_DIR }} fmt -check
       continue-on-error: true
-    
+
     - name: Enable public access for backend storage account
       run: |
         az storage account update \
@@ -87,15 +121,14 @@ jobs:
         echo "Enabling public network access and waiting for 10 seconds."
         sleep 10
 
-
     - name: Terraform Init
       id: init
       run: |
-        terraform -chdir=${{ vars.TERRAFORM_WORKING_DIRECTORY}} init \
+        terraform -chdir=${{ env.TF_WORKING_DIR }} init \
         -backend-config="resource_group_name=${{ vars.RESOURCE_GROUP }}" \
         -backend-config="storage_account_name=${{ vars.STORAGE_ACCOUNT }}" \
-        -backend-config="container_name=${{ vars.TERRAFORM_STATE_CONTAINER }}" \
-        -backend-config="key=${{ vars.TERRAFORM_STATE_BLOB }}"
+        -backend-config="container_name=${{ env.TF_STATE_CONTAINER }}" \
+        -backend-config="key=${{ env.TF_STATE_BLOB }}"
       env:
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
         ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
@@ -105,21 +138,19 @@ jobs:
 
     - name: Terraform Validate
       id: validate
-      # -chdir here would run without init state; the init above set up
-      # .terraform inside the stack dir, so we chdir into the same one.
-      run: terraform -chdir=${{ vars.TERRAFORM_WORKING_DIRECTORY }} validate
+      run: terraform -chdir=${{ env.TF_WORKING_DIR }} validate
 
     - name: Init TFLint
-      working-directory: ${{ vars.TERRAFORM_WORKING_DIRECTORY }}
+      working-directory: ${{ env.TF_WORKING_DIR }}
       run: tflint --init
 
     - name: Run TFLint
-      working-directory: ${{ vars.TERRAFORM_WORKING_DIRECTORY }}
+      working-directory: ${{ env.TF_WORKING_DIR }}
       run: tflint -f compact
 
     - name: Terraform plan
       id: plan
-      run: terraform -chdir=${{ vars.TERRAFORM_WORKING_DIRECTORY}} plan --out=out.tfplan
+      run: terraform -chdir=${{ env.TF_WORKING_DIR }} plan --out=out.tfplan
       env:
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
         ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
@@ -131,7 +162,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: tf-plan
-        path: ${{ vars.TERRAFORM_WORKING_DIRECTORY}}/out.tfplan
+        path: ${{ env.TF_WORKING_DIR }}/out.tfplan
 
     - name: Disable public access for backend storage account
       if: always()
