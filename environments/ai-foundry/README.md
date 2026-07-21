@@ -85,16 +85,13 @@ Register Resource Providers, then show the state for all of them in one query:
 
 ```powershell
 $rps = @(
-    'Microsoft.App',
-    'Microsoft.CognitiveServices',
-    'Microsoft.ContainerInstance',        # backs deploymentScripts (workload's RBAC-propagation sleep)
-    'Microsoft.ContainerService',         # AKS API backing Microsoft.App environments
-    'Microsoft.DocumentDB',
-    'Microsoft.KeyVault',
-    'Microsoft.MachineLearningServices',
-    'Microsoft.Network',
-    'Microsoft.Search',
-    'Microsoft.Storage'
+    'Microsoft.App',                # required by the agent subnet's Microsoft.App/environments delegation (Foundry Agent Service runtime)
+    'Microsoft.CognitiveServices',  # Foundry account + project + connections + capability hosts
+    'Microsoft.ContainerInstance',  # backs Microsoft.Resources/deploymentScripts (workload's RBAC-propagation sleep, Bicep only)
+    'Microsoft.DocumentDB',         # Cosmos DB
+    'Microsoft.Network',            # VNet, subnets, private DNS zones, private endpoints
+    'Microsoft.Search',             # AI Search
+    'Microsoft.Storage'             # Storage account
 )
 foreach ($rp in $rps) { az provider register --namespace $rp --wait }
 
@@ -220,16 +217,12 @@ Register Resource Providers (Terraform's `resource_provider_registrations = "non
 
 ```powershell
 $rps = @(
-    'Microsoft.App',
-    'Microsoft.CognitiveServices',
-    'Microsoft.ContainerInstance',
-    'Microsoft.ContainerService',
-    'Microsoft.DocumentDB',
-    'Microsoft.KeyVault',
-    'Microsoft.MachineLearningServices',
-    'Microsoft.Network',
-    'Microsoft.Search',
-    'Microsoft.Storage'
+    'Microsoft.App',                # required by the agent subnet's Microsoft.App/environments delegation (Foundry Agent Service runtime)
+    'Microsoft.CognitiveServices',  # Foundry account + project + connections + capability hosts
+    'Microsoft.DocumentDB',         # Cosmos DB
+    'Microsoft.Network',            # VNet, subnets, private DNS zones, private endpoints
+    'Microsoft.Search',             # AI Search
+    'Microsoft.Storage'             # Storage account (also backs the tfstate SA bootstrapped in Step 2)
 )
 foreach ($rp in $rps) { az provider register --namespace $rp --wait }
 
