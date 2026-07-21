@@ -752,6 +752,46 @@ Terraform waits 60 s via `time_sleep` between assignments and capability-host pr
 | Workload deployed OK but hitting a workload endpoint (e.g. `Invoke-RestMethod` to the Foundry account) returns 403 | Your public IP isn't currently allowlisted, or you ran the [hardening step](#part-c--harden-remove-deployer-ip-and-close-public-endpoints) | Rerun the workload deploy from the current network to reconcile the allowlist; if hardened, follow the [un-harden step](#un-harden-before-your-next-deploy) |
 | `az storage container create --auth-mode login` returns 403 | RBAC propagation lag on the `Storage Blob Data Contributor` assignment | Wait 30-60 s and retry (Path B Step 1 already includes a `Start-Sleep 60`) |
 
+### Deleting an AI Foundry subnet blocked by `legionservicelink`
+
+If you delete an AI Foundry account (`kind=AIServices`) that had Agent Service configured with a delegated subnet, the underlying Container Apps managed environment (in a Microsoft-owned `hobov3_*` subscription) can be orphaned. It leaves a `legionservicelink` SAL on your subnet that you can't delete directly — the account delete hangs in `Deleting`, and the subnet is stuck.
+
+Fix: recover the account, detach `networkInjections`, then delete cleanly.
+
+```powershell
+$rg     = "rg-ai-foundry-dev-eastus2"
+$acct   = "ais-ai-foundry-dev-eastus2"
+$loc    = "eastus2"
+$vnet   = "vnet-ai-foundry-dev-eastus2"
+$subnet = "snet-agent-ai-foundry-dev"
+$acctId = (az cognitiveservices account show -g $rg -n $acct --query id -o tsv)
+
+# 1. Recover the soft-deleted account
+az cognitiveservices account recover --location $loc --name $acct --resource-group $rg
+
+# 2. Detach the network injection (write body to file — az.cmd mangles inline JSON)
+$bodyFile = Join-Path $env:TEMP "detach-ni.json"
+[System.IO.File]::WriteAllText($bodyFile, '{"properties":{"networkInjections":[]}}')
+az rest --method patch `
+  --uri "https://management.azure.com$acctId`?api-version=2024-10-01" `
+  --headers "Content-Type=application/json" `
+  --body "@$bodyFile"
+
+# 3. Wait for provisioningState = Succeeded and SAL to clear (5-30 min)
+az cognitiveservices account show --ids $acctId --query "properties.provisioningState" -o tsv
+az network vnet subnet show -g $rg --vnet-name $vnet -n $subnet --query "serviceAssociationLinks" -o json
+
+# 4. Delete + purge the account
+az cognitiveservices account delete --ids $acctId
+az cognitiveservices account purge --location $loc --name $acct --resource-group $rg
+
+# 5. Remove delegation and delete the subnet
+az network vnet subnet update -g $rg --vnet-name $vnet -n $subnet --remove delegations
+az network vnet subnet delete  -g $rg --vnet-name $vnet -n $subnet
+```
+
+**Prevention:** always patch `networkInjections` to `[]` in Bicep / Terraform and wait for `provisioningState = Succeeded` on the Foundry account **before** deleting it — or, when tearing down the whole environment, use the [Tear down](#tear-down) section's `az group delete` which lets Azure resolve the deletion order internally.
+
 ---
 
 ## References
