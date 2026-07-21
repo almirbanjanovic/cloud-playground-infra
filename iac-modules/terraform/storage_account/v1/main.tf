@@ -6,10 +6,13 @@
 # terraform-state storage account in the ai-foundry base stack) pass one in
 # rather than trying to squeeze it out of the `${base}${env}${loc}${suffix}`
 # convention. When `var.custom_name` is empty, we derive from the standard
-# inputs.
+# inputs. Hyphens in the inputs (e.g. base_name="ai-foundry") are stripped --
+# Storage rejects any non-alphanumeric character, and hyphens are the only
+# invalid char that the rest of our naming convention actually uses. Anything
+# more exotic: pass `custom_name`.
 #----------------------------------------------------------------
 locals {
-  derived_name = "st${var.base_name}${var.environment}${var.location}${var.suffix != "" ? "${var.suffix}" : ""}"
+  derived_name = replace(lower("st${var.base_name}${var.environment}${var.location}${var.suffix != "" ? "${var.suffix}" : ""}"), "-", "")
   name         = var.custom_name != "" ? var.custom_name : local.derived_name
 }
 

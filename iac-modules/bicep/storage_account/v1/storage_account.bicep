@@ -67,8 +67,11 @@ param customName string = ''
 // only the caller can enforce the concatenated length -- so validate at plan
 // time here with a `resource` name derived only from `accountName` (Bicep has
 // no lifecycle precondition, but the resource's own name-length rule will
-// fire before any ARM call).
-var derivedAccountName = toLower('st${baseName}${environment}${location}${suffix}')
+// fire before any ARM call). Hyphens in the inputs (e.g. baseName='ai-foundry')
+// are stripped -- Storage rejects any non-alphanumeric character, and hyphens
+// are the only invalid char that the rest of our naming convention actually
+// uses. Anything more exotic: pass `customName`.
+var derivedAccountName = replace(toLower('st${baseName}${environment}${location}${suffix}'), '-', '')
 var accountName = empty(customName) ? derivedAccountName : customName
 
 // ------------------------------------------------------------------
