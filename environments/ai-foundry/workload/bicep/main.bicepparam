@@ -8,7 +8,7 @@ using 'main.bicep'
 //   $env:DEPLOYER_IP = (Invoke-RestMethod https://api.ipify.org).Trim()
 //
 // Then deploy:
-//   az deployment group create -g rg-ai-foundry-dev -f main.bicep -p main.bicepparam
+//   az deployment group create -g rg-ai-foundry-dev-eastus2 -f main.bicep -p main.bicepparam
 //
 // For the HARDENING step (README Part C), pass overrides on the CLI:
 //   az deployment group create ... -p deployerIp='' -p enablePublicNetworkAccess=false
@@ -16,7 +16,7 @@ param deployerIp = readEnvironmentVariable('DEPLOYER_IP', '')
 
 // Optional overrides:
 // param enablePublicNetworkAccess = true   // set to false to harden (see README Part C)
-// param baseName    = 'playground'
+// param baseName    = 'ai-foundry'
 // param environment = 'dev'
 // param location    = 'eastus2'
 // param allowedIpsExtra = [

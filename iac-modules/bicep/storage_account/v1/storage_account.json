@@ -5,14 +5,14 @@
     "_generator": {
       "name": "bicep",
       "version": "0.45.15.27210",
-      "templateHash": "15533652027150961460"
+      "templateHash": "11372145168733099685"
     }
   },
   "parameters": {
     "baseName": {
       "type": "string",
       "metadata": {
-        "description": "Short project identifier (e.g. \"playground\")."
+        "description": "Short project identifier (e.g. \"ai-foundry\")."
       }
     },
     "environment": {

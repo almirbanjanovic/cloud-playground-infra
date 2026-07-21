@@ -3,10 +3,10 @@
 //
 // Deploy from your laptop AFTER the base stack has been applied:
 //
-//   az group create -n rg-ai-foundry-dev -l eastus2         # if not already
+//   az group create -n rg-ai-foundry-dev-eastus2 -l eastus2   # if not already
 //   MYIP=$(curl -s https://api.ipify.org)
 //   az deployment group create \
-//     -g rg-ai-foundry-dev \
+//     -g rg-ai-foundry-dev-eastus2 \
 //     -f main.bicep \
 //     -p main.bicepparam \
 //     -p deployerIp=$MYIP
@@ -30,7 +30,7 @@ targetScope = 'resourceGroup'
 // ----------------------------------------------------------------------------
 
 @description('Short project identifier used as a prefix for derived names. Must match the base stack.')
-param baseName string = 'playground'
+param baseName string = 'ai-foundry'
 
 @description('Environment suffix (e.g. dev / prod). Must match the base stack.')
 param environment string = 'dev'

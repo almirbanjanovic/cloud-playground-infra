@@ -50,7 +50,7 @@
 #    base stack's convention when the variable is null.
 #
 # Default flow (nothing overridden):
-#   base_name = "playground", environment = "dev", location = "eastus2"
+#   base_name = "ai-foundry", environment = "dev", location = "eastus2"
 #   -> VNet name, subnet names, Foundry custom subdomain all derived from
 #      those three -> exact match to the base stack's outputs.
 #
@@ -220,7 +220,7 @@ data "azurerm_private_dns_zone" "search" {
 #----------------------------------------------------------------
 
 module "storage" {
-  source = "../../../../iac-modules/terraform/storage account/v1"
+  source = "../../../../iac-modules/terraform/storage_account/v1"
 
   base_name           = local.base_name
   environment         = local.environment

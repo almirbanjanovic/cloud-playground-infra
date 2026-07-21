@@ -7,7 +7,7 @@
 // module used by the AI Foundry workload stack.
 // ============================================================================
 
-@description('Short project identifier (e.g. "playground").')
+@description('Short project identifier (e.g. "ai-foundry").')
 param baseName string
 
 @description('Environment suffix (e.g. "dev").')

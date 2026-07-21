@@ -18,7 +18,7 @@
 // pass the SERVICE NAMES (not just IDs) for the four BYO/parent resources.
 // ============================================================================
 
-@description('Short project identifier (e.g. "playground").')
+@description('Short project identifier (e.g. "ai-foundry").')
 param baseName string
 
 @description('Environment suffix (e.g. "dev").')
@@ -268,6 +268,12 @@ resource rbacPropagationSleep 'Microsoft.Resources/deploymentScripts@2023-08-01'
   name: 'sleep-rbac-propagation-${effectiveProjectName}'
   location: location
   kind: 'AzureCLI'
+  // SystemAssigned identity is required by some deployment-scripts API
+  // validators even when the script doesn't call Azure APIs. The identity
+  // gets no explicit role assignments -- the script only runs `sleep 60`.
+  identity: {
+    type: 'SystemAssigned'
+  }
   properties: {
     azCliVersion: '2.60.0'
     scriptContent: 'echo "Waiting 60s for RBAC propagation before creating Foundry capability hosts"; sleep 60'
@@ -296,7 +302,7 @@ resource rbacPropagationSleep 'Microsoft.Resources/deploymentScripts@2023-08-01'
 // provision the backing containers/databases.
 // ----------------------------------------------------------------------------
 
-resource accountCapabilityHost 'Microsoft.CognitiveServices/accounts/capabilityHosts@2025-04-01-preview' = if (enableCapabilityHost) {
+resource accountCapabilityHost 'Microsoft.CognitiveServices/accounts/capabilityHosts@2025-10-01-preview' = if (enableCapabilityHost) {
   parent: cognitiveAccount
   name: 'default'
   properties: {
@@ -307,7 +313,7 @@ resource accountCapabilityHost 'Microsoft.CognitiveServices/accounts/capabilityH
   ]
 }
 
-resource projectCapabilityHost 'Microsoft.CognitiveServices/accounts/projects/capabilityHosts@2025-04-01-preview' = if (enableCapabilityHost) {
+resource projectCapabilityHost 'Microsoft.CognitiveServices/accounts/projects/capabilityHosts@2025-10-01-preview' = if (enableCapabilityHost) {
   parent: project
   name: 'default'
   properties: {

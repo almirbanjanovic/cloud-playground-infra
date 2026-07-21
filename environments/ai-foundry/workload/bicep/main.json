@@ -5,13 +5,13 @@
     "_generator": {
       "name": "bicep",
       "version": "0.45.15.27210",
-      "templateHash": "15883640479372738098"
+      "templateHash": "1531878395378363837"
     }
   },
   "parameters": {
     "baseName": {
       "type": "string",
-      "defaultValue": "playground",
+      "defaultValue": "ai-foundry",
       "metadata": {
         "description": "Short project identifier used as a prefix for derived names. Must match the base stack."
       }
@@ -238,14 +238,14 @@
             "_generator": {
               "name": "bicep",
               "version": "0.45.15.27210",
-              "templateHash": "15533652027150961460"
+              "templateHash": "11372145168733099685"
             }
           },
           "parameters": {
             "baseName": {
               "type": "string",
               "metadata": {
-                "description": "Short project identifier (e.g. \"playground\")."
+                "description": "Short project identifier (e.g. \"ai-foundry\")."
               }
             },
             "environment": {
@@ -2598,14 +2598,14 @@
             "_generator": {
               "name": "bicep",
               "version": "0.45.15.27210",
-              "templateHash": "16268727493556715496"
+              "templateHash": "17547340280574080544"
             }
           },
           "parameters": {
             "baseName": {
               "type": "string",
               "metadata": {
-                "description": "Short project identifier (e.g. \"playground\")."
+                "description": "Short project identifier (e.g. \"ai-foundry\")."
               }
             },
             "environment": {
@@ -2875,6 +2875,9 @@
               "name": "[format('sleep-rbac-propagation-{0}', variables('effectiveProjectName'))]",
               "location": "[parameters('location')]",
               "kind": "AzureCLI",
+              "identity": {
+                "type": "SystemAssigned"
+              },
               "properties": {
                 "azCliVersion": "2.60.0",
                 "scriptContent": "echo \"Waiting 60s for RBAC propagation before creating Foundry capability hosts\"; sleep 60",
@@ -2895,7 +2898,7 @@
             {
               "condition": "[parameters('enableCapabilityHost')]",
               "type": "Microsoft.CognitiveServices/accounts/capabilityHosts",
-              "apiVersion": "2025-04-01-preview",
+              "apiVersion": "2025-10-01-preview",
               "name": "[format('{0}/{1}', parameters('cognitiveAccountName'), 'default')]",
               "properties": {
                 "capabilityHostKind": "Agents"
@@ -2907,7 +2910,7 @@
             {
               "condition": "[parameters('enableCapabilityHost')]",
               "type": "Microsoft.CognitiveServices/accounts/projects/capabilityHosts",
-              "apiVersion": "2025-04-01-preview",
+              "apiVersion": "2025-10-01-preview",
               "name": "[format('{0}/{1}/{2}', parameters('cognitiveAccountName'), variables('effectiveProjectName'), 'default')]",
               "properties": {
                 "storageConnections": [

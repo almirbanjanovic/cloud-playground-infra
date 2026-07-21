@@ -3,9 +3,9 @@
 //
 // Deploy from your laptop:
 //
-//   az group create -n rg-ai-foundry-dev -l eastus2
+//   az group create -n rg-ai-foundry-dev-eastus2 -l eastus2
 //   az deployment group create \
-//     -g rg-ai-foundry-dev \
+//     -g rg-ai-foundry-dev-eastus2 \
 //     -f main.bicep \
 //     -p main.bicepparam
 //
@@ -26,7 +26,7 @@ targetScope = 'resourceGroup'
 // ----------------------------------------------------------------------------
 
 @description('Short project identifier used as a prefix for derived names.')
-param baseName string = 'playground'
+param baseName string = 'ai-foundry'
 
 @description('Environment suffix (e.g. dev / prod).')
 param environment string = 'dev'

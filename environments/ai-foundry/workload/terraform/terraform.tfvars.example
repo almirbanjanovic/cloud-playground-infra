@@ -1,13 +1,13 @@
 # Every variable in variables.tf has a working default, so you can just run
 # `terraform apply` with no `-var` flags. It will look up the base stack's
-# resources in `rg-ai-foundry-dev` under the default naming convention and
-# auto-detect your public IP for the firewall allowlist.
+# resources in `rg-ai-foundry-dev-eastus2` under the default naming convention
+# and auto-detect your public IP for the firewall allowlist.
 #
 # Copy this file to `terraform.tfvars` and uncomment lines only if you want
 # to override defaults. `terraform.tfvars` is git-ignored.
 
 # --- Optional: override the RG (must match the base stack) ---
-# resource_group_name = "rg-ai-foundry-dev"
+# resource_group_name = "rg-ai-foundry-dev-eastus2"
 
 # --- Optional: naming ---
 # All name variables default to null, and null triggers the built-in
@@ -15,7 +15,7 @@
 # either (a) shift the whole naming scheme, or (b) point this stack at
 # pre-existing resources named differently.
 #
-# base_name   = "playground"
+# base_name   = "ai-foundry"
 # environment = "dev"
 # location    = "eastus2"     # see variables.tf for the list of supported Foundry regions
 #

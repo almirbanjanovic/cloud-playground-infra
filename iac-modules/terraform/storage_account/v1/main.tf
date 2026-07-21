@@ -86,8 +86,16 @@ resource "azurerm_role_assignment" "this" {
 
 #----------------------------------------------------------------
 # Private Endpoint configuration
+#
+# Each PE module is `count`-guarded on its corresponding DNS zone list.
+# Passing an empty list (e.g. `queue_private_dns_zone_ids = []`) skips
+# that PE entirely -- matches the conditional Bicep peer at
+# iac-modules/bicep/storage_account/v1/storage_account.bicep and lets
+# callers who only need a subset of PEs (e.g. the tfstate storage account
+# in ai-foundry base only needs blob) avoid provisioning the other 5.
 #----------------------------------------------------------------
 module "blob_private_endpoint" {
+  count  = length(var.blob_private_dns_zone_ids) > 0 ? 1 : 0
   source = "../../private_endpoint/v1"
 
   base_name   = var.base_name
@@ -109,6 +117,7 @@ module "blob_private_endpoint" {
 }
 
 module "table_private_endpoint" {
+  count  = length(var.table_private_dns_zone_ids) > 0 ? 1 : 0
   source = "../../private_endpoint/v1"
 
   base_name   = var.base_name
@@ -130,6 +139,7 @@ module "table_private_endpoint" {
 }
 
 module "queue_private_endpoint" {
+  count  = length(var.queue_private_dns_zone_ids) > 0 ? 1 : 0
   source = "../../private_endpoint/v1"
 
   base_name   = var.base_name
@@ -151,6 +161,7 @@ module "queue_private_endpoint" {
 }
 
 module "file_private_endpoint" {
+  count  = length(var.file_private_dns_zone_ids) > 0 ? 1 : 0
   source = "../../private_endpoint/v1"
 
   base_name   = var.base_name
@@ -172,6 +183,7 @@ module "file_private_endpoint" {
 }
 
 module "azure_data_lake_file_system_private_endpoint" {
+  count  = length(var.dfs_private_dns_zone_ids) > 0 ? 1 : 0
   source = "../../private_endpoint/v1"
 
   base_name   = var.base_name
@@ -193,6 +205,7 @@ module "azure_data_lake_file_system_private_endpoint" {
 }
 
 module "web_private_endpoint" {
+  count  = length(var.web_private_dns_zone_ids) > 0 ? 1 : 0
   source = "../../private_endpoint/v1"
 
   base_name   = var.base_name

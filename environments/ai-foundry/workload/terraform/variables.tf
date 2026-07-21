@@ -1,7 +1,7 @@
 variable "resource_group_name" {
-  description = "Resource group the workload deploys into. Must match the RG used by the base stack (both stacks share it). Defaults to `rg-ai-foundry-dev`; override for a different name."
+  description = "Resource group the workload deploys into. Must match the RG used by the base stack (both stacks share it). Defaults to `rg-ai-foundry-dev-eastus2`; override for a different name."
   type        = string
-  default     = "rg-ai-foundry-dev"
+  default     = "rg-ai-foundry-dev-eastus2"
 }
 
 # -----------------------------------------------------------------------------
@@ -17,7 +17,7 @@ variable "resource_group_name" {
 variable "base_name" {
   description = "Short project identifier used as a prefix in every derived resource name (VNet, subnets, Foundry account). Must match the base stack unless the corresponding name variables are overridden individually below."
   type        = string
-  default     = "playground"
+  default     = "ai-foundry"
 }
 
 variable "environment" {

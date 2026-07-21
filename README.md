@@ -4,30 +4,49 @@ Infrastructure-as-Code for cloud playground environments.
 
 ## Structure
 
-- `.github/` — GitHub Actions workflows and CI/CD configuration
-  - workflows: `bicep.yaml`, `terraform-apply.yaml`, `terraform-init-backend.yaml`, `terraform-plan-approve-apply.yaml`, `terraform-plan.yaml`, `test-oidc.yaml`
-- `environments/` — Cloud playground environment folders. Each environment contains its own IaC and docs (examples: `apim-lab`, `ai-foundry`).
-  - `apim-lab/` — `terraform/`, `bicep/`, `README.md`
-  - `ai-foundry/` — `terraform/`, `README.md`
-- `iac-modules/` — Reusable IaC modules (Terraform and Bicep)
-- `assets/` — Supporting files (kubernetes manifests, scripts, SQL, etc.). Currently empty.
-- `LICENSE`, `README.md` — repository metadata and documentation
+- `.github/workflows/` — GitHub Actions workflows for CI/CD-driven deploys of the APIM and Kaito environments
+  - `bicep-create-deploy.yaml`, `bicep-what-if.yaml`, `bicep-what-if-create-deploy.yaml`
+  - `terraform-init-backend.yaml`, `terraform-plan.yaml`, `terraform-apply.yaml`, `terraform-plan-approve-apply.yaml`
+  - `test-oidc.yaml`
+- `environments/` — one folder per playground lab. Each has its own IaC (Bicep and/or Terraform) and its own `README.md`.
+  - `ai-foundry/` — Foundry Agent Service private-networking lab with **manual** deployment (Bicep OR Terraform). Sub-divided into `base/` (VNet + DNS zones) and `workload/` (Foundry + BYO Storage/Cosmos/AI Search).
+  - `apim-lab/` — general APIM learning environment (Bicep + Terraform).
+  - `apim-mcp/` — APIM integrated with Model Context Protocol (Terraform).
+  - `backend-pool-load-balancing/` — APIM backend pool load balancing demo (Bicep).
+  - `kaito-on-aks/` — KAITO on AKS (Terraform + Kubernetes manifests).
+- `iac-modules/` — Reusable IaC modules (Bicep and Terraform)
+- `assets/` — Repo-wide supporting files
+- `LICENSE`, `README.md`, `CI-CD-Guide.md` — repository metadata + CI/CD walkthrough
 
-Repository layout example (not representative of actual layout):
+Repository layout example:
 
 ```text
 cloud-playground-infra/
 ├── .github/
 │   └── workflows/
-├── assets/ (currently empty)
 ├── environments/
+│   ├── ai-foundry/
+│   │   ├── base/
+│   │   │   ├── bicep/
+│   │   │   └── terraform/
+│   │   ├── workload/
+│   │   │   ├── bicep/
+│   │   │   └── terraform/
+│   │   └── README.md
 │   ├── apim-lab/
+│   │   ├── bicep/
 │   │   └── terraform/
-│   └── ai-foundry/
-|       └── bicep/
+│   ├── apim-mcp/
+│   │   └── terraform/
+│   ├── backend-pool-load-balancing/
+│   │   └── bicep/
+│   └── kaito-on-aks/
+│       ├── assets/
+│       └── terraform/
 ├── iac-modules/
 │   ├── bicep/
 │   └── terraform/
+├── CI-CD-Guide.md
 ├── LICENSE
 └── README.md
 ```

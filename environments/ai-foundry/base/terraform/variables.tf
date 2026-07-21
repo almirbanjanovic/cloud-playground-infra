@@ -1,7 +1,7 @@
 variable "resource_group_name" {
   type        = string
-  description = "Resource group that owns everything in this base stack. Must already exist (create it manually with `az group create` before running `terraform apply` — see the ai-foundry README, Step 1). Defaults to `rg-ai-foundry-dev`; override for a different name."
-  default     = "rg-ai-foundry-dev"
+  description = "Resource group that owns everything in this base stack. Must already exist (create it manually with `az group create` before running `terraform apply` — see the ai-foundry README, Step 1). Defaults to `rg-ai-foundry-dev-eastus2`; override for a different name."
+  default     = "rg-ai-foundry-dev-eastus2"
 }
 
 # -----------------------------------------------------------------------------
@@ -15,7 +15,7 @@ variable "resource_group_name" {
 variable "base_name" {
   description = "Short project identifier used as a prefix in every derived resource name (VNet, subnets)."
   type        = string
-  default     = "playground"
+  default     = "ai-foundry"
 }
 
 variable "environment" {

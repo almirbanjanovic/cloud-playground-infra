@@ -5,13 +5,13 @@
     "_generator": {
       "name": "bicep",
       "version": "0.45.15.27210",
-      "templateHash": "16685279002623684948"
+      "templateHash": "15451602893724174820"
     }
   },
   "parameters": {
     "baseName": {
       "type": "string",
-      "defaultValue": "playground",
+      "defaultValue": "ai-foundry",
       "metadata": {
         "description": "Short project identifier used as a prefix for derived names."
       }

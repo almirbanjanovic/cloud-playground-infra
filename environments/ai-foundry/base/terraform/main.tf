@@ -228,7 +228,7 @@ data "http" "myip" {
 }
 
 module "tfstate_storage" {
-  source = "../../../../iac-modules/terraform/storage account/v1"
+  source = "../../../../iac-modules/terraform/storage_account/v1"
 
   base_name           = local.base_name
   environment         = local.environment

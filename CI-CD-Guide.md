@@ -16,12 +16,13 @@ The term "environment" is used in three distinct ways in this repository. Unders
 
 **GitHub Environments** are configured in your repository settings (`Settings → Environments`) and serve as deployment targets for CI/CD workflows.
 
-**In this repository, each GitHub Environment corresponds to a specific lab/illustration project:**
+**In this repository, each GitHub Environment corresponds to a specific lab/illustration project deployed via CI/CD:**
 
-- `ai-foundry` — Deploys the AI Foundry lab
 - `apim-lab` — Deploys the general APIM learning environment
 - `apim-mcp` — Deploys APIM with Model Context Protocol integration
 - `backend-pool-load-balancing` — Deploys the APIM backend pool load balancing example
+
+> **Note**: `ai-foundry` was previously deployed via a CI/CD workflow but is now **manual-only** (see [`environments/ai-foundry/README.md`](environments/ai-foundry/README.md) for the full step-by-step deploy lifecycle). It does not appear in the workflow environment dropdowns anymore.
 
 Each GitHub Environment stores:
 - Environment-specific **variables** (e.g., `RESOURCE_GROUP`, `BICEP_WORKING_DIRECTORY`, `LOCATION`)
@@ -35,7 +36,7 @@ Each GitHub Environment stores:
 - Test/Staging
 - Production
 
-**Important:** This repository does **NOT** currently use separate dev/test/prod lanes. All GitHub Environments (`ai-foundry`, `apim-lab`, `apim-mcp`, `backend-pool-load-balancing`) deploy to the same Azure subscription and resource group.
+**Important:** This repository does **NOT** currently use separate dev/test/prod lanes. All CI/CD-driven GitHub Environments (`apim-lab`, `apim-mcp`, `backend-pool-load-balancing`) deploy to the same Azure subscription and resource group.
 
 To implement dev/test/prod lanes, you would need to:
 1. Create separate resource groups (e.g., `rg-apim-lab-dev`, `rg-apim-lab-test`, `rg-apim-lab-prod`)
@@ -46,12 +47,13 @@ To implement dev/test/prod lanes, you would need to:
 
 The [`environments/`](environments/) folder contains self-contained lab projects or illustration scenarios:
 
-- `ai-foundry/` — AI Foundry infrastructure with Terraform
+- `ai-foundry/` — AI Foundry private-networking lab with Bicep + Terraform (**manual deploy**; see its own [`README.md`](environments/ai-foundry/README.md))
 - `apim-lab/` — General APIM concepts and configurations (Bicep + Terraform)
 - `apim-mcp/` — APIM integrated with Model Context Protocol server
 - `backend-pool-load-balancing/` — APIM backend pool load balancing demonstration
+- `kaito-on-aks/` — KAITO model serving on AKS (manual deploy)
 
-**Key Point:** Each folder in `environments/` should have a matching GitHub Environment with the same name to enable deployment via CI/CD.
+**Key Point:** Each folder in `environments/` that supports CI/CD (`apim-lab`, `apim-mcp`, `backend-pool-load-balancing`) has a matching GitHub Environment with the same name. `ai-foundry` and `kaito-on-aks` are manual-deploy-only.
 
 ---
 
