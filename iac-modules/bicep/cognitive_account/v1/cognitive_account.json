@@ -1,0 +1,334 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.45.15.27210",
+      "templateHash": "5082395302988847393"
+    }
+  },
+  "parameters": {
+    "baseName": {
+      "type": "string",
+      "metadata": {
+        "description": "Short project identifier."
+      }
+    },
+    "environment": {
+      "type": "string",
+      "metadata": {
+        "description": "Environment suffix."
+      }
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Azure location."
+      }
+    },
+    "kind": {
+      "type": "string",
+      "defaultValue": "AIServices",
+      "metadata": {
+        "description": "Cognitive Services kind. Use \"AIServices\" for AI Foundry."
+      }
+    },
+    "skuName": {
+      "type": "string",
+      "defaultValue": "S0",
+      "metadata": {
+        "description": "SKU name."
+      }
+    },
+    "customSubdomainName": {
+      "type": "string",
+      "metadata": {
+        "description": "Custom subdomain / privatelink hostname prefix for the account. Required for Entra ID / MI auth and for a PE to be attachable."
+      }
+    },
+    "projectManagementEnabled": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Enable Foundry project management on the account."
+      }
+    },
+    "publicNetworkAccessEnabled": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Enable public network access. Combine with networkAclsDefaultAction=Deny + networkAclsIpRules for the deployer-IP allowlist pattern."
+      }
+    },
+    "networkAclsDefaultAction": {
+      "type": "string",
+      "defaultValue": "Deny",
+      "allowedValues": [
+        "Allow",
+        "Deny"
+      ],
+      "metadata": {
+        "description": "Default action for network ACLs on the public endpoint."
+      }
+    },
+    "networkAclsBypass": {
+      "type": "string",
+      "defaultValue": "AzureServices",
+      "allowedValues": [
+        "AzureServices",
+        "None"
+      ],
+      "metadata": {
+        "description": "Bypass setting for network ACLs. Foundry needs AzureServices bypass so Microsoft-managed control-plane can reach the account."
+      }
+    },
+    "networkAclsIpRules": {
+      "type": "array",
+      "defaultValue": [],
+      "metadata": {
+        "description": "IPv4 addresses allowed on the public endpoint. Bare IPs only -- Cognitive Services rejects /31 and /32 CIDR notation."
+      }
+    },
+    "localAuthEnabled": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Enable local (key) auth. Defaults to false."
+      }
+    },
+    "subnetId": {
+      "type": "string",
+      "metadata": {
+        "description": "Subnet ID where the account PE lives."
+      }
+    },
+    "privateDnsZoneIds": {
+      "type": "array",
+      "metadata": {
+        "description": "Private DNS zone IDs for the \"account\" subresource PE (3 zones: cognitiveservices, openai, services.ai)."
+      }
+    },
+    "agentSubnetId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional subnet ID for Foundry Agent Service network injection. When set, agent-runtime compute is injected into this subnet. Must be delegated to Microsoft.App/environments."
+      }
+    },
+    "tags": {
+      "type": "object",
+      "defaultValue": {},
+      "metadata": {
+        "description": "Tags applied to the account and PE."
+      }
+    }
+  },
+  "variables": {
+    "copy": [
+      {
+        "name": "cognitiveIpRules",
+        "count": "[length(parameters('networkAclsIpRules'))]",
+        "input": {
+          "value": "[parameters('networkAclsIpRules')[copyIndex('cognitiveIpRules')]]"
+        }
+      }
+    ],
+    "accountName": "[toLower(format('ais-{0}-{1}-{2}', parameters('baseName'), parameters('environment'), parameters('location')))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.CognitiveServices/accounts",
+      "apiVersion": "2025-06-01",
+      "name": "[variables('accountName')]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "kind": "[parameters('kind')]",
+      "sku": {
+        "name": "[parameters('skuName')]"
+      },
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": "[union(createObject('customSubDomainName', parameters('customSubdomainName'), 'allowProjectManagement', parameters('projectManagementEnabled'), 'disableLocalAuth', not(parameters('localAuthEnabled')), 'publicNetworkAccess', if(parameters('publicNetworkAccessEnabled'), 'Enabled', 'Disabled'), 'networkAcls', createObject('defaultAction', parameters('networkAclsDefaultAction'), 'bypass', parameters('networkAclsBypass'), 'ipRules', variables('cognitiveIpRules'), 'virtualNetworkRules', createArray())), if(empty(parameters('agentSubnetId')), createObject(), createObject('networkInjections', createArray(createObject('scenario', 'agent', 'subnetArmId', parameters('agentSubnetId'), 'useMicrosoftManagedNetwork', false())))))]"
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "[take(format('pe-{0}', variables('accountName')), 64)]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "name": {
+            "value": "[format('pe-{0}', variables('accountName'))]"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "targetResourceId": {
+            "value": "[resourceId('Microsoft.CognitiveServices/accounts', variables('accountName'))]"
+          },
+          "subresourceNames": {
+            "value": [
+              "account"
+            ]
+          },
+          "subnetId": {
+            "value": "[parameters('subnetId')]"
+          },
+          "privateDnsZoneIds": {
+            "value": "[parameters('privateDnsZoneIds')]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.45.15.27210",
+              "templateHash": "9524211413905157884"
+            }
+          },
+          "parameters": {
+            "name": {
+              "type": "string",
+              "metadata": {
+                "description": "Private endpoint name."
+              }
+            },
+            "location": {
+              "type": "string",
+              "defaultValue": "[resourceGroup().location]",
+              "metadata": {
+                "description": "Azure location."
+              }
+            },
+            "targetResourceId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the target service (e.g. storage account, cosmos, cognitive account)."
+              }
+            },
+            "subresourceNames": {
+              "type": "array",
+              "metadata": {
+                "description": "List of subresource / groupId names to connect (e.g. [\"blob\"], [\"account\"], [\"Sql\"])."
+              }
+            },
+            "subnetId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the subnet where the PE NIC lives."
+              }
+            },
+            "privateDnsZoneIds": {
+              "type": "array",
+              "metadata": {
+                "description": "List of private DNS zone resource IDs that the PE registers its A record(s) in."
+              }
+            },
+            "dnsZoneGroupName": {
+              "type": "string",
+              "defaultValue": "default",
+              "metadata": {
+                "description": "Optional. Custom name for the DNS zone group. Defaults to `default`."
+              }
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {},
+              "metadata": {
+                "description": "Tags applied to the PE."
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/privateEndpoints",
+              "apiVersion": "2024-05-01",
+              "name": "[parameters('name')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "subnet": {
+                  "id": "[parameters('subnetId')]"
+                },
+                "privateLinkServiceConnections": [
+                  {
+                    "name": "[format('{0}-conn', parameters('name'))]",
+                    "properties": {
+                      "privateLinkServiceId": "[parameters('targetResourceId')]",
+                      "groupIds": "[parameters('subresourceNames')]"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "condition": "[not(empty(parameters('privateDnsZoneIds')))]",
+              "type": "Microsoft.Network/privateEndpoints/privateDnsZoneGroups",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}/{1}', parameters('name'), parameters('dnsZoneGroupName'))]",
+              "properties": {
+                "copy": [
+                  {
+                    "name": "privateDnsZoneConfigs",
+                    "count": "[length(parameters('privateDnsZoneIds'))]",
+                    "input": {
+                      "name": "[format('config-{0}', copyIndex('privateDnsZoneConfigs'))]",
+                      "properties": {
+                        "privateDnsZoneId": "[parameters('privateDnsZoneIds')[copyIndex('privateDnsZoneConfigs')]]"
+                      }
+                    }
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/privateEndpoints', parameters('name'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "id": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/privateEndpoints', parameters('name'))]"
+            },
+            "name": {
+              "type": "string",
+              "value": "[parameters('name')]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.CognitiveServices/accounts', variables('accountName'))]"
+      ]
+    }
+  ],
+  "outputs": {
+    "id": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.CognitiveServices/accounts', variables('accountName'))]"
+    },
+    "name": {
+      "type": "string",
+      "value": "[variables('accountName')]"
+    },
+    "endpoint": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.CognitiveServices/accounts', variables('accountName')), '2025-06-01').endpoint]"
+    },
+    "principalId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.CognitiveServices/accounts', variables('accountName')), '2025-06-01', 'full').identity.principalId]"
+    }
+  }
+}

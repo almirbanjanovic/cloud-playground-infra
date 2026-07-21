@@ -1,0 +1,345 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.45.15.27210",
+      "templateHash": "5509533353827179401"
+    }
+  },
+  "parameters": {
+    "baseName": {
+      "type": "string",
+      "metadata": {
+        "description": "Short project identifier."
+      }
+    },
+    "environment": {
+      "type": "string",
+      "metadata": {
+        "description": "Environment suffix."
+      }
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Azure location."
+      }
+    },
+    "kind": {
+      "type": "string",
+      "defaultValue": "GlobalDocumentDB",
+      "allowedValues": [
+        "GlobalDocumentDB"
+      ],
+      "metadata": {
+        "description": "Cosmos DB API kind. Only SQL/NoSQL is exercised by this module today; MongoDB and other APIs need different subresource names and connection strings."
+      }
+    },
+    "publicNetworkAccessEnabled": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Enable public network access. Combine with ipRangeFilter for the deployer-IP allowlist pattern."
+      }
+    },
+    "ipRangeFilter": {
+      "type": "array",
+      "defaultValue": [],
+      "metadata": {
+        "description": "IPv4 addresses / CIDR ranges allowed on the public endpoint. Ignored when publicNetworkAccessEnabled=false."
+      }
+    },
+    "localAuthenticationEnabled": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Whether local (key) auth is enabled. Defaults to false (Entra ID / MI only). SQL API only."
+      }
+    },
+    "automaticFailoverEnabled": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Enable automatic failover."
+      }
+    },
+    "freeTierEnabled": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Enable the free tier (one free-tier account per subscription)."
+      }
+    },
+    "consistencyLevel": {
+      "type": "string",
+      "defaultValue": "Session",
+      "allowedValues": [
+        "BoundedStaleness",
+        "Eventual",
+        "Session",
+        "Strong",
+        "ConsistentPrefix"
+      ],
+      "metadata": {
+        "description": "Consistency level."
+      }
+    },
+    "zoneRedundant": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Whether the primary geo replica is zone-redundant."
+      }
+    },
+    "subnetId": {
+      "type": "string",
+      "metadata": {
+        "description": "Subnet ID where the PE lives."
+      }
+    },
+    "privateDnsZoneIds": {
+      "type": "array",
+      "metadata": {
+        "description": "Private DNS zone IDs for the SQL PE."
+      }
+    },
+    "subresourceName": {
+      "type": "string",
+      "defaultValue": "Sql",
+      "metadata": {
+        "description": "PE subresource group ID. SQL API uses \"Sql\"."
+      }
+    },
+    "tags": {
+      "type": "object",
+      "defaultValue": {},
+      "metadata": {
+        "description": "Tags applied to the account and PE."
+      }
+    }
+  },
+  "variables": {
+    "accountName": "[toLower(format('cosmos-{0}-{1}-{2}', parameters('baseName'), parameters('environment'), parameters('location')))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts",
+      "apiVersion": "2024-11-15",
+      "name": "[variables('accountName')]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "kind": "[parameters('kind')]",
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "copy": [
+          {
+            "name": "ipRules",
+            "count": "[length(parameters('ipRangeFilter'))]",
+            "input": {
+              "ipAddressOrRange": "[parameters('ipRangeFilter')[copyIndex('ipRules')]]"
+            }
+          }
+        ],
+        "databaseAccountOfferType": "Standard",
+        "enableAutomaticFailover": "[parameters('automaticFailoverEnabled')]",
+        "enableFreeTier": "[parameters('freeTierEnabled')]",
+        "disableLocalAuth": "[not(parameters('localAuthenticationEnabled'))]",
+        "publicNetworkAccess": "[if(parameters('publicNetworkAccessEnabled'), 'Enabled', 'Disabled')]",
+        "minimalTlsVersion": "Tls12",
+        "consistencyPolicy": {
+          "defaultConsistencyLevel": "[parameters('consistencyLevel')]"
+        },
+        "locations": [
+          {
+            "locationName": "[parameters('location')]",
+            "failoverPriority": 0,
+            "isZoneRedundant": "[parameters('zoneRedundant')]"
+          }
+        ],
+        "capabilities": []
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "[take(format('pe-{0}', variables('accountName')), 64)]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "name": {
+            "value": "[format('pe-{0}', variables('accountName'))]"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "targetResourceId": {
+            "value": "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('accountName'))]"
+          },
+          "subresourceNames": {
+            "value": [
+              "[parameters('subresourceName')]"
+            ]
+          },
+          "subnetId": {
+            "value": "[parameters('subnetId')]"
+          },
+          "privateDnsZoneIds": {
+            "value": "[parameters('privateDnsZoneIds')]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.45.15.27210",
+              "templateHash": "9524211413905157884"
+            }
+          },
+          "parameters": {
+            "name": {
+              "type": "string",
+              "metadata": {
+                "description": "Private endpoint name."
+              }
+            },
+            "location": {
+              "type": "string",
+              "defaultValue": "[resourceGroup().location]",
+              "metadata": {
+                "description": "Azure location."
+              }
+            },
+            "targetResourceId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the target service (e.g. storage account, cosmos, cognitive account)."
+              }
+            },
+            "subresourceNames": {
+              "type": "array",
+              "metadata": {
+                "description": "List of subresource / groupId names to connect (e.g. [\"blob\"], [\"account\"], [\"Sql\"])."
+              }
+            },
+            "subnetId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the subnet where the PE NIC lives."
+              }
+            },
+            "privateDnsZoneIds": {
+              "type": "array",
+              "metadata": {
+                "description": "List of private DNS zone resource IDs that the PE registers its A record(s) in."
+              }
+            },
+            "dnsZoneGroupName": {
+              "type": "string",
+              "defaultValue": "default",
+              "metadata": {
+                "description": "Optional. Custom name for the DNS zone group. Defaults to `default`."
+              }
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {},
+              "metadata": {
+                "description": "Tags applied to the PE."
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/privateEndpoints",
+              "apiVersion": "2024-05-01",
+              "name": "[parameters('name')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "subnet": {
+                  "id": "[parameters('subnetId')]"
+                },
+                "privateLinkServiceConnections": [
+                  {
+                    "name": "[format('{0}-conn', parameters('name'))]",
+                    "properties": {
+                      "privateLinkServiceId": "[parameters('targetResourceId')]",
+                      "groupIds": "[parameters('subresourceNames')]"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "condition": "[not(empty(parameters('privateDnsZoneIds')))]",
+              "type": "Microsoft.Network/privateEndpoints/privateDnsZoneGroups",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}/{1}', parameters('name'), parameters('dnsZoneGroupName'))]",
+              "properties": {
+                "copy": [
+                  {
+                    "name": "privateDnsZoneConfigs",
+                    "count": "[length(parameters('privateDnsZoneIds'))]",
+                    "input": {
+                      "name": "[format('config-{0}', copyIndex('privateDnsZoneConfigs'))]",
+                      "properties": {
+                        "privateDnsZoneId": "[parameters('privateDnsZoneIds')[copyIndex('privateDnsZoneConfigs')]]"
+                      }
+                    }
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/privateEndpoints', parameters('name'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "id": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/privateEndpoints', parameters('name'))]"
+            },
+            "name": {
+              "type": "string",
+              "value": "[parameters('name')]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('accountName'))]"
+      ]
+    }
+  ],
+  "outputs": {
+    "id": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('accountName'))]"
+    },
+    "name": {
+      "type": "string",
+      "value": "[variables('accountName')]"
+    },
+    "documentEndpoint": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('accountName')), '2024-11-15').documentEndpoint]"
+    },
+    "principalId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('accountName')), '2024-11-15', 'full').identity.principalId]"
+    }
+  }
+}

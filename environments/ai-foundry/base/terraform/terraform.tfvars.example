@@ -1,0 +1,14 @@
+# Every variable in variables.tf has a working default, so you can just run
+# `terraform apply` with no `-var` flags and get a working deploy into
+# `rg-ai-foundry-dev` in `eastus2`.
+#
+# Copy this file to `terraform.tfvars` and uncomment lines only if you want
+# to override defaults. `terraform.tfvars` is git-ignored.
+
+# --- Optional: override the RG (must exist before apply) ---
+# resource_group_name = "rg-ai-foundry-dev"
+
+# --- Optional: naming (must match workload/terraform/terraform.tfvars if overridden) ---
+# base_name   = "playground"
+# environment = "dev"
+# location    = "eastus2"     # see variables.tf for the list of supported Foundry regions

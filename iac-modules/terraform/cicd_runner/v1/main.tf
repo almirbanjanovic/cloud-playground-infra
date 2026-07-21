@@ -6,21 +6,27 @@
 # Storage, etc.).
 #
 # Design decisions:
-#   - No public IP. Egress is via the VNet's NAT gateway (caller wires
-#     that separately at the subnet level).
-#   - SystemAssigned + UserAssigned MI attached to the VM. The UAMI is NOT
-#     used for CI workflow authentication (workflows use OIDC federation on
-#     an App Registration owned by the caller — see the ai-foundry README).
-#     The UAMI is provisioned for potential future VM-local use via
-#     `az login --identity`. Callers who DO want to use it should attach a
-#     federated credential + role assignments in the caller's stack.
+#   - No public IP. Egress is via a NAT gateway that the CALLER wires to
+#     the runner subnet (this module does not create one). Without a NAT
+#     gateway the runner cannot reach github.com / ghcr.io / Azure ARM.
+#   - SystemAssigned + UserAssigned managed identity (UAMI) attached to the
+#     VM. The UAMI is NOT used for CI workflow authentication by default —
+#     see the UAMI resource comment below for the two supported patterns.
 #   - GitHub runner registration is done by cloud-init using a fine-grained
-#     PAT (`github_pat`) that mints a fresh registration token at boot.
-#     The PAT stays in the VM's user-data blob (encrypted at rest by SSE)
-#     — for a production setup, replace with a Key Vault fetch via MI.
-#   - NSG denies all inbound (runners never accept inbound connections)
-#     and leaves outbound at NSG defaults (allow all) so the runner can
-#     reach github.com, ghcr.io, and Azure ARM.
+#     PAT (`github_pat`) that mints a fresh registration token at boot. The
+#     PAT is passed through Terraform state and rendered into the VM's
+#     `custom_data` (encrypted at rest by SSE). For a production setup,
+#     replace with a Key Vault fetch via MI.
+#   - NSG denies ALL inbound at priority 4000 (runners never accept inbound
+#     connections). There is no SSH path to this VM — not from your laptop,
+#     not from the jumpbox. The `admin_ssh_public_key` input is required by
+#     `azurerm_linux_virtual_machine` when password auth is off; it is
+#     installed but unreachable. Runner diagnostics are done via
+#     `az vm run-command invoke` (control plane, no network path required).
+#   - Ubuntu 22.04 LTS base image so scripts targeting `ubuntu-latest`
+#     generally work, but this VM does NOT come with the extensive GitHub-
+#     hosted runner tool cache — install extra tools via cloud-init or
+#     workflow steps.
 #--------------------------------------------------------------------------------------------------------------------------------
 
 locals {
@@ -44,9 +50,20 @@ locals {
 }
 
 # -----------------------------------------------------------------------------
-# User-assigned managed identity. The caller is expected to attach a GitHub
-# Actions federated identity credential to this UAMI so workflows can
-# `azure/login@v2` with `client-id = this.client_id`.
+# User-assigned managed identity (UAMI). Created + attached to the VM as an
+# optional identity slot. This module does NOT create a federated credential
+# or grant role assignments on it — that's a caller decision.
+#
+# Two usage patterns:
+#   1. (Default) Leave it dormant. Workflows authenticate as a separately-
+#      created App Registration via OIDC; the UAMI is just an attachment
+#      point the VM can use for VM-local `az login --identity` if needed
+#      later. This is how the ai-foundry stack uses the module (see
+#      ai-foundry README > Auth model).
+#   2. Attach a GitHub Actions federated identity credential + role
+#      assignments to this UAMI in the caller's stack. Workflows can then
+#      `azure/login@v2` with `client-id = <this UAMI's client_id>`. Use this
+#      when you want a per-runner identity instead of a shared App Reg.
 # -----------------------------------------------------------------------------
 resource "azurerm_user_assigned_identity" "this" {
   name                = local.uami_name
@@ -102,8 +119,9 @@ resource "azurerm_network_interface" "this" {
 }
 
 # -----------------------------------------------------------------------------
-# Linux VM. Ubuntu 22.04 LTS is the standard base for GitHub-hosted runners,
-# so tools / tests behave the same as on `ubuntu-latest`.
+# Linux VM. Ubuntu 22.04 LTS base image; scripts targeting `ubuntu-latest`
+# generally work but the extensive GitHub-hosted runner tool cache is NOT
+# preinstalled — install extras via cloud-init or workflow steps.
 # -----------------------------------------------------------------------------
 resource "azurerm_linux_virtual_machine" "this" {
   name                = local.vm_name
@@ -117,9 +135,11 @@ resource "azurerm_linux_virtual_machine" "this" {
 
   network_interface_ids = [azurerm_network_interface.this.id]
 
-  # SSH key is required by azurerm_linux_virtual_machine even when we
-  # never intend to SSH in. Callers use `az ssh vm` via the jumpbox +
-  # AAD SSH login extension instead. This key is only a break-glass path.
+  # SSH key is required by azurerm_linux_virtual_machine when password auth
+  # is disabled, so we install one. It is NOT actually usable — the runner
+  # has no public IP and the NSG (see above) denies all inbound at priority
+  # 4000, blocking SSH even from inside the VNet. Runner diagnostics go
+  # through `az vm run-command invoke` (Azure control plane).
   admin_ssh_key {
     username   = var.admin_username
     public_key = var.admin_ssh_public_key

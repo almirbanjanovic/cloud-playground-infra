@@ -1,50 +1,20 @@
+name: Terraform Apply
 on:
   workflow_call:
     inputs:
       environment:
         required: true
         type: string
-      runs_on:
-        required: false
-        type: string
-        default: '"ubuntu-latest"'
-      # See terraform-plan.yaml for the full stack semantics — this is the
-      # same contract, and both workflows resolve TF_WORKING_DIR /
-      # TF_STATE_CONTAINER / TF_STATE_BLOB identically.
-      stack:
-        required: false
-        type: string
-        default: ''
     # Secrets consumed via `secrets: inherit` in the caller.
 
 env:
   TF_VAR_resource_group_name: ${{ vars.RESOURCE_GROUP }}
-  TF_VAR_admin_ssh_public_key: ${{ secrets.ADMIN_SSH_PUBLIC_KEY }}
-  TF_VAR_github_pat: ${{ secrets.GH_RUNNER_PAT }}
-  TF_VAR_github_org: ${{ github.repository_owner }}
-  TF_VAR_github_repo: ${{ github.event.repository.name }}
-  TF_VAR_allowed_ssh_source_prefixes: ${{ vars.ALLOWED_SSH_SOURCE_PREFIXES }}
-  TF_VAR_jumpbox_entra_admin_object_ids: ${{ vars.JUMPBOX_ENTRA_ADMIN_OBJECT_IDS }}
 
 jobs:
   terraform-apply:
     name: Terraform Apply
-    runs-on: ${{ fromJSON(inputs.runs_on) }}
+    runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
-
-    env:
-      TF_WORKING_DIR: >-
-        ${{ inputs.stack != ''
-          && format('{0}/{1}/terraform', vars.TERRAFORM_WORKING_DIRECTORY, inputs.stack)
-          || vars.TERRAFORM_WORKING_DIRECTORY }}
-      TF_STATE_CONTAINER: >-
-        ${{ inputs.stack != ''
-          && format('tfstate-{0}', inputs.stack)
-          || vars.TERRAFORM_STATE_CONTAINER }}
-      TF_STATE_BLOB: >-
-        ${{ inputs.stack != ''
-          && format('{0}.tfstate', inputs.stack)
-          || vars.TERRAFORM_STATE_BLOB }}
 
     defaults:
       run:
@@ -78,11 +48,11 @@ jobs:
     - name: Terraform Init
       id: init
       run: |
-        terraform -chdir=${{ env.TF_WORKING_DIR }} init \
+        terraform -chdir=${{ vars.TERRAFORM_WORKING_DIRECTORY }} init \
         -backend-config="resource_group_name=${{ vars.RESOURCE_GROUP }}" \
         -backend-config="storage_account_name=${{ vars.STORAGE_ACCOUNT }}" \
-        -backend-config="container_name=${{ env.TF_STATE_CONTAINER }}" \
-        -backend-config="key=${{ env.TF_STATE_BLOB }}"
+        -backend-config="container_name=${{ vars.TERRAFORM_STATE_CONTAINER }}" \
+        -backend-config="key=${{ vars.TERRAFORM_STATE_BLOB }}"
       env:
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
         ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
@@ -94,11 +64,11 @@ jobs:
       uses: actions/download-artifact@v4
       with:
         name: tf-plan
-        path: ${{ env.TF_WORKING_DIR }}/
+        path: ${{ vars.TERRAFORM_WORKING_DIRECTORY }}/
 
     - name: Apply the plan
       id: apply
-      run: terraform -chdir=${{ env.TF_WORKING_DIR }} apply -auto-approve out.tfplan
+      run: terraform -chdir=${{ vars.TERRAFORM_WORKING_DIRECTORY }} apply -auto-approve out.tfplan
       env:
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
         ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}

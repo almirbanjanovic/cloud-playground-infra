@@ -2,62 +2,77 @@
 # AI Foundry — WORKLOAD stack.
 #
 # This stack owns the Foundry account + project + BYO stateful stack
-# (Storage, Cosmos DB, AI Search) and their private endpoints. The four
-# data-plane services (Foundry / Cognitive, Storage, Cosmos, AI Search)
-# all set `public_network_access_enabled = false` and can ONLY be reached
-# from inside the VNet — which is why this stack MUST be deployed via the
-# self-hosted GitHub Actions runner created by the `base` stack (or from
-# the jumpbox for hand-testing). Non-data-plane resources (RBAC
-# assignments, connections, capability hosts) live in ARM control plane
-# and don't have that setting; they're reachable from any authenticated
-# principal, but their creation depends on the private services above.
+# (Storage, Cosmos DB, AI Search) and their private endpoints. Each of
+# the four data-plane services (Foundry / Cognitive, Storage, Cosmos, AI
+# Search) is deployed with:
+#
+#   - A private endpoint in its dedicated PE subnet (VNet-injected agent
+#     runtime reaches services via the PE).
+#   - `public_network_access_enabled = true` with `default_action = Deny`
+#     and the deploying user's public IP pinned into the firewall
+#     allowlist. This lets Terraform's data-plane calls during apply
+#     (Foundry project connections, capability-host provisioning) reach
+#     the services from your laptop while still blocking every other
+#     public IP.
 #
 # Prereqs (owned by the base stack):
-#   - Resource group (created by terraform-init-backend.yaml)
-#   - VNet + all 7 subnets (including agent subnet delegated to
+#   - Resource group
+#   - VNet + 5 subnets (agent subnet delegated to
 #     Microsoft.App/environments, plus cognitive/storage/cosmos/search
 #     PE subnets)
 #   - Private DNS zones, VNet-linked, for every service below
-#   - Jumpbox + CI/CD runner (bare VM — CI workflows authenticate as the
-#     App Registration federated to the shared `ai-foundry` GitHub
-#     environment; the runner VM only provides a network path into the VNet)
 #
 # Cross-stack coupling:
 #   Workload looks up base-created Azure resources by NAME via `data`
-#   sources (see section 2 below). It does NOT read base's Terraform
+#   sources (see section 3 below). It does NOT read base's Terraform
 #   `outputs`. Base's outputs are for humans (`terraform output` after
-#   base apply). This means the two stacks share only the naming convention
-#   below — not each other's state files.
+#   base apply). This means the two stacks share only the naming
+#   convention below — not each other's state files.
+#
+# Deploy model:
+#   `terraform apply` runs from YOUR LAPTOP (`az login` first). The http
+#   provider auto-detects your public egress IP and pins it into every
+#   service firewall. See the ai-foundry README.
 #
 # RBAC prerequisite:
-#   The deploying principal must be able to create the resources in this
-#   RG AND grant role assignments (the foundry_project module creates
-#   Phase-3 / Phase-5 assignments on the Foundry project MI). The README
-#   documents granting the App Registration subscription-scope Owner +
-#   Storage Blob Data Contributor, which covers this stack, the state
-#   backend, and RP registration. A narrower RG-scope Owner would work for
-#   this stack alone, but only if providers are already registered and the
-#   state backend is separately reachable.
+#   Your `az login` user must be able to create resources in this RG AND
+#   grant role assignments (the foundry_project module creates Phase-3 /
+#   Phase-5 assignments on the Foundry project MI). Subscription-scope
+#   Owner covers this; RG-scope Owner works too if the RG already exists
+#   and providers are already registered.
 #
 # Ref: Microsoft's Foundry Standard Agent Setup docs
 #      https://learn.microsoft.com/azure/ai-foundry/agents/concepts/standard-agent-setup
 #================================================================================
 
 #----------------------------------------------------------------
-# 1. Naming — MUST match the base stack's locals exactly.
+# 1. Naming — resolves each name from a variable, falling back to the
+#    base stack's convention when the variable is null.
 #
-# Base and workload use identical values for base_name / environment /
-# location so both stacks derive the same VNet / subnet / DNS zone names.
-# If you change these values, change them in both places.
+# Default flow (nothing overridden):
+#   base_name = "playground", environment = "dev", location = "eastus2"
+#   -> VNet name, subnet names, Foundry custom subdomain all derived from
+#      those three -> exact match to the base stack's outputs.
+#
+# Override flow: set any of `vnet_name`, `subnet_name_*`,
+# `cognitive_custom_subdomain_name`, `*_private_dns_zone_name(s)` in tfvars to
+# point this stack at pre-existing resources named differently (e.g.
+# a shared VNet provisioned by another team).
 #----------------------------------------------------------------
 
 locals {
-  base_name   = "playground"
-  environment = "dev"
-  location    = "centralus"
+  base_name   = var.base_name
+  environment = var.environment
+  location    = var.location
 
-  vnet_name              = "vnet-${local.base_name}-${local.environment}-${local.location}"
-  cognitive_account_name = "cog-acc-${local.base_name}-${local.environment}-${local.location}"
+  vnet_name                       = coalesce(var.vnet_name, "vnet-${local.base_name}-${local.environment}-${local.location}")
+  cognitive_custom_subdomain_name = coalesce(var.cognitive_custom_subdomain_name, "cog-acc-${local.base_name}-${local.environment}-${local.location}")
+
+  subnet_name_cognitive_pep = coalesce(var.subnet_name_cognitive_pep, "snet-cognitive-${local.base_name}-${local.environment}")
+  subnet_name_storage_pep   = coalesce(var.subnet_name_storage_pep, "snet-storage-${local.base_name}-${local.environment}")
+  subnet_name_cosmos_pep    = coalesce(var.subnet_name_cosmos_pep, "snet-cosmos-${local.base_name}-${local.environment}")
+  subnet_name_search_pep    = coalesce(var.subnet_name_search_pep, "snet-search-${local.base_name}-${local.environment}")
+  subnet_name_agent         = coalesce(var.subnet_name_agent, "snet-agent-${local.base_name}-${local.environment}")
 
   tags = {
     environment = local.environment
@@ -66,14 +81,16 @@ locals {
     managed_by  = "terraform"
   }
 
-  # Zone names — used only for lookups; the zones themselves live in base.
-  cognitive_private_dns_zones = [
+  # Zone names — used only for data lookups; the zones themselves live in
+  # base. Defaults are the required Standard-Setup set for each service.
+  # `coalesce` can't accept null for a list argument, so use the ternary.
+  cognitive_private_dns_zones = var.cognitive_private_dns_zone_names != null ? var.cognitive_private_dns_zone_names : [
     "privatelink.cognitiveservices.azure.com",
     "privatelink.openai.azure.com",
     "privatelink.services.ai.azure.com",
   ]
 
-  storage_private_dns_zones = [
+  storage_private_dns_zones = var.storage_private_dns_zone_names != null ? var.storage_private_dns_zone_names : [
     "privatelink.blob.core.windows.net",
     "privatelink.file.core.windows.net",
     "privatelink.queue.core.windows.net",
@@ -82,8 +99,46 @@ locals {
     "privatelink.web.core.windows.net",
   ]
 
-  cosmos_private_dns_zone = "privatelink.documents.azure.com"
-  search_private_dns_zone = "privatelink.search.windows.net"
+  cosmos_private_dns_zone = coalesce(var.cosmos_private_dns_zone_name, "privatelink.documents.azure.com")
+  search_private_dns_zone = coalesce(var.search_private_dns_zone_name, "privatelink.search.windows.net")
+
+  # ------------------------------------------------------------------
+  # Deployer-IP allowlist.
+  #
+  # `var.deployer_ip` semantics:
+  #   null (default)  -> ask api.ipify.org (via `data.http.myip`) for our IP
+  #   ""              -> skip: don't add any deployer IP to the allowlist
+  #   "203.0.113.42"  -> use exactly this IP
+  #
+  # `data "http" "myip"` uses `count` so it's only queried in the auto-detect
+  # case (`var.deployer_ip == null`). This keeps the stack usable when the
+  # deployer's egress can't reach ipify (corporate proxy, offline lab) OR
+  # when hardening (deployer_ip = "" skips the http call entirely).
+  #
+  # `compact()` filters empty strings out of the final list so an explicit
+  # `deployer_ip = ""` produces `allowed_ips = concat([], allowed_ips_extra)`.
+  # When both are empty and `enable_public_network_access = true` the
+  # default-deny firewall blocks everyone -- fine for hardened-with-public-on
+  # posture. When `enable_public_network_access = false`, the entire public
+  # endpoint is disabled and the allowlist is moot.
+  # ------------------------------------------------------------------
+  deployer_ip = var.deployer_ip != null ? var.deployer_ip : chomp(data.http.myip[0].response_body)
+
+  allowed_ips = compact(concat([local.deployer_ip], var.allowed_ips_extra))
+}
+
+data "http" "myip" {
+  count = var.deployer_ip == null ? 1 : 0
+
+  url = "https://api.ipify.org"
+
+  # Retry — ipify occasionally hiccups; a couple of quick retries keeps
+  # `terraform plan` deterministic in dev.
+  retry {
+    attempts     = 3
+    min_delay_ms = 200
+    max_delay_ms = 1000
+  }
 }
 
 #----------------------------------------------------------------
@@ -100,31 +155,31 @@ data "azurerm_virtual_network" "this" {
 }
 
 data "azurerm_subnet" "cognitive_pep" {
-  name                 = "snet-cognitive-${local.base_name}-${local.environment}"
+  name                 = local.subnet_name_cognitive_pep
   virtual_network_name = data.azurerm_virtual_network.this.name
   resource_group_name  = var.resource_group_name
 }
 
 data "azurerm_subnet" "storage_pep" {
-  name                 = "snet-storage-${local.base_name}-${local.environment}"
+  name                 = local.subnet_name_storage_pep
   virtual_network_name = data.azurerm_virtual_network.this.name
   resource_group_name  = var.resource_group_name
 }
 
 data "azurerm_subnet" "cosmos_pep" {
-  name                 = "snet-cosmos-${local.base_name}-${local.environment}"
+  name                 = local.subnet_name_cosmos_pep
   virtual_network_name = data.azurerm_virtual_network.this.name
   resource_group_name  = var.resource_group_name
 }
 
 data "azurerm_subnet" "search_pep" {
-  name                 = "snet-search-${local.base_name}-${local.environment}"
+  name                 = local.subnet_name_search_pep
   virtual_network_name = data.azurerm_virtual_network.this.name
   resource_group_name  = var.resource_group_name
 }
 
 data "azurerm_subnet" "agent" {
-  name                 = "snet-agent-${local.base_name}-${local.environment}"
+  name                 = local.subnet_name_agent
   virtual_network_name = data.azurerm_virtual_network.this.name
   resource_group_name  = var.resource_group_name
 }
@@ -154,12 +209,14 @@ data "azurerm_private_dns_zone" "search" {
 #----------------------------------------------------------------
 # 3. Data plane — Storage, Cosmos DB, AI Search
 #
-# All three modules default to:
+# All three are configured here with:
 #   - local (key) auth DISABLED
-#   - public network access DISABLED (private endpoints only)
 #   - SystemAssigned managed identity
-# so the only way in from Foundry is the Entra ID / MI + private endpoint
-# path.
+#   - `public_network_access_enabled = true` + default-deny firewall +
+#     the deployer's public IP allowlisted. This lets `terraform apply`
+#     on your laptop reach the data planes for Foundry connection
+#     provisioning; the agent runtime inside the VNet keeps using the
+#     private endpoints.
 #----------------------------------------------------------------
 
 module "storage" {
@@ -175,9 +232,9 @@ module "storage" {
   storage_account_replication_type = "LRS"
   min_tls_version                  = "TLS1_2"
   enable_https_traffic_only        = true
-  public_network_access_enabled    = false
+  public_network_access_enabled    = var.enable_public_network_access
   network_rules_default_action     = "Deny"
-  allowed_ips                      = []
+  allowed_ips                      = local.allowed_ips
 
   subnet_id = data.azurerm_subnet.storage_pep.id
 
@@ -200,6 +257,9 @@ module "cosmos_db" {
   resource_group_name = var.resource_group_name
   tags                = local.tags
 
+  public_network_access_enabled = var.enable_public_network_access
+  ip_range_filter               = local.allowed_ips
+
   subnet_id            = data.azurerm_subnet.cosmos_pep.id
   private_dns_zone_ids = [data.azurerm_private_dns_zone.cosmos.id]
   # subresource_names defaults to ["Sql"] — the correct group ID for the
@@ -216,7 +276,8 @@ module "ai_search" {
   tags                = local.tags
 
   search_sku                           = "basic"
-  search_public_network_access_enabled = false
+  search_public_network_access_enabled = var.enable_public_network_access
+  allowed_ips                          = local.allowed_ips
 
   subnet_id            = data.azurerm_subnet.search_pep.id
   private_dns_zone_ids = [data.azurerm_private_dns_zone.search.id]
@@ -238,10 +299,12 @@ module "cognitive_account" {
 
   # custom_subdomain_name is required for MI/Entra ID auth and for the
   # private endpoint to be attachable.
-  custom_subdomain_name       = local.cognitive_account_name
-  identity_type               = "SystemAssigned"
-  network_acls_default_action = "Deny"
-  network_acls_bypass         = "AzureServices"
+  custom_subdomain_name         = local.cognitive_custom_subdomain_name
+  identity_type                 = "SystemAssigned"
+  public_network_access_enabled = var.enable_public_network_access
+  network_acls_default_action   = "Deny"
+  network_acls_bypass           = "AzureServices"
+  network_acls_ip_rules         = local.allowed_ips
 
   # project_management_enabled must be true for us to create
   # azurerm_cognitive_account_project resources under this account below.
@@ -261,16 +324,23 @@ module "cognitive_account" {
 #----------------------------------------------------------------
 # 5. Foundry project + capability hosts
 #
-# The foundry_project module owns the full project lifecycle in this
-# order (all inside the module):
+# The foundry_project module owns the full project lifecycle. Terraform
+# builds the dependency graph from `depends_on` inside the module; the
+# effective ordering is:
 #   1. azurerm_cognitive_account_project      — creates the project MI
 #   2. Entra ID connections (storage/cosmos/search) at the account scope
-#   3. Phase 3 RBAC: Cosmos DB Operator + Storage Account Contributor
-#   4. Phase 5 RBAC: Search Index/Service Data Contributor,
-#      Storage Blob Data Owner, Cosmos SQL Data Contributor
-#   5. 60s time_sleep to cover RBAC propagation
+#      (independent of the project — may parallelize)
+#   3. Phase 3 RBAC (control plane):
+#         Cosmos DB Operator          on Cosmos account
+#         Storage Account Contributor on Storage account
+#   4. Phase 5 RBAC (data plane):
+#         Search Index Data Contributor    on AI Search
+#         Search Service Contributor       on AI Search
+#         Storage Blob Data Owner          on Storage account
+#         Cosmos DB Built-in Data Contributor on Cosmos account
+#   5. 60s time_sleep to cover RBAC propagation (best-effort)
 #   6. Account + project capability hosts (Foundry Agent Service
-#      Standard Setup)
+#      Standard Setup) — gated behind the sleep and connections
 #----------------------------------------------------------------
 
 module "foundry_project" {

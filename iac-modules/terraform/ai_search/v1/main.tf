@@ -17,7 +17,7 @@ resource "azurerm_search_service" "this" {
 
   network_rule_bypass_option = "AzureServices"
 
-  allowed_ips = []
+  allowed_ips = var.allowed_ips
 
   public_network_access_enabled = var.search_public_network_access_enabled
 

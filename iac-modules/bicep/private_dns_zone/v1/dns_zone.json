@@ -1,0 +1,81 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.45.15.27210",
+      "templateHash": "9262829895576821245"
+    }
+  },
+  "parameters": {
+    "zoneName": {
+      "type": "string",
+      "metadata": {
+        "description": "Fully-qualified private DNS zone name (e.g. `privatelink.cognitiveservices.azure.com`)."
+      }
+    },
+    "vnetId": {
+      "type": "string",
+      "metadata": {
+        "description": "Resource ID of the VNet to link the zone to."
+      }
+    },
+    "linkName": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional VNet link name. Defaults to `<zoneName>-link`."
+      }
+    },
+    "registrationEnabled": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Whether the VNet link registers auto-generated A records for VMs in the linked VNet. PE-based zones do NOT need this (PEs create their own A records) so it defaults to false."
+      }
+    },
+    "tags": {
+      "type": "object",
+      "defaultValue": {},
+      "metadata": {
+        "description": "Tags applied to the zone and link."
+      }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Network/privateDnsZones",
+      "apiVersion": "2024-06-01",
+      "name": "[parameters('zoneName')]",
+      "location": "global",
+      "tags": "[parameters('tags')]"
+    },
+    {
+      "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+      "apiVersion": "2024-06-01",
+      "name": "[format('{0}/{1}', parameters('zoneName'), if(empty(parameters('linkName')), format('{0}-link', parameters('zoneName')), parameters('linkName')))]",
+      "location": "global",
+      "tags": "[parameters('tags')]",
+      "properties": {
+        "virtualNetwork": {
+          "id": "[parameters('vnetId')]"
+        },
+        "registrationEnabled": "[parameters('registrationEnabled')]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/privateDnsZones', parameters('zoneName'))]"
+      ]
+    }
+  ],
+  "outputs": {
+    "id": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.Network/privateDnsZones', parameters('zoneName'))]"
+    },
+    "name": {
+      "type": "string",
+      "value": "[parameters('zoneName')]"
+    }
+  }
+}

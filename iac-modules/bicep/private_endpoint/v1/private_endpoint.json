@@ -1,0 +1,120 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.45.15.27210",
+      "templateHash": "9524211413905157884"
+    }
+  },
+  "parameters": {
+    "name": {
+      "type": "string",
+      "metadata": {
+        "description": "Private endpoint name."
+      }
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Azure location."
+      }
+    },
+    "targetResourceId": {
+      "type": "string",
+      "metadata": {
+        "description": "Resource ID of the target service (e.g. storage account, cosmos, cognitive account)."
+      }
+    },
+    "subresourceNames": {
+      "type": "array",
+      "metadata": {
+        "description": "List of subresource / groupId names to connect (e.g. [\"blob\"], [\"account\"], [\"Sql\"])."
+      }
+    },
+    "subnetId": {
+      "type": "string",
+      "metadata": {
+        "description": "Resource ID of the subnet where the PE NIC lives."
+      }
+    },
+    "privateDnsZoneIds": {
+      "type": "array",
+      "metadata": {
+        "description": "List of private DNS zone resource IDs that the PE registers its A record(s) in."
+      }
+    },
+    "dnsZoneGroupName": {
+      "type": "string",
+      "defaultValue": "default",
+      "metadata": {
+        "description": "Optional. Custom name for the DNS zone group. Defaults to `default`."
+      }
+    },
+    "tags": {
+      "type": "object",
+      "defaultValue": {},
+      "metadata": {
+        "description": "Tags applied to the PE."
+      }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Network/privateEndpoints",
+      "apiVersion": "2024-05-01",
+      "name": "[parameters('name')]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "properties": {
+        "subnet": {
+          "id": "[parameters('subnetId')]"
+        },
+        "privateLinkServiceConnections": [
+          {
+            "name": "[format('{0}-conn', parameters('name'))]",
+            "properties": {
+              "privateLinkServiceId": "[parameters('targetResourceId')]",
+              "groupIds": "[parameters('subresourceNames')]"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "condition": "[not(empty(parameters('privateDnsZoneIds')))]",
+      "type": "Microsoft.Network/privateEndpoints/privateDnsZoneGroups",
+      "apiVersion": "2024-05-01",
+      "name": "[format('{0}/{1}', parameters('name'), parameters('dnsZoneGroupName'))]",
+      "properties": {
+        "copy": [
+          {
+            "name": "privateDnsZoneConfigs",
+            "count": "[length(parameters('privateDnsZoneIds'))]",
+            "input": {
+              "name": "[format('config-{0}', copyIndex('privateDnsZoneConfigs'))]",
+              "properties": {
+                "privateDnsZoneId": "[parameters('privateDnsZoneIds')[copyIndex('privateDnsZoneConfigs')]]"
+              }
+            }
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/privateEndpoints', parameters('name'))]"
+      ]
+    }
+  ],
+  "outputs": {
+    "id": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.Network/privateEndpoints', parameters('name'))]"
+    },
+    "name": {
+      "type": "string",
+      "value": "[parameters('name')]"
+    }
+  }
+}

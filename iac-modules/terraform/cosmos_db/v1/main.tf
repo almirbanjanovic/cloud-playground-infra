@@ -18,6 +18,7 @@ resource "azurerm_cosmosdb_account" "this" {
   minimal_tls_version           = var.minimal_tls_version
   automatic_failover_enabled    = var.automatic_failover_enabled
   public_network_access_enabled = var.public_network_access_enabled
+  ip_range_filter               = var.ip_range_filter
   # local_authentication_enabled is only valid for the SQL API (GlobalDocumentDB).
   local_authentication_enabled = var.kind == "GlobalDocumentDB" ? var.local_authentication_enabled : null
   free_tier_enabled            = var.free_tier_enabled

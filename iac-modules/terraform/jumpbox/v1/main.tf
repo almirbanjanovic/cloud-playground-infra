@@ -45,8 +45,10 @@ resource "azurerm_user_assigned_identity" "this" {
 
 # -----------------------------------------------------------------------------
 # Optional public IP (Standard SKU, static). Only created when
-# `enable_public_ip = true`. Standard SKU is required for zone-redundant
-# behavior and modern outbound patterns.
+# `enable_public_ip = true`. Standard SKU is required for use with modern
+# outbound patterns (e.g. NAT gateway alongside) and lets you add
+# `zones = ["1","2","3"]` later for zone-redundancy — not configured here
+# (single-region lab).
 # -----------------------------------------------------------------------------
 resource "azurerm_public_ip" "this" {
   count = var.enable_public_ip ? 1 : 0
@@ -64,7 +66,8 @@ resource "azurerm_public_ip" "this" {
 # NSG — created only when the VM has a public IP, since a VNet-only jumpbox
 # doesn't need Internet-facing rules. Rules:
 #   - Allow SSH (22) from the caller's allowlist.
-#   - Deny all other inbound (default behavior of NSG, made explicit).
+#   - All other inbound is denied by Azure's implicit default rules
+#     (priority 65000+) — we don't add an explicit deny-all here.
 # Outbound is left at NSG default (allow all) so cloud-init / patching /
 # `az login` work.
 # -----------------------------------------------------------------------------

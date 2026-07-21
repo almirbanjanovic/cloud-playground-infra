@@ -1,0 +1,62 @@
+# Every variable in variables.tf has a working default, so you can just run
+# `terraform apply` with no `-var` flags. It will look up the base stack's
+# resources in `rg-ai-foundry-dev` under the default naming convention and
+# auto-detect your public IP for the firewall allowlist.
+#
+# Copy this file to `terraform.tfvars` and uncomment lines only if you want
+# to override defaults. `terraform.tfvars` is git-ignored.
+
+# --- Optional: override the RG (must match the base stack) ---
+# resource_group_name = "rg-ai-foundry-dev"
+
+# --- Optional: naming ---
+# All name variables default to null, and null triggers the built-in
+# convention that matches the base stack. Only set these if you want to
+# either (a) shift the whole naming scheme, or (b) point this stack at
+# pre-existing resources named differently.
+#
+# base_name   = "playground"
+# environment = "dev"
+# location    = "eastus2"     # see variables.tf for the list of supported Foundry regions
+#
+# Override individual data-source names:
+# vnet_name                 = "vnet-mycompany-shared-eastus2"
+# subnet_name_cognitive_pep = "snet-mycompany-cognitive-pe"
+# subnet_name_storage_pep   = "snet-mycompany-storage-pe"
+# subnet_name_cosmos_pep    = "snet-mycompany-cosmos-pe"
+# subnet_name_search_pep    = "snet-mycompany-search-pe"
+# subnet_name_agent         = "snet-mycompany-foundry-agent"
+# cognitive_custom_subdomain_name = "cog-acc-mycompany-shared"
+#
+# Override private DNS zone names (defaults match Azure public cloud):
+# cognitive_private_dns_zone_names = [
+#   "privatelink.cognitiveservices.azure.com",
+#   "privatelink.openai.azure.com",
+#   "privatelink.services.ai.azure.com",
+# ]
+# storage_private_dns_zone_names   = [
+#   "privatelink.blob.core.windows.net",
+#   "privatelink.file.core.windows.net",
+#   "privatelink.queue.core.windows.net",
+#   "privatelink.table.core.windows.net",
+#   "privatelink.dfs.core.windows.net",
+#   "privatelink.web.core.windows.net",
+# ]
+# cosmos_private_dns_zone_name     = "privatelink.documents.azure.com"
+# search_private_dns_zone_name     = "privatelink.search.windows.net"
+
+# --- Optional: deployer-IP allowlist ---
+# Pin the deployer IP instead of letting the http provider auto-detect
+# it (https://api.ipify.org). Set this if your egress IP is masked by a
+# VPN or corporate proxy that api.ipify.org can't see, or if you want
+# deterministic state.
+#
+# deployer_ip = "203.0.113.42"
+
+# Optional: additional IPs (teammates, office range, CI runner) to allowlist on
+# every workload data-plane service in addition to `deployer_ip`.
+#
+# allowed_ips_extra = [
+#   "198.51.100.0/24",
+#   "203.0.113.99",
+# ]

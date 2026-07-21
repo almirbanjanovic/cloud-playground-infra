@@ -7,8 +7,13 @@
 #   github_org       — GitHub org / user that owns the repo
 #   github_repo      — repo name the runner registers against
 #   github_pat       — Fine-grained PAT with `Administration: read/write`
-#                      on the target repo (used to mint a registration token
-#                      at boot; never leaves the VM afterwards)
+#                      on the target repo. Rendered into this template,
+#                      passed through Terraform state, and stored in the
+#                      VM's `custom_data` blob (encrypted at rest by SSE).
+#                      Cloud-init uses it once at boot to mint a runner
+#                      registration token; the PAT is not deleted from
+#                      user-data afterwards, so anyone with VM Contributor
+#                      or state-file access can retrieve it.
 #   runner_labels    — Comma-separated labels applied to the runner
 #   runner_version   — GitHub Actions runner release tag (e.g. 2.320.0)
 #   runner_group     — Runner group name (empty for default)

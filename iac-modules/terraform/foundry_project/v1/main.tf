@@ -211,11 +211,16 @@ resource "azurerm_cosmosdb_sql_role_assignment" "project_cosmos_data_contributor
 #--------------------------------------------------------------------------------------------------------------------------------
 # 4. RBAC propagation wait (60s)
 #
-# Azure RBAC assignments aren't instant — Entra ID needs ~30–60 seconds
-# to replicate the new role assignment to every region so that data-plane
-# services can see the permission. Without this wait, the capability
-# host below often fails with a 403 on first apply. Microsoft's own
-# private-networking sample does the same thing.
+# Azure RBAC assignments aren't instant — Entra ID typically takes ~30–60
+# seconds to replicate a new role assignment out to the data-plane services
+# that need to enforce it. Without any wait, the capability host below
+# almost always fails with a 403 on first apply.
+#
+# 60 seconds is a best-effort gate that matches Microsoft's own
+# private-networking sample and clears the common case. Under Entra ID
+# load it can occasionally take longer — if the capability host still 403s,
+# re-run the workflow (the sleep re-fires because triggers include the
+# assignment IDs) or bump `create_duration`.
 #
 # Skipped entirely when the capability host is disabled (nothing to gate).
 #--------------------------------------------------------------------------------------------------------------------------------

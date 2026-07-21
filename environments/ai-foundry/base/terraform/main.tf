@@ -2,43 +2,32 @@
 # AI Foundry — BASE stack.
 #
 # This stack owns the shared infrastructure that has to exist BEFORE the
-# private workload (Foundry + BYO services) can be deployed:
+# workload (Foundry + BYO services) can be deployed:
 #
-#   1. VNet + all subnets (including the agent subnet delegated to
-#      Microsoft.App/environments — required by Foundry Agent Service).
-#   2. Private DNS zones for every service the workload stack will
-#      privatelink to (Foundry / Cognitive, Storage subresources, Cosmos,
-#      Search) — with VNet links, so any VM in this VNet resolves those
+#   1. VNet + all subnets:
+#        - 4 private-endpoint subnets (cognitive / storage / cosmos / search).
+#        - agent subnet delegated to Microsoft.App/environments — required
+#          by Foundry Agent Service network injection.
+#   2. Private DNS zones for every service the workload stack privatelinks
+#      to (Foundry / Cognitive, Storage subresources, Cosmos, Search) —
+#      with VNet links, so any workload inside this VNet resolves those
 #      services to their private-endpoint IPs.
-#   3. NAT Gateway attached to the CI/CD and jumpbox subnets, so outbound
-#      Internet works even when public IPs are absent / restricted.
-#   4. Jumpbox VM — operator entry point for validating private
-#      connectivity end-to-end.
-#   5. CI/CD self-hosted GitHub Actions runner — the ONLY runner able to
-#      reach the workload stack's services (which will have
-#      `public_network_access_enabled = false`).
-#   6. User-Assigned Managed Identity (UAMI) on the runner VM. It's
-#      created + attached by the shared `cicd_runner/v1` module but is
-#      NOT used by CI — CI workflows authenticate to Azure as a single
-#      App Registration created manually in Entra ID with ONE federated
-#      credential trusting the `ai-foundry` GitHub environment. The UAMI
-#      currently has no role assignments and no federated credentials, so
-#      it's effectively dormant. See the ai-foundry README for the full
-#      auth model.
 #
-# Why split from workload:
-#   The workload stack has `public_network_access_enabled = false` on
-#   every service data plane (Foundry / Cognitive, Storage, Cosmos,
-#   AI Search). Foundry capability-host provisioning (done by the workload
-#   apply via azapi calls to the Foundry control plane) and its post-apply
-#   validation checks reach those services through their private endpoints,
-#   so the client running `terraform apply` must sit inside this VNet. A
-#   GitHub-hosted runner cannot; the self-hosted runner provisioned here
-#   can.
+# No jumpbox, no NAT gateway. Both `terraform apply` runs happen from
+# your laptop: the workload stack sets `public_network_access_enabled =
+# true` on every data-plane service and adds YOUR public IP to each
+# service's firewall allowlist. The private endpoints created by the
+# workload stack continue to serve the VNet-injected agent runtime; the
+# public endpoint is only reachable from the IPs you allowlist.
 #
-# Where this stack runs from:
-#   `ubuntu-latest` (GitHub-hosted). It has to — the private runner
-#   doesn't exist yet on the first apply.
+# Deploy model:
+#   Base stack:     `terraform apply` from your laptop (`az login` as a
+#                   user with Owner on the target RG).
+#   Workload stack: `terraform apply` from your laptop as well — the
+#                   http provider auto-detects your public IP and pins
+#                   it into every service firewall.
+#
+# See the ai-foundry README for the full walkthrough.
 #================================================================================
 
 #----------------------------------------------------------------
@@ -46,17 +35,18 @@
 #----------------------------------------------------------------
 
 locals {
-  base_name   = "playground"
-  environment = "dev"
-  location    = "centralus"
+  base_name   = var.base_name
+  environment = var.environment
+  location    = var.location
 
   vnet_name = "vnet-${local.base_name}-${local.environment}-${local.location}"
 
-  # 10.0.0.0/16 is a Class A range supported by Foundry Agent Service in
-  # centralus. Foundry accepts any RFC1918 range in supported regions;
-  # we use Class A here because it aligns with Microsoft's Foundry
-  # Standard Setup examples and leaves plenty of room to grow.
-  # https://learn.microsoft.com/azure/foundry/agents/concepts/limits-quotas-regions#supported-regions
+  # 10.0.0.0/16 is a Class A range that fits comfortably in any of the
+  # regions on Microsoft's Foundry Agent Service private-networking list
+  # (eastus2 default; see the `location` variable). Foundry accepts any
+  # RFC1918 range in supported regions; Class A aligns with Microsoft's
+  # Foundry Standard Setup examples and leaves plenty of room to grow.
+  # https://learn.microsoft.com/azure/ai-foundry/agents/concepts/limits-quotas-regions#supported-regions
   vnet_address_space = ["10.0.0.0/16"]
 
   tags = {
@@ -91,12 +81,10 @@ locals {
 #----------------------------------------------------------------
 # 2. VNet + subnets
 #
-# Seven subnets:
+# Five subnets:
 #   - Four PE subnets (one per privatelinked service in workload).
-#   - agent — delegated to Microsoft.App/environments for Foundry Agent
-#     Service network injection.
-#   - cicd — hosts the self-hosted GitHub Actions runner.
-#   - jumpbox — hosts the operator jumpbox VM.
+#   - agent — delegated to Microsoft.App/environments for Foundry
+#     Agent Service network injection.
 #----------------------------------------------------------------
 
 resource "azurerm_virtual_network" "this" {
@@ -142,49 +130,13 @@ module "subnets" {
         }
       }]
     }
-    cicd = {
-      name             = "snet-cicd-${local.base_name}-${local.environment}"
-      address_prefixes = ["10.0.20.0/24"]
-    }
-    jumpbox = {
-      name             = "snet-jumpbox-${local.base_name}-${local.environment}"
-      address_prefixes = ["10.0.21.0/24"]
-    }
   }
 }
 
 #----------------------------------------------------------------
-# 3. NAT Gateway — outbound Internet for cicd + jumpbox subnets
-#
-# Runner needs github.com / ghcr.io / packages / Azure ARM. Jumpbox
-# needs apt updates and az CLI. Neither should rely on their public IP
-# for outbound (jumpbox's PIP is inbound-only per NSG; runner has none).
-#----------------------------------------------------------------
-
-module "nat_gateway" {
-  source = "../../../../iac-modules/terraform/nat_gateway/v1"
-
-  base_name           = local.base_name
-  environment         = local.environment
-  location            = local.location
-  resource_group_name = var.resource_group_name
-  tags                = local.tags
-}
-
-resource "azurerm_subnet_nat_gateway_association" "cicd" {
-  subnet_id      = module.subnets.subnet_ids["cicd"]
-  nat_gateway_id = module.nat_gateway.nat_gateway_id
-}
-
-resource "azurerm_subnet_nat_gateway_association" "jumpbox" {
-  subnet_id      = module.subnets.subnet_ids["jumpbox"]
-  nat_gateway_id = module.nat_gateway.nat_gateway_id
-}
-
-#----------------------------------------------------------------
-# 4. Private DNS zones — VNet-linked so any resource in this VNet
-#    (runner, jumpbox, agent runtime) resolves privatelink hosts to
-#    their private-endpoint IPs.
+# 3. Private DNS zones — VNet-linked so any resource in this VNet
+#    (agent runtime, workload private endpoints) resolves privatelink
+#    hosts to their private-endpoint IPs.
 #----------------------------------------------------------------
 
 module "cognitive_private_dns_zones" {
@@ -234,15 +186,49 @@ module "search_private_dns_zone" {
 }
 
 #----------------------------------------------------------------
-# 5. Jumpbox — operator entry point.
+# 4. Terraform-state storage account
 #
-# Public IP + SSH allowlist restricted to `var.allowed_ssh_source_prefixes`.
-# Entra ID SSH login enabled so operators use `az ssh vm` with their AAD
-# identity — no local SSH key management on the operator side.
+# Consumed as an zurerm backend by the WORKLOAD stack (see
+# workload/terraform/providers.tf). BASE itself keeps local state --
+# there's no chicken-and-egg way for BASE to remote-state into a
+# storage account BASE is about to create.
+#
+# Deployer-IP auto-detect via ipify unless var.deployer_ip is set:
+#   null (default) -> auto-detect (data.http.myip queried below)
+#   ""             -> skip (no deployer IP in the allowlist)
+#   "203.0.113.42" -> use exactly this IP
+#
+# Naming: storage account names must be globally unique + 3-24 chars
+# lowercase alnum. We hash the RG+base+env+location into a 12-char
+# suffix so multiple deployers of this repo don't collide.
 #----------------------------------------------------------------
 
-module "jumpbox" {
-  source = "../../../../iac-modules/terraform/jumpbox/v1"
+locals {
+  deployer_ip = var.deployer_ip != null ? var.deployer_ip : chomp(data.http.myip[0].response_body)
+  allowed_ips = compact(concat([local.deployer_ip], var.allowed_ips_extra))
+
+  # Deterministic short suffix -> unique per RG. md5 collisions at 12 hex chars
+  # are astronomically unlikely; drop us into the 24-char storage account limit
+  # with room to spare (sttfs + 12 = 17 chars). Users can override the whole
+  # name via var.tfstate_storage_account_name if they hit an unlikely global
+  # storage-account name collision.
+  tfstate_hash         = substr(md5("${var.resource_group_name}${local.base_name}${local.environment}${local.location}"), 0, 12)
+  tfstate_storage_name = var.tfstate_storage_account_name != null ? var.tfstate_storage_account_name : "sttfs${local.tfstate_hash}"
+}
+
+data "http" "myip" {
+  count = var.deployer_ip == null ? 1 : 0
+  url   = "https://api.ipify.org"
+
+  retry {
+    attempts     = 3
+    min_delay_ms = 200
+    max_delay_ms = 1000
+  }
+}
+
+module "tfstate_storage" {
+  source = "../../../../iac-modules/terraform/storage account/v1"
 
   base_name           = local.base_name
   environment         = local.environment
@@ -250,60 +236,36 @@ module "jumpbox" {
   resource_group_name = var.resource_group_name
   tags                = local.tags
 
-  subnet_id            = module.subnets.subnet_ids["jumpbox"]
-  admin_username       = var.admin_username
-  admin_ssh_public_key = var.admin_ssh_public_key
+  # Skip the derived name -- pass a hashed short name that fits the
+  # 24-char/alnum-lowercase storage-account rules regardless of base_name.
+  custom_name = local.tfstate_storage_name
 
-  enable_public_ip           = true
-  allowed_source_ip_prefixes = var.allowed_ssh_source_prefixes
+  storage_account_tier             = "Standard"
+  storage_account_replication_type = "LRS"
+  min_tls_version                  = "TLS1_2"
+  enable_https_traffic_only        = true
+  public_network_access_enabled    = var.enable_public_network_access
+  network_rules_default_action     = "Deny"
+  allowed_ips                      = local.allowed_ips
 
-  enable_entra_ssh_login = true
-  entra_admin_object_ids = var.jumpbox_entra_admin_object_ids
+  # Only one PE needed (blob) -- terraform state files live in blob storage.
+  # The module conditionally skips the other 5 subresource PEs when the
+  # corresponding DNS-zone-ID list is empty.
+  subnet_id                  = module.subnets.subnet_ids["storage_pep"]
+  blob_private_dns_zone_ids  = [module.storage_private_dns_zones["privatelink.blob.core.windows.net"].id]
+  file_private_dns_zone_ids  = []
+  queue_private_dns_zone_ids = []
+  table_private_dns_zone_ids = []
+  dfs_private_dns_zone_ids   = []
+  web_private_dns_zone_ids   = []
 }
 
-#----------------------------------------------------------------
-# 6. CI/CD runner — self-hosted GitHub Actions runner.
-#
-# Cloud-init installs Azure CLI, Terraform, tflint, and registers the
-# runner against `${github_org}/${github_repo}` using the PAT to mint a
-# fresh registration token at boot.
-#----------------------------------------------------------------
-
-module "cicd_runner" {
-  source = "../../../../iac-modules/terraform/cicd_runner/v1"
-
-  base_name           = local.base_name
-  environment         = local.environment
-  location            = local.location
-  resource_group_name = var.resource_group_name
-  tags                = local.tags
-
-  subnet_id            = module.subnets.subnet_ids["cicd"]
-  admin_username       = var.admin_username
-  admin_ssh_public_key = var.admin_ssh_public_key
-
-  github_org  = var.github_org
-  github_repo = var.github_repo
-  github_pat  = var.github_pat
-
-  runner_labels = ["self-hosted", "linux", "ai-foundry"]
+# tfstate blob container. Requires the deployer principal to have
+# "Storage Blob Data Contributor" or Owner on the account -- azurerm uses
+# Entra ID / OAuth for container operations (shared-key is disabled at
+# the account level).
+resource "azurerm_storage_container" "tfstate" {
+  name                  = var.tfstate_container_name
+  storage_account_id    = module.tfstate_storage.id
+  container_access_type = "private"
 }
-
-# ------------------------------------------------------------------------------
-# NOTE ON AUTH:
-#   The runner VM's UAMI has NO federated identity credential and NO role
-#   assignments — it's dormant. Every terraform workflow authenticates to
-#   Azure using a SINGLE App Registration created manually in Entra ID with
-#   ONE federated credential trusting the `ai-foundry` GitHub environment.
-#   Both Terraform stacks (base and workload) run under that environment,
-#   differentiated at dispatch time by the `stack` input on the deploy
-#   workflow.
-#
-#   The UAMI is created + attached because the shared `cicd_runner/v1`
-#   module always provisions one (its default expectation is a per-runner
-#   federated identity pattern that this stack opts out of). We keep it as
-#   an attachment point for potential future scripts running on the VM
-#   itself (`az login --identity`) that would need Azure API access without
-#   a PAT — but no such scripts exist today, so if you never add role
-#   assignments to this UAMI, it's just an inert Entra object.
-# ------------------------------------------------------------------------------

@@ -43,7 +43,7 @@ variable "admin_username" {
 
 variable "admin_ssh_public_key" {
   type        = string
-  description = "OpenSSH public key installed for `admin_username`. Only used for break-glass SSH — normal access is via the jumpbox + AAD SSH."
+  description = "OpenSSH public key installed for `admin_username`. Required by `azurerm_linux_virtual_machine` when password auth is disabled, but not actually reachable — the runner has no public IP and the NSG denies all inbound at priority 4000, blocking SSH even from inside the VNet. Diagnostics go through `az vm run-command invoke` instead."
 }
 
 variable "github_org" {
@@ -76,6 +76,6 @@ variable "runner_version" {
 
 variable "runner_group" {
   type        = string
-  description = "Runner group name (org-level runners only). Leave empty for the default group."
+  description = "Optional runner group name passed to `config.sh --runnergroup`. This module registers the runner at REPO scope only (cloud-init hits the repo-level registration endpoint), so most GitHub deployments will leave this empty — runner groups are typically an org-level feature."
   default     = ""
 }

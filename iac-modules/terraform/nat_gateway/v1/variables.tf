@@ -8,7 +8,7 @@ variable "resource_group_name" {
 }
 
 variable "base_name" {
-  description = "Base name for the VNet"
+  description = "Short project / workload identifier used as a prefix for all resource names (NAT gateway + public IP prefix)."
   type        = string
 }
 

@@ -1,5 +1,8 @@
 #--------------------------------------------------------------------------------------------------------------------------------
 # General Configuration
+#
+# `local.name` is a legacy identifier retained for backward compatibility;
+# `local.account_name` is the actual Cognitive Services / Foundry account name.
 #--------------------------------------------------------------------------------------------------------------------------------
 locals {
   name         = "oai-${var.base_name}-${var.environment}-${var.location}"
@@ -7,7 +10,9 @@ locals {
 }
 
 #--------------------------------------------------------------------------------------------------------------------------------
-# Open AI
+# Cognitive Services account. `kind` is caller-selected — the ai-foundry
+# stack uses `AIServices` (Foundry); OpenAI, generic CognitiveServices, and
+# other Cognitive kinds are also supported by the same resource.
 #--------------------------------------------------------------------------------------------------------------------------------
 
 resource "azurerm_cognitive_account" "this" {
@@ -31,6 +36,7 @@ resource "azurerm_cognitive_account" "this" {
   network_acls {
     default_action = var.network_acls_default_action
     bypass         = var.network_acls_bypass
+    ip_rules       = var.network_acls_ip_rules
   }
 
   # Optional Foundry Agent Service network injection. When agent_subnet_id

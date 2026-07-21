@@ -9,7 +9,6 @@ on:
         type: choice
         options:
           - kaito-on-aks
-          - ai-foundry
           - apim-lab
           - apim-mcp
           - backend-pool-load-balancing
@@ -45,15 +44,9 @@ jobs:
             echo "Resource group ${{ vars.RESOURCE_GROUP }} already exists..."
           fi
 
-      - name: Create Remote Backend Storage Account and Containers
-        # ai-foundry consolidates base + workload under a single GitHub
-        # environment, but each Terraform stack gets its own container so
-        # state files are physically separated. For that env we create
-        # `tfstate-base` and `tfstate-workload`. Every other env still uses
-        # its single `vars.TERRAFORM_STATE_CONTAINER`.
+      - name: Create Remote Backend Storage Account and Container
         env:
-          ENVIRONMENT: ${{ inputs.environment }}
-          DEFAULT_CONTAINER: ${{ vars.TERRAFORM_STATE_CONTAINER }}
+          CONTAINER: ${{ vars.TERRAFORM_STATE_CONTAINER }}
         run: |
           set -e
           wait_time=30
@@ -92,28 +85,20 @@ jobs:
             sleep $wait_time
           fi
 
-          # Determine which containers to create.
-          if [[ "$ENVIRONMENT" == "ai-foundry" ]]; then
-            containers=(tfstate-base tfstate-workload)
-          else
-            if [[ -z "$DEFAULT_CONTAINER" ]]; then
-              echo "::error::vars.TERRAFORM_STATE_CONTAINER is empty for environment=$ENVIRONMENT"
-              exit 1
-            fi
-            containers=("$DEFAULT_CONTAINER")
+          if [[ -z "$CONTAINER" ]]; then
+            echo "::error::vars.TERRAFORM_STATE_CONTAINER is empty"
+            exit 1
           fi
 
-          for c in "${containers[@]}"; do
-            if ! az storage container show \
-                    --name "$c" \
-                    --account-name ${{ vars.STORAGE_ACCOUNT }} \
-                    --auth-mode login > /dev/null 2>&1; then
-              echo "Creating storage container '$c'..."
-              az storage container create \
-                --name "$c" \
-                --account-name ${{ vars.STORAGE_ACCOUNT }} \
-                --auth-mode login
-            else
-              echo "Storage container '$c' already exists."
-            fi
-          done
+          if ! az storage container show \
+                  --name "$CONTAINER" \
+                  --account-name ${{ vars.STORAGE_ACCOUNT }} \
+                  --auth-mode login > /dev/null 2>&1; then
+            echo "Creating storage container '$CONTAINER'..."
+            az storage container create \
+              --name "$CONTAINER" \
+              --account-name ${{ vars.STORAGE_ACCOUNT }} \
+              --auth-mode login
+          else
+            echo "Storage container '$CONTAINER' already exists."
+          fi

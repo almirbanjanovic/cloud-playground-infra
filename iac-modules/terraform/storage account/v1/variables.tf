@@ -55,7 +55,7 @@ variable "allow_nested_items_to_be_public" {
 }
 
 variable "cross_tenant_replication_enabled" {
-  description = "Enable or disable replication accross Entra ID tenants"
+  description = "Enable or disable replication across Entra ID tenants"
   type        = bool
   default     = false
 }
@@ -143,6 +143,12 @@ variable "suffix" {
   default     = ""
 }
 
+variable "custom_name" {
+  description = "Full storage account name override. When set (non-empty) this wins over the derived `st$${base_name}$${environment}$${location}$${suffix}` convention. Use when the derived name would exceed 24 chars or when you need a specific globally-unique name (e.g. the terraform-state storage account uses a hashed short name). Empty string (default) triggers the derived-name path."
+  type        = string
+  default     = ""
+}
+
 variable "publish_microsoft_endpoint" {
   description = "Boolean indicating if the Microsoft endpoint should be published"
   type        = bool
@@ -167,22 +173,10 @@ variable "sftp_enabled" {
   default     = false
 }
 
-variable "blob_properties_versioning_enabled" {
-  description = "Boolean indicating if blob versioning is enabled"
-  type        = bool
-  default     = true
-}
-
 variable "public_network_access_enabled" {
   description = "Boolean indicating if public network access is enabled"
   type        = bool
   default     = true
-}
-
-variable "prevent_destroy" {
-  description = "Boolean indicating if the resource should be destroyed"
-  type        = bool
-  default     = false
 }
 
 variable "shared_access_key_enabled" {

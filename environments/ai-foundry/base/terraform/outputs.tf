@@ -3,8 +3,7 @@
 #
 # The workload stack reads these via data sources (by name), not
 # `terraform_remote_state`, so it stays decoupled from base's state file.
-# These outputs exist for humans (printing the jumpbox IP after apply,
-# looking up VM names for `az ssh vm` / `az vm run-command invoke`).
+# These outputs exist for humans (`terraform output` after base apply).
 #================================================================================
 
 output "vnet_id" {
@@ -27,17 +26,21 @@ output "subnet_names" {
   value       = module.subnets.subnet_names
 }
 
-output "jumpbox_public_ip" {
-  description = "Public IP of the jumpbox. Use with `ssh <admin_username>@<ip>` (SSH key auth), or preferably `az ssh vm --name <name> --resource-group <rg>` (Entra ID auth via the AADSSHLoginForLinux extension)."
-  value       = module.jumpbox.public_ip_address
+# -----------------------------------------------------------------------------
+# tfstate storage account (consumed as `azurerm` backend by the workload stack)
+# -----------------------------------------------------------------------------
+
+output "tfstate_storage_account_name" {
+  description = "Name of the Terraform-state storage account. Pass to the workloads terraform init -backend-config=storage_account_name=<value>."
+  value       = module.tfstate_storage.name
 }
 
-output "jumpbox_vm_name" {
-  description = "Jumpbox VM name."
-  value       = module.jumpbox.vm_name
+output "tfstate_container_name" {
+  description = "Blob container inside the tfstate storage account (default tfstate)."
+  value       = azurerm_storage_container.tfstate.name
 }
 
-output "runner_vm_name" {
-  description = "CI/CD runner VM name."
-  value       = module.cicd_runner.vm_name
+output "tfstate_resource_group_name" {
+  description = "Resource group the tfstate storage account lives in (same as bases RG)."
+  value       = var.resource_group_name
 }

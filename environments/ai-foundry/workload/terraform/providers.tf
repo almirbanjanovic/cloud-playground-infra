@@ -12,9 +12,42 @@ terraform {
       source  = "azure/azapi"
       version = "~> 2.10"
     }
+
+    http = {
+      source  = "hashicorp/http"
+      version = "~> 3.4"
+    }
   }
 
-  backend "azurerm" {}
+  # -----------------------------------------------------------------------------
+  # Remote state -- consumed from the storage account BASE creates.
+  #
+  # `backend "azurerm"` is a "partial" backend here: the container name and
+  # blob key are hardcoded, but the resource_group_name + storage_account_name
+  # are injected at `terraform init` time via `-backend-config` because they
+  # depend on values only known after BASE apply.
+  #
+  # Typical init command (after `terraform apply` in base/terraform/):
+  #
+  #   terraform init \
+  #     -backend-config="resource_group_name=$(terraform -chdir=../../base/terraform output -raw tfstate_resource_group_name)" \
+  #     -backend-config="storage_account_name=$(terraform -chdir=../../base/terraform output -raw tfstate_storage_account_name)"
+  #
+  # Alternative: create `workload/terraform/backend.tfbackend` with
+  #   resource_group_name  = "rg-ai-foundry-dev"
+  #   storage_account_name = "sttfs<hash>"
+  # then run `terraform init -backend-config=backend.tfbackend`.
+  #
+  # The state blob (key "workload.tfstate") lives in the `tfstate` container
+  # on the tfstate storage account, which has a firewall allowlist that must
+  # include the deployer's public IP -- see the ai-foundry README for the
+  # deploy lifecycle.
+  # -----------------------------------------------------------------------------
+  backend "azurerm" {
+    container_name   = "tfstate"
+    key              = "workload.tfstate"
+    use_azuread_auth = true
+  }
 }
 
 provider "azurerm" {
@@ -30,14 +63,8 @@ provider "azurerm" {
   storage_use_azuread = true
 
   # ---------------------------------------------------------------------------
-  # RP registration is owned by the BASE stack.
-  #
-  # Both stacks authenticate as the same App Registration (see ai-foundry
-  # README > Auth model). Base runs first and registers every namespace both
-  # stacks consume, so workload doesn't need to (and shouldn't — double
-  # registration is harmless but adds latency and log noise).
-  #
-  # Setting `resource_provider_registrations = "none"` with no
+  # RP registration is owned by the BASE stack (which runs first). Setting
+  # `resource_provider_registrations = "none"` with no
   # `resource_providers_to_register` list disables all registration attempts
   # from this stack.
   #
@@ -47,4 +74,7 @@ provider "azurerm" {
 }
 
 provider "azapi" {
+}
+
+provider "http" {
 }

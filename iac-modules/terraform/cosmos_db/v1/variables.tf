@@ -65,6 +65,12 @@ variable "public_network_access_enabled" {
   default     = false
 }
 
+variable "ip_range_filter" {
+  description = "Set of IPv4 addresses or CIDR ranges allowed to reach the account's public endpoint. Only takes effect when `public_network_access_enabled = true`. Use to allow the deploying user's public IP for testing while keeping VNet workloads on the private endpoint."
+  type        = set(string)
+  default     = []
+}
+
 variable "local_authentication_enabled" {
   description = "Whether local (key-based) authentication is enabled. Defaults to false — Entra ID / RBAC only. SQL API only."
   type        = bool

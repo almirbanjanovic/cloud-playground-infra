@@ -1,0 +1,694 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.45.15.27210",
+      "templateHash": "16685279002623684948"
+    }
+  },
+  "parameters": {
+    "baseName": {
+      "type": "string",
+      "defaultValue": "playground",
+      "metadata": {
+        "description": "Short project identifier used as a prefix for derived names."
+      }
+    },
+    "environment": {
+      "type": "string",
+      "defaultValue": "dev",
+      "metadata": {
+        "description": "Environment suffix (e.g. dev / prod)."
+      }
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "eastus2",
+      "metadata": {
+        "description": "Azure region for the VNet + every regional resource. `eastus2` is on Microsoft's list of Foundry Agent Service regions that support the private-networking Standard Setup and hosts the full model catalog."
+      }
+    },
+    "vnetName": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "VNet name. Leave blank to use the convention vnet-<baseName>-<environment>-<location>."
+      }
+    },
+    "vnetAddressSpace": {
+      "type": "array",
+      "defaultValue": [
+        "10.0.0.0/16"
+      ],
+      "metadata": {
+        "description": "VNet address space CIDR blocks."
+      }
+    },
+    "tags": {
+      "type": "object",
+      "defaultValue": {
+        "environment": "dev",
+        "workload": "ai-foundry",
+        "stack": "base",
+        "managed_by": "bicep"
+      },
+      "metadata": {
+        "description": "Tags applied to every resource."
+      }
+    }
+  },
+  "variables": {
+    "effectiveVnetName": "[if(empty(parameters('vnetName')), format('vnet-{0}-{1}-{2}', parameters('baseName'), parameters('environment'), parameters('location')), parameters('vnetName'))]",
+    "cognitiveDnsZones": [
+      "privatelink.cognitiveservices.azure.com",
+      "privatelink.openai.azure.com",
+      "privatelink.services.ai.azure.com"
+    ],
+    "storageDnsZones": [
+      "privatelink.blob.core.windows.net",
+      "privatelink.file.core.windows.net",
+      "privatelink.queue.core.windows.net",
+      "privatelink.table.core.windows.net",
+      "privatelink.dfs.core.windows.net",
+      "privatelink.web.core.windows.net"
+    ],
+    "cosmosDnsZone": "privatelink.documents.azure.com",
+    "searchDnsZone": "privatelink.search.windows.net",
+    "subnets": {
+      "cognitive_pep": {
+        "name": "[format('snet-cognitive-{0}-{1}', parameters('baseName'), parameters('environment'))]",
+        "addressPrefixes": [
+          "10.0.1.0/24"
+        ]
+      },
+      "storage_pep": {
+        "name": "[format('snet-storage-{0}-{1}', parameters('baseName'), parameters('environment'))]",
+        "addressPrefixes": [
+          "10.0.2.0/24"
+        ]
+      },
+      "cosmos_pep": {
+        "name": "[format('snet-cosmos-{0}-{1}', parameters('baseName'), parameters('environment'))]",
+        "addressPrefixes": [
+          "10.0.3.0/24"
+        ]
+      },
+      "search_pep": {
+        "name": "[format('snet-search-{0}-{1}', parameters('baseName'), parameters('environment'))]",
+        "addressPrefixes": [
+          "10.0.4.0/24"
+        ]
+      },
+      "agent": {
+        "name": "[format('snet-agent-{0}-{1}', parameters('baseName'), parameters('environment'))]",
+        "addressPrefixes": [
+          "10.0.10.0/24"
+        ],
+        "delegations": [
+          {
+            "name": "Microsoft.App/environments",
+            "properties": {
+              "serviceName": "Microsoft.App/environments"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "deploy-vnet",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "name": {
+            "value": "[variables('effectiveVnetName')]"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "addressSpace": {
+            "value": "[parameters('vnetAddressSpace')]"
+          },
+          "subnets": {
+            "value": "[variables('subnets')]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.45.15.27210",
+              "templateHash": "17927659413413224054"
+            }
+          },
+          "parameters": {
+            "name": {
+              "type": "string",
+              "metadata": {
+                "description": "VNet name."
+              }
+            },
+            "location": {
+              "type": "string",
+              "defaultValue": "[resourceGroup().location]",
+              "metadata": {
+                "description": "Azure location for the VNet."
+              }
+            },
+            "addressSpace": {
+              "type": "array",
+              "metadata": {
+                "description": "Address space CIDR blocks for the VNet."
+              }
+            },
+            "subnets": {
+              "type": "object",
+              "metadata": {
+                "description": "Map of logical subnet key -> subnet definition."
+              }
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {},
+              "metadata": {
+                "description": "Tags applied to the VNet."
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/virtualNetworks",
+              "apiVersion": "2024-05-01",
+              "name": "[parameters('name')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "addressSpace": {
+                  "addressPrefixes": "[parameters('addressSpace')]"
+                }
+              }
+            },
+            {
+              "copy": {
+                "name": "subnet",
+                "count": "[length(items(parameters('subnets')))]"
+              },
+              "type": "Microsoft.Network/virtualNetworks/subnets",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}/{1}', parameters('name'), items(parameters('subnets'))[copyIndex()].value.name)]",
+              "properties": {
+                "addressPrefixes": "[items(parameters('subnets'))[copyIndex()].value.addressPrefixes]",
+                "delegations": "[if(contains(items(parameters('subnets'))[copyIndex()].value, 'delegations'), items(parameters('subnets'))[copyIndex()].value.delegations, createArray())]",
+                "privateEndpointNetworkPolicies": "Disabled"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/virtualNetworks', parameters('name'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "id": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/virtualNetworks', parameters('name'))]"
+            },
+            "name": {
+              "type": "string",
+              "value": "[parameters('name')]"
+            },
+            "subnetIds": {
+              "type": "object",
+              "value": "[toObject(items(parameters('subnets')), lambda('k', lambdaVariables('k').key), lambda('k', resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('name'), lambdaVariables('k').value.name)))]"
+            },
+            "subnetNames": {
+              "type": "object",
+              "value": "[toObject(items(parameters('subnets')), lambda('k', lambdaVariables('k').key), lambda('k', lambdaVariables('k').value.name))]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "copy": {
+        "name": "cognitiveZones",
+        "count": "[length(variables('cognitiveDnsZones'))]"
+      },
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "[format('deploy-dns-{0}', replace(variables('cognitiveDnsZones')[copyIndex()], '.', '-'))]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "zoneName": {
+            "value": "[variables('cognitiveDnsZones')[copyIndex()]]"
+          },
+          "vnetId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'deploy-vnet'), '2025-04-01').outputs.id.value]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.45.15.27210",
+              "templateHash": "9262829895576821245"
+            }
+          },
+          "parameters": {
+            "zoneName": {
+              "type": "string",
+              "metadata": {
+                "description": "Fully-qualified private DNS zone name (e.g. `privatelink.cognitiveservices.azure.com`)."
+              }
+            },
+            "vnetId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the VNet to link the zone to."
+              }
+            },
+            "linkName": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Optional VNet link name. Defaults to `<zoneName>-link`."
+              }
+            },
+            "registrationEnabled": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "Whether the VNet link registers auto-generated A records for VMs in the linked VNet. PE-based zones do NOT need this (PEs create their own A records) so it defaults to false."
+              }
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {},
+              "metadata": {
+                "description": "Tags applied to the zone and link."
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/privateDnsZones",
+              "apiVersion": "2024-06-01",
+              "name": "[parameters('zoneName')]",
+              "location": "global",
+              "tags": "[parameters('tags')]"
+            },
+            {
+              "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+              "apiVersion": "2024-06-01",
+              "name": "[format('{0}/{1}', parameters('zoneName'), if(empty(parameters('linkName')), format('{0}-link', parameters('zoneName')), parameters('linkName')))]",
+              "location": "global",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "virtualNetwork": {
+                  "id": "[parameters('vnetId')]"
+                },
+                "registrationEnabled": "[parameters('registrationEnabled')]"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/privateDnsZones', parameters('zoneName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "id": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/privateDnsZones', parameters('zoneName'))]"
+            },
+            "name": {
+              "type": "string",
+              "value": "[parameters('zoneName')]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'deploy-vnet')]"
+      ]
+    },
+    {
+      "copy": {
+        "name": "storageZones",
+        "count": "[length(variables('storageDnsZones'))]"
+      },
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "[format('deploy-dns-{0}', replace(variables('storageDnsZones')[copyIndex()], '.', '-'))]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "zoneName": {
+            "value": "[variables('storageDnsZones')[copyIndex()]]"
+          },
+          "vnetId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'deploy-vnet'), '2025-04-01').outputs.id.value]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.45.15.27210",
+              "templateHash": "9262829895576821245"
+            }
+          },
+          "parameters": {
+            "zoneName": {
+              "type": "string",
+              "metadata": {
+                "description": "Fully-qualified private DNS zone name (e.g. `privatelink.cognitiveservices.azure.com`)."
+              }
+            },
+            "vnetId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the VNet to link the zone to."
+              }
+            },
+            "linkName": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Optional VNet link name. Defaults to `<zoneName>-link`."
+              }
+            },
+            "registrationEnabled": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "Whether the VNet link registers auto-generated A records for VMs in the linked VNet. PE-based zones do NOT need this (PEs create their own A records) so it defaults to false."
+              }
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {},
+              "metadata": {
+                "description": "Tags applied to the zone and link."
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/privateDnsZones",
+              "apiVersion": "2024-06-01",
+              "name": "[parameters('zoneName')]",
+              "location": "global",
+              "tags": "[parameters('tags')]"
+            },
+            {
+              "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+              "apiVersion": "2024-06-01",
+              "name": "[format('{0}/{1}', parameters('zoneName'), if(empty(parameters('linkName')), format('{0}-link', parameters('zoneName')), parameters('linkName')))]",
+              "location": "global",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "virtualNetwork": {
+                  "id": "[parameters('vnetId')]"
+                },
+                "registrationEnabled": "[parameters('registrationEnabled')]"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/privateDnsZones', parameters('zoneName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "id": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/privateDnsZones', parameters('zoneName'))]"
+            },
+            "name": {
+              "type": "string",
+              "value": "[parameters('zoneName')]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'deploy-vnet')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "[format('deploy-dns-{0}', replace(variables('cosmosDnsZone'), '.', '-'))]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "zoneName": {
+            "value": "[variables('cosmosDnsZone')]"
+          },
+          "vnetId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'deploy-vnet'), '2025-04-01').outputs.id.value]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.45.15.27210",
+              "templateHash": "9262829895576821245"
+            }
+          },
+          "parameters": {
+            "zoneName": {
+              "type": "string",
+              "metadata": {
+                "description": "Fully-qualified private DNS zone name (e.g. `privatelink.cognitiveservices.azure.com`)."
+              }
+            },
+            "vnetId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the VNet to link the zone to."
+              }
+            },
+            "linkName": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Optional VNet link name. Defaults to `<zoneName>-link`."
+              }
+            },
+            "registrationEnabled": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "Whether the VNet link registers auto-generated A records for VMs in the linked VNet. PE-based zones do NOT need this (PEs create their own A records) so it defaults to false."
+              }
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {},
+              "metadata": {
+                "description": "Tags applied to the zone and link."
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/privateDnsZones",
+              "apiVersion": "2024-06-01",
+              "name": "[parameters('zoneName')]",
+              "location": "global",
+              "tags": "[parameters('tags')]"
+            },
+            {
+              "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+              "apiVersion": "2024-06-01",
+              "name": "[format('{0}/{1}', parameters('zoneName'), if(empty(parameters('linkName')), format('{0}-link', parameters('zoneName')), parameters('linkName')))]",
+              "location": "global",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "virtualNetwork": {
+                  "id": "[parameters('vnetId')]"
+                },
+                "registrationEnabled": "[parameters('registrationEnabled')]"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/privateDnsZones', parameters('zoneName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "id": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/privateDnsZones', parameters('zoneName'))]"
+            },
+            "name": {
+              "type": "string",
+              "value": "[parameters('zoneName')]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'deploy-vnet')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "[format('deploy-dns-{0}', replace(variables('searchDnsZone'), '.', '-'))]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "zoneName": {
+            "value": "[variables('searchDnsZone')]"
+          },
+          "vnetId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'deploy-vnet'), '2025-04-01').outputs.id.value]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.45.15.27210",
+              "templateHash": "9262829895576821245"
+            }
+          },
+          "parameters": {
+            "zoneName": {
+              "type": "string",
+              "metadata": {
+                "description": "Fully-qualified private DNS zone name (e.g. `privatelink.cognitiveservices.azure.com`)."
+              }
+            },
+            "vnetId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the VNet to link the zone to."
+              }
+            },
+            "linkName": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Optional VNet link name. Defaults to `<zoneName>-link`."
+              }
+            },
+            "registrationEnabled": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "Whether the VNet link registers auto-generated A records for VMs in the linked VNet. PE-based zones do NOT need this (PEs create their own A records) so it defaults to false."
+              }
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {},
+              "metadata": {
+                "description": "Tags applied to the zone and link."
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/privateDnsZones",
+              "apiVersion": "2024-06-01",
+              "name": "[parameters('zoneName')]",
+              "location": "global",
+              "tags": "[parameters('tags')]"
+            },
+            {
+              "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+              "apiVersion": "2024-06-01",
+              "name": "[format('{0}/{1}', parameters('zoneName'), if(empty(parameters('linkName')), format('{0}-link', parameters('zoneName')), parameters('linkName')))]",
+              "location": "global",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "virtualNetwork": {
+                  "id": "[parameters('vnetId')]"
+                },
+                "registrationEnabled": "[parameters('registrationEnabled')]"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/privateDnsZones', parameters('zoneName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "id": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/privateDnsZones', parameters('zoneName'))]"
+            },
+            "name": {
+              "type": "string",
+              "value": "[parameters('zoneName')]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'deploy-vnet')]"
+      ]
+    }
+  ],
+  "outputs": {
+    "vnetId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'deploy-vnet'), '2025-04-01').outputs.id.value]"
+    },
+    "vnetName": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'deploy-vnet'), '2025-04-01').outputs.name.value]"
+    },
+    "subnetIds": {
+      "type": "object",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'deploy-vnet'), '2025-04-01').outputs.subnetIds.value]"
+    },
+    "subnetNames": {
+      "type": "object",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'deploy-vnet'), '2025-04-01').outputs.subnetNames.value]"
+    }
+  }
+}

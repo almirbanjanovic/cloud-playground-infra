@@ -3,7 +3,7 @@ variable "tags" {
 }
 
 variable "base_name" {
-  description = "Base name for storage account"
+  description = "Short project / workload identifier used as a prefix for the AI Search service name."
   type        = string
 }
 
@@ -28,7 +28,7 @@ variable "search_sku" {
 }
 
 variable "subnet_id" {
-  description = "ID of the subnet where the search service will be deployed"
+  description = "ID of the subnet where the AI Search PRIVATE ENDPOINT will be created. The Search service itself is not VNet-injected — this subnet only hosts its PE NIC."
   type        = string
 }
 
@@ -46,6 +46,12 @@ variable "private_dns_zone_ids" {
 variable "search_public_network_access_enabled" {
   description = "Enable public network access for the search service"
   type        = bool
+}
+
+variable "allowed_ips" {
+  description = "IPv4 addresses or CIDR ranges allowed to reach the search service's public endpoint. Only takes effect when `search_public_network_access_enabled = true`. Use to allow the deploying user's public IP for testing while keeping VNet workloads on the private endpoint."
+  type        = list(string)
+  default     = []
 }
 
 variable "local_authentication_enabled" {

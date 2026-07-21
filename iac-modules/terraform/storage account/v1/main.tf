@@ -1,8 +1,16 @@
 #----------------------------------------------------------------
 # General configuration
+#
+# `local.name` is the effective storage account name. When `var.custom_name`
+# is set, it wins outright -- callers that need a bespoke name (e.g. the
+# terraform-state storage account in the ai-foundry base stack) pass one in
+# rather than trying to squeeze it out of the `${base}${env}${loc}${suffix}`
+# convention. When `var.custom_name` is empty, we derive from the standard
+# inputs.
 #----------------------------------------------------------------
 locals {
-  name = "st${var.base_name}${var.environment}${var.location}${var.suffix != "" ? "${var.suffix}" : ""}"
+  derived_name = "st${var.base_name}${var.environment}${var.location}${var.suffix != "" ? "${var.suffix}" : ""}"
+  name         = var.custom_name != "" ? var.custom_name : local.derived_name
 }
 
 resource "azurerm_storage_account" "this" {
@@ -52,6 +60,17 @@ resource "azurerm_storage_account" "this" {
   sftp_enabled   = var.sftp_enabled
 
   tags = var.tags
+
+  # Azure storage account names must be 3-24 chars, lowercase letters +
+  # numbers only. `local.name` concatenates base_name/environment/location
+  # (plus optional suffix) so misconfigured inputs (long names, uppercase,
+  # hyphens) fail fast at plan time instead of during the ARM call.
+  lifecycle {
+    precondition {
+      condition     = length(local.name) >= 3 && length(local.name) <= 24 && can(regex("^[a-z0-9]+$", local.name))
+      error_message = "Storage account name must be 3-24 lowercase alphanumeric characters. Computed: '${local.name}' (length ${length(local.name)}). Shorten base_name/environment/location or set `suffix = \"\"`."
+    }
+  }
 }
 
 #----------------------------------------------------------------

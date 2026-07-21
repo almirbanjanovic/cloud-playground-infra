@@ -8,7 +8,7 @@ variable "resource_group_name" {
 }
 
 variable "base_name" {
-  description = "Base name for the VNet"
+  description = "Short project / workload identifier used as a prefix for the Cognitive Services account name."
   type        = string
 }
 
@@ -44,11 +44,11 @@ variable "project_management_enabled" {
 
 variable "identity_type" {
   type        = string
-  description = "The type of managed identity to assign to the account."
+  description = "Managed identity type. Only SystemAssigned is supported by this module today (no `identity_ids` input is exposed for UserAssigned)."
   default     = "SystemAssigned"
   validation {
-    condition     = contains(["SystemAssigned", "UserAssigned", "SystemAssigned, UserAssigned"], var.identity_type)
-    error_message = "identity_type must be one of: SystemAssigned, UserAssigned, 'SystemAssigned, UserAssigned'."
+    condition     = var.identity_type == "SystemAssigned"
+    error_message = "identity_type must be SystemAssigned. UserAssigned modes require an identity_ids input that this module does not currently expose."
   }
 }
 
@@ -62,6 +62,12 @@ variable "network_acls_bypass" {
   description = "The bypass setting for the network ACLs."
 }
 
+variable "network_acls_ip_rules" {
+  type        = list(string)
+  description = "IPv4 addresses or CIDR ranges allowed to reach the account's public endpoint. Only takes effect when `public_network_access_enabled = true`. Use to allow the deploying user's public IP for testing while keeping VNet workloads on the private endpoint."
+  default     = []
+}
+
 variable "subnet_id" {
   description = "Subnet ID"
   type        = string
@@ -73,9 +79,8 @@ variable "private_dns_zone_ids" {
 }
 
 variable "subresource_names" {
-  description = "Subresource names"
+  description = "Private endpoint subresource names. For Foundry / Cognitive AIServices this must be [\"account\"]."
   type        = list(string)
-  #default     = ["account"]
 }
 
 variable "local_auth_enabled" {

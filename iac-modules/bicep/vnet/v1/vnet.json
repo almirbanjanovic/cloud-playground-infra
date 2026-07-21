@@ -1,0 +1,94 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.45.15.27210",
+      "templateHash": "17927659413413224054"
+    }
+  },
+  "parameters": {
+    "name": {
+      "type": "string",
+      "metadata": {
+        "description": "VNet name."
+      }
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Azure location for the VNet."
+      }
+    },
+    "addressSpace": {
+      "type": "array",
+      "metadata": {
+        "description": "Address space CIDR blocks for the VNet."
+      }
+    },
+    "subnets": {
+      "type": "object",
+      "metadata": {
+        "description": "Map of logical subnet key -> subnet definition."
+      }
+    },
+    "tags": {
+      "type": "object",
+      "defaultValue": {},
+      "metadata": {
+        "description": "Tags applied to the VNet."
+      }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Network/virtualNetworks",
+      "apiVersion": "2024-05-01",
+      "name": "[parameters('name')]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": "[parameters('addressSpace')]"
+        }
+      }
+    },
+    {
+      "copy": {
+        "name": "subnet",
+        "count": "[length(items(parameters('subnets')))]"
+      },
+      "type": "Microsoft.Network/virtualNetworks/subnets",
+      "apiVersion": "2024-05-01",
+      "name": "[format('{0}/{1}', parameters('name'), items(parameters('subnets'))[copyIndex()].value.name)]",
+      "properties": {
+        "addressPrefixes": "[items(parameters('subnets'))[copyIndex()].value.addressPrefixes]",
+        "delegations": "[if(contains(items(parameters('subnets'))[copyIndex()].value, 'delegations'), items(parameters('subnets'))[copyIndex()].value.delegations, createArray())]",
+        "privateEndpointNetworkPolicies": "Disabled"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', parameters('name'))]"
+      ]
+    }
+  ],
+  "outputs": {
+    "id": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.Network/virtualNetworks', parameters('name'))]"
+    },
+    "name": {
+      "type": "string",
+      "value": "[parameters('name')]"
+    },
+    "subnetIds": {
+      "type": "object",
+      "value": "[toObject(items(parameters('subnets')), lambda('k', lambdaVariables('k').key), lambda('k', resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('name'), lambdaVariables('k').value.name)))]"
+    },
+    "subnetNames": {
+      "type": "object",
+      "value": "[toObject(items(parameters('subnets')), lambda('k', lambdaVariables('k').key), lambda('k', lambdaVariables('k').value.name))]"
+    }
+  }
+}

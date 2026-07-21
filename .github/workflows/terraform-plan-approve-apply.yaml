@@ -9,19 +9,9 @@ on:
         type: choice
         options:
           - kaito-on-aks
-          - ai-foundry
           - apim-lab
           - apim-mcp
           - backend-pool-load-balancing
-      stack:
-        description: 'ai-foundry only: which Terraform stack to deploy. Ignored for every other environment (leave blank).'
-        required: false
-        type: choice
-        options:
-          - ''
-          - base
-          - workload
-        default: ''
 
 permissions:
   id-token: write
@@ -30,48 +20,11 @@ permissions:
 
 jobs:
 
-  # -----------------------------------------------------------------------------
-  # Guardrail: fail fast if ai-foundry is selected without a stack (or vice
-  # versa) so the user gets a clear error before anything Azure-facing runs.
-  # -----------------------------------------------------------------------------
-  validate-inputs:
-    name: Validate inputs
-    runs-on: ubuntu-latest
-    steps:
-      - name: Enforce ai-foundry stack pairing
-        env:
-          ENV_NAME: ${{ inputs.environment }}
-          STACK: ${{ inputs.stack }}
-        run: |
-          set -euo pipefail
-          if [[ "$ENV_NAME" == "ai-foundry" && -z "$STACK" ]]; then
-            echo "::error::environment=ai-foundry requires stack=base or stack=workload"
-            exit 1
-          fi
-          if [[ "$ENV_NAME" != "ai-foundry" && -n "$STACK" ]]; then
-            echo "::error::stack is only meaningful for environment=ai-foundry (got environment=$ENV_NAME, stack=$STACK)"
-            exit 1
-          fi
-          echo "OK: environment=$ENV_NAME stack=$STACK"
-
   terraform-plan:
     name: Terraform Plan
-    needs: [validate-inputs]
     uses: ./.github/workflows/terraform-plan.yaml
     with:
       environment: ${{ inputs.environment }}
-      # ai-foundry workload lives behind private endpoints; only the self-
-      # hosted runner in the VNet can reach it. Every other env stays on
-      # ubuntu-latest.
-      runs_on: >-
-        ${{ (inputs.environment == 'ai-foundry' && inputs.stack == 'workload')
-          && '["self-hosted", "ai-foundry"]'
-          || '"ubuntu-latest"' }}
-      # Forward `stack` unchanged; the reusable workflow does the path
-      # composition inside its own job (where env-scoped `vars.*` are
-      # readable). Empty string here means single-stack mode, which every
-      # non-ai-foundry env uses.
-      stack: ${{ inputs.stack }}
     # `secrets: inherit` forwards every repo/environment secret to the called
     # workflow. The called workflow's job selects the environment via
     # `environment: ${{ inputs.environment }}`, so env-scoped secrets and
@@ -98,9 +51,4 @@ jobs:
     uses: ./.github/workflows/terraform-apply.yaml
     with:
       environment: ${{ inputs.environment }}
-      runs_on: >-
-        ${{ (inputs.environment == 'ai-foundry' && inputs.stack == 'workload')
-          && '["self-hosted", "ai-foundry"]'
-          || '"ubuntu-latest"' }}
-      stack: ${{ inputs.stack }}
     secrets: inherit

@@ -19,7 +19,7 @@ output "system_assigned_principal_id" {
 }
 
 output "user_assigned_identity_id" {
-  description = "Resource ID of the user-assigned managed identity attached to the VM. Attach a GitHub Actions federated identity credential here."
+  description = "Resource ID of the user-assigned managed identity attached to the VM. Dormant by default — no role assignments or federated credentials are created by this module. Attach them in the caller's stack if you want the UAMI to authenticate anything."
   value       = azurerm_user_assigned_identity.this.id
 }
 
@@ -34,6 +34,6 @@ output "user_assigned_principal_id" {
 }
 
 output "user_assigned_client_id" {
-  description = "Client ID of the user-assigned managed identity. Use as the `client-id` input to `azure/login@v2` in GitHub Actions workflows."
+  description = "Client ID of the user-assigned managed identity. If a caller opts into UAMI-based workflow auth (federated credential pattern), use this as the `client-id` input to `azure/login@v2`."
   value       = azurerm_user_assigned_identity.this.client_id
 }

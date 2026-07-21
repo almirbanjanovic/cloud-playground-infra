@@ -1,144 +1,318 @@
 # AI Foundry Private Networking Lab
 
-Foundry Agent Service with a **BYO stateful stack** — Storage, Cosmos DB, and AI Search stay in your subscription and are wired to Foundry via managed-identity connections and capability hosts, with a fully-private VNet.
+Foundry Agent Service with a **BYO stateful stack** — Storage, Cosmos DB, and AI Search stay in your subscription, wired to Foundry via managed-identity connections + capability hosts, over a fully-private VNet.
 
-This lab is split into two Terraform stacks:
+Two implementations of the same architecture, side-by-side:
 
-| Stack | Purpose | Runs from |
-|---|---|---|
-| [`base/`](base/terraform/) | Shared network (VNet, subnets, NAT, DNS zones) + jumpbox + self-hosted GitHub Actions runner. | `ubuntu-latest` (GitHub-hosted) |
-| [`workload/`](workload/terraform/) | Foundry account, project, capability hosts + BYO Storage/Cosmos/AI Search + private endpoints. Everything here has `public_network_access_enabled = false`. | `[self-hosted, ai-foundry]` (the runner from `base/`) |
+- **Terraform** in [`base/terraform/`](base/terraform/) + [`workload/terraform/`](workload/terraform/) — uses a remote `azurerm` backend (state stored in an Azure Storage account with a Private Endpoint that Terraform itself manages).
+- **Bicep** in [`base/bicep/`](base/bicep/) + [`workload/bicep/`](workload/bicep/) — no state to manage; ARM tracks deployment history natively.
 
-Why the split: workload data-plane operations (Cosmos SQL role assignments, Foundry capability host provisioning, Storage container access) need to reach services whose public network access is disabled. A GitHub-hosted runner can't reach them — the self-hosted runner living inside the VNet can.
+Pick one path or the other — they are drop-in equivalents. **Do not run both against the same RG.**
 
-## Architecture & Deployment
+## Architecture
 
 ![AI Foundry BYO stateful stack — architecture & deployment](assets/architecture.png)
 
-Source: [assets/architecture.drawio](assets/architecture.drawio) (editable) &nbsp; · &nbsp; PNG: [assets/architecture.png](assets/architecture.png) &nbsp; · &nbsp; Icons: [assets/icons/](assets/icons/)
+Source: [`assets/architecture.drawio`](assets/architecture.drawio) &nbsp; · &nbsp; PNG: [`assets/architecture.png`](assets/architecture.png)
 
-The diagram is a single source of truth for both the target Azure topology *and* the CI/CD flow that deploys it.
+**Base stack (both flavours)** creates:
+- 1 VNet (`10.0.0.0/16`) + 5 subnets: 4 private-endpoint subnets + 1 agent subnet delegated to `Microsoft.App/environments`
+- 11 private DNS zones (3 Cognitive + 6 Storage + Cosmos + Search) linked to the VNet
 
-**How to read it (top → bottom):**
+**Base stack (Terraform ONLY)** additionally creates:
+- A **Terraform-state storage account** (`sttfs<hash>`) with a blob Private Endpoint, holding a `tfstate` container that both stacks use as their remote-state backend.
+- Bicep users don't need this — ARM tracks its own deployment history.
 
-- **GitHub** (top-left) holds the 4 repo secrets, the `ai-foundry` GitHub Environment (3 env secrets + 10 env vars), and the numbered Terraform workflows ① – ⑤. Steps ①–③ execute on `ubuntu-latest`; Step ⑤ executes on the self-hosted `[ai-foundry]` runner deployed by Step ③.
-- **Microsoft Entra ID** (top-right) holds the single `cpi-ai-foundry` identity: one App Registration with a federated credential trusting `repo:{owner}/{repo}:environment:ai-foundry`, plus the service principal that receives Azure RBAC (`Owner` + `Storage Blob Data Contributor` at subscription scope). Steps ②, ③, ⑤ all authenticate here via OIDC — no client secret anywhere.
-- **User** (person icon, top-left) does the two one-time prerequisites: Ⓐ create the App Registration + federated credential + role assignments in Entra, and Ⓑ set the 4 repo secrets in GitHub.
-- **Azure Subscription** (bottom) contains the resource group with the state Storage Account (two containers, `tfstate-base` and `tfstate-workload`), the VNet with all subnets (CI/CD, jumpbox, agent, and 4 PE subnets), and the workload stack (Foundry + BYO Storage / Cosmos / AI Search).
-- **Runner VM** in `snet-cicd` registers itself back to GitHub via `GH_RUNNER_PAT` at first boot (Step ④, dashed line).
-- **Private endpoints** are the only ingress path to the workload — everything on the right has `public_network_access_enabled = false`.
-- The state Storage Account's public network access is **toggled Enabled** during Steps ②, ③, ⑤ (so the GitHub-hosted runner and OIDC principal can reach the blob) and **disabled at the end of the workflow run** — via a shell `trap` in `terraform-init-backend.yaml`, and via a final `if: always()` step in `terraform-plan.yaml` / `terraform-apply.yaml`.
+**Workload stack (both flavours)** creates:
+- Foundry account (`AIServices` kind, `project_management_enabled`, agent-subnet network injection) + Private Endpoint
+- BYO Storage account (6 PEs: blob/file/queue/table/dfs/web), Cosmos DB (SQL API + 1 PE), AI Search (basic + 1 PE)
+- Foundry project + 3 Entra-ID connections + all Phase-3 / Phase-5 RBAC + account & project capability hosts
+- All 4 data-plane services default to `public_network_access_enabled = true` with **default-deny** firewall + deployer-IP allowlist
 
-### Viewing / editing the diagram
+Every private-endpoint-bearing service in the workload stack uses the same posture: local (shared-key/API-key) auth **disabled**, SystemAssigned MI, private endpoint from the VNet, public endpoint restricted to the deployer's IP (which you can strip in the [hardening step](#part-c--harden-remove-deployer-ip-and-close-public-endpoints)).
 
-The `.drawio` is fully self-contained — every icon is inlined as a URL-encoded SVG data URI, so no external files are needed to render it.
+---
 
-- **Inline**: the PNG above is regenerated from `assets/architecture.drawio`. Re-export whenever the source changes so GitHub picks it up.
-- **VS Code**: install the [Draw.io Integration](https://marketplace.visualstudio.com/items?itemName=hediet.vscode-drawio) extension and open the `.drawio` file — it renders inline and stays editable.
-- **Browser**: open [diagrams.net](https://app.diagrams.net) → *File → Open from Device* and pick the `.drawio` file.
-- **Regenerate the PNG**: *File → Export as → PNG*, save to `assets/architecture.png`.
-- **Source SVGs**: [`assets/icons/`](assets/icons/) holds the original per-icon SVG files — kept as reference only (useful when editing an icon design; re-inline into the drawio afterwards).
+## Prerequisites
 
-## What each stack creates
+- **Windows PowerShell 7+** (all commands below are pwsh).
+- **Azure CLI** ≥ 2.60 ([install](https://learn.microsoft.com/cli/azure/install-azure-cli)).
+- **`az login`** as a user with subscription-scope **Owner** for the FIRST deploy — you need `roleAssignments/write` (Owner, User Access Administrator, or Role Based Access Administrator) for the workload's Phase-3 / Phase-5 RBAC assignments, PLUS RP registration.
+- **Terraform** ≥ 1.7.5 ([install](https://developer.hashicorp.com/terraform/install)) — Path B only.
+- **Bicep CLI** ≥ 0.30 (bundled with recent `az`; run `az bicep upgrade` if needed) — Path A only.
+- Outbound HTTPS to `https://api.ipify.org` from your laptop (both paths use it to discover your public IP).
 
-### `base/` — network, jumpbox, runner
+Both paths default to region `eastus2` and RG name `rg-ai-foundry-dev`.
 
-- **1 VNet** (`10.0.0.0/16`) with **7 subnets** via [subnet/v1](../../iac-modules/terraform/subnet/v1/main.tf) (actual Azure names include the `-playground-dev` suffix from the shared `local.base_name` / `local.environment` — see the diagram for full names + CIDRs):
-  - 4 private-endpoint subnets: `snet-cognitive`, `snet-storage`, `snet-cosmos`, `snet-search`
-  - 1 agent-runtime subnet delegated to `Microsoft.App/environments`
-  - `snet-cicd` for the GitHub Actions runner
-  - `snet-jumpbox` for the operator jumpbox
-- **11 private DNS zones** (3 for Foundry, 6 for Storage, 1 for Cosmos, 1 for Search) linked to the VNet via [private_dns_zone/v1](../../iac-modules/terraform/private_dns_zone/v1/main.tf).
-- **NAT gateway** attached to `snet-cicd` + `snet-jumpbox` so both VMs have outbound Internet to GitHub, apt, and Azure ARM.
-- **Jumpbox** via [jumpbox/v1](../../iac-modules/terraform/jumpbox/v1/main.tf) — Ubuntu 22.04, public IP with SSH allowlist, Entra ID SSH login enabled.
-- **CI/CD runner** via [cicd_runner/v1](../../iac-modules/terraform/cicd_runner/v1/main.tf) — Ubuntu 22.04, no public IP, UAMI, cloud-init that installs Azure CLI + Terraform + tflint and registers the runner against your repo with a fresh registration token minted from your PAT.
-- **Auth**: both terraform workflows authenticate to Azure as a single App Registration you create manually in Prereq A (see [Authentication model](#authentication-model)). The runner VM's UAMI is only attached for potential future VM-local use; the CI workflows don't rely on it.
+---
 
-### `workload/` — Foundry, BYO services, capability hosts
+## Path A — Bicep
 
-- **BYO data plane** via [cosmos_db/v1](../../iac-modules/terraform/cosmos_db/v1/main.tf), [storage account/v1](../../iac-modules/terraform/storage%20account/v1/main.tf), and [ai_search/v1](../../iac-modules/terraform/ai_search/v1/main.tf). All have public network disabled, local auth disabled, SystemAssigned MI, and private endpoints into the corresponding subnets from `base/`.
-- **Foundry account** via [cognitive_account/v1](../../iac-modules/terraform/cognitive_account/v1/main.tf) — `kind = "AIServices"`, `project_management_enabled = true`, network injection into the agent subnet from `base/`.
-- **Foundry project + capability hosts** via [foundry_project/v1](../../iac-modules/terraform/foundry_project/v1/main.tf) — creates the project MI, grants Phase-3 and Phase-5 RBAC, waits 60s for RBAC propagation, then creates the account and project capability hosts that bind the three BYO connections into Agent Service.
+### Step 1. Sign in, create the RG, register Resource Providers (~3 min)
 
-Workload references everything in `base/` via `data` sources (by name), so the two stacks don't share state files or state containers — only the naming convention encoded in `locals` at the top of both `main.tf` files.
+```powershell
+az login
+az account set --subscription <YOUR_SUBSCRIPTION_ID>
 
-## Authentication model
+$RG  = "rg-ai-foundry-dev"
+$LOC = "eastus2"
 
-Pure OIDC + managed identities. **Zero client secrets, zero account keys, anywhere.** Follows the standard pattern documented in the [root README](../../README.md#configure-new-app-registration-in-microsoft-entra-id) — one App Registration federated to the `ai-foundry` GitHub environment, no matter which stack the workflow is deploying.
+az group create -n $RG -l $LOC --tags environment=dev workload=ai-foundry
 
-### Identities
+foreach ($rp in @(
+    'Microsoft.App',
+    'Microsoft.CognitiveServices',
+    'Microsoft.ContainerInstance',     # backs deploymentScripts (workload's RBAC-propagation sleep)
+    'Microsoft.ContainerService',
+    'Microsoft.DocumentDB',
+    'Microsoft.KeyVault',
+    'Microsoft.MachineLearningServices',
+    'Microsoft.Network',
+    'Microsoft.Search',
+    'Microsoft.Storage'
+)) { az provider register --namespace $rp --wait }
+```
 
-| # | Identity | Kind | Created by | Used for |
-|---|---|---|---|---|
-| 1 | `cpi-ai-foundry` App Registration | Entra ID App Registration (no client secret) | You, once, in Prereq A (Azure Portal) | `azure/login@v2` OIDC from every terraform workflow |
-| 2 | Foundry project MI | SystemAssigned on `azurerm_cognitive_account_project` | Workload Terraform | Foundry Agent Service runtime → BYO Storage/Cosmos/Search |
+### Step 2. Deploy the base stack (~4 min)
 
-Plus SystemAssigned MIs on Storage, Cosmos, AI Search, Cognitive account (created by their modules for outbound integrations if ever needed) and a UAMI attached to the runner VM (for potential future VM-local scripts via `az login --identity` — not used for CI auth).
+```powershell
+$env:DEPLOYER_IP = (Invoke-RestMethod https://api.ipify.org).Trim()
 
-### All auth flows
+az deployment group create `
+    -g $RG `
+    -f environments/ai-foundry/base/bicep/main.bicep `
+    -p environments/ai-foundry/base/bicep/main.bicepparam
+```
 
-| # | From | To | Mechanism |
-|---|---|---|---|
-| 1 | Bootstrap GitHub Environments workflow | GitHub API | `gh` CLI with `GH_TOKEN=GH_ADMIN_PAT` — writes env-scoped secrets/vars |
-| 2 | Terraform Init Remote Backend (ai-foundry) | Azure ARM + Storage data plane | App Registration via OIDC (`repo:{owner}/{repo}:environment:ai-foundry` subject) |
-| 3 | Base plan/apply | Azure ARM + Storage state backend (`tfstate-base/base.tfstate`) | App Registration via OIDC (`ARM_USE_OIDC=true` + `ARM_USE_AZUREAD=true`); backend needs Storage Blob Data Contributor at subscription scope |
-| 4 | Runner VM cloud-init | GitHub API | Fine-grained PAT `GH_RUNNER_PAT` — mints a runner-registration token at first boot |
-| 5 | Workload plan/apply | Azure ARM + Storage state backend (`tfstate-workload/workload.tfstate`) + Cognitive/Cosmos/Search/Storage data planes | Same App Registration via OIDC — same federated credential subject as base because both stacks run under the same `ai-foundry` GitHub environment (differentiated by the `stack` dispatch input). Runner VM only provides network path into the VNet. |
-| 6 | Foundry project MI | Storage / Cosmos / AI Search | Entra ID over private endpoints, routed through the three `azurerm_cognitive_account_connection_entra_id` records that the project capability host binds into Agent Service. RBAC granted during workload apply (see roster below). |
-| 7 | Operator | Jumpbox VM | `az ssh vm` (Entra ID SSH) via `AADSSHLoginForLinux` VM extension |
-| 8 | Operator | Runner VM (diagnostics only) | `az vm run-command invoke` — control-plane; no SSH (runner NSG denies inbound at priority 4000) |
+Base doesn't create any firewalled service, but `main.bicepparam` still expects `DEPLOYER_IP` in the environment so both stacks share the same parameterisation pattern.
 
-**Local (key-based) auth is disabled** on the Cognitive account, Storage, Cosmos, and AI Search. `storage_use_azuread = true` in the workload provider forces Terraform's storage data-plane calls through Entra ID.
+### Step 3. Deploy the workload stack (~15–20 min)
 
-> **A note on OIDC subject format.** The subjects above (`repo:{owner}/{repo}:environment:...`) are GitHub's traditional format. Some newer repositories use immutable subjects that include repo/org IDs (`repo:{owner}@{owner-id}/{repo}@{repo-id}:environment:...`). The Azure Portal wizard for GitHub Actions federated credentials fills in whichever your repo uses — always accept exactly what the wizard generates, don't hand-type it.
+```powershell
+az deployment group create `
+    -g $RG `
+    -f environments/ai-foundry/workload/bicep/main.bicep `
+    -p environments/ai-foundry/workload/bicep/main.bicepparam
+```
 
-### GitHub secrets & variables inventory
+Your IP (from `$env:DEPLOYER_IP` set in Step 2) is pinned into the firewall on all 4 workload services (Storage, Cosmos, AI Search, Foundry account). This is required because Bicep's ARM engine performs data-plane calls during apply (Cosmos SQL RBAC, Foundry connection provisioning, capability host creation) that go through those firewalls.
 
-**Repo-level secrets** (set manually in Prereq B):
+### Step 4. Verify
 
-| Name | Purpose |
-|---|---|
-| `AZURE_CLIENT_ID` | App Registration client ID — used by every workflow via `azure/login@v2` |
-| `AZURE_TENANT_ID` | Directory (tenant) ID |
-| `AZURE_SUBSCRIPTION_ID` | Target subscription ID |
-| `GH_ADMIN_PAT` | Fine-grained PAT — bootstrap workflow uses this to write env-scoped secrets/vars |
+```powershell
+az resource list -g $RG --query "[].{name:name, type:type}" -o table
+```
 
-**Env-scoped secrets** (populated by Step 1 into `ai-foundry`):
+You should see: 1 VNet, 5 subnets (child), 11 privateDnsZones, **9 privateEndpoints**, 1 Cognitive account + 1 project, 1 Storage, 1 Cosmos, 1 Search.
 
-| Name | Value used for |
-|---|---|
-| `TAGS` | Applied to the RG at creation time by `terraform-init-backend.yaml` |
-| `ADMIN_SSH_PUBLIC_KEY` | `TF_VAR_admin_ssh_public_key` — jumpbox + runner SSH key |
-| `GH_RUNNER_PAT` | `TF_VAR_github_pat` — cloud-init on runner VM |
+---
 
-**Env-scoped variables** on `ai-foundry` (populated by Step 1):
+## Path B — Terraform
 
-| Name | Value | Purpose |
-|---|---|---|
-| `RESOURCE_GROUP`, `LOCATION`, `STORAGE_ACCOUNT`, `STORAGE_ACCOUNT_SKU`, `STORAGE_ACCOUNT_ENCRYPTION_SERVICES`, `STORAGE_ACCOUNT_MIN_TLS_VERSION`, `STORAGE_ACCOUNT_PUBLIC_NETWORK_ACCESS` | shape values | RG + state SA configuration |
-| `ALLOWED_SSH_SOURCE_PREFIXES` | JSON list of CIDRs | `TF_VAR_allowed_ssh_source_prefixes` — jumpbox NSG allowlist |
-| `JUMPBOX_ENTRA_ADMIN_OBJECT_IDS` | JSON list | `TF_VAR_jumpbox_entra_admin_object_ids` — VM Admin Login grantees |
-| `TERRAFORM_WORKING_DIRECTORY` | `environments/ai-foundry` (base path) | The reusable workflow appends `/base/terraform` or `/workload/terraform` at dispatch time using the `stack` input. |
+Terraform needs somewhere to store state before `terraform apply` can create anything. Since Terraform can't atomically create its own backing store, we **bootstrap the state storage account with `az`** first, then `terraform import` it and let Terraform manage it (including adding its Private Endpoint) from there on.
 
-**Not stored as env vars** — derived at dispatch time by the reusable workflow:
+### Step 1. Sign in, create the RG, grant self blob data access (~2 min)
 
-| Name | Value | Derived from |
-|---|---|---|
-| `TERRAFORM_STATE_CONTAINER` | `tfstate-base` or `tfstate-workload` | `format('tfstate-{0}', inputs.stack)` |
-| `TERRAFORM_STATE_BLOB` | `base.tfstate` or `workload.tfstate` | `format('{0}.tfstate', inputs.stack)` |
+```powershell
+az login
+az account set --subscription <YOUR_SUBSCRIPTION_ID>
 
-`TF_VAR_github_org` and `TF_VAR_github_repo` are NOT stored — they're derived at workflow runtime from `${{ github.repository_owner }}` and `${{ github.event.repository.name }}`.
+$RG  = "rg-ai-foundry-dev"
+$LOC = "eastus2"
+$SUB = (az account show --query id -o tsv)
+$ME  = (az ad signed-in-user show --query id -o tsv)
 
-### RBAC roster
+az group create -n $RG -l $LOC --tags environment=dev workload=ai-foundry
 
-**App Registration** — `cpi-ai-foundry` (granted manually in Prereq A):
+# Storage Blob Data Contributor at RG scope so `az storage container create --auth-mode login`
+# and Terraform's azurerm backend can both authenticate via Entra ID (shared-key access is disabled).
+az role assignment create `
+    --assignee-object-id $ME `
+    --assignee-principal-type User `
+    --role "Storage Blob Data Contributor" `
+    --scope "/subscriptions/$SUB/resourceGroups/$RG"
 
-| Role | Scope | Why |
-|---|---|---|
-| Owner | Subscription | Create RG + all Azure resources during both base and workload apply; grant phase-3/5 role assignments during workload apply |
-| Storage Blob Data Contributor | Subscription | Terraform state backend via `ARM_USE_AZUREAD=true`; `az storage container create --auth-mode login` in init-backend |
+# Wait for the role assignment to propagate before using it.
+Start-Sleep -Seconds 60
+```
 
-**Foundry project MI** (SystemAssigned, granted by `foundry_project/v1`):
+### Step 2. Bootstrap the Terraform-state storage account (~2 min)
+
+The state SA name matches what base's `main.tf` will expect: `sttfs<md5(RG + base_name + environment + location)>` truncated to 12 hex chars.
+
+```powershell
+$DEPLOYER_IP = (Invoke-RestMethod https://api.ipify.org).Trim()
+
+$hashInput = "${RG}playgrounddev${LOC}"
+$md5       = [System.Security.Cryptography.MD5]::Create()
+$hashBytes = $md5.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($hashInput))
+$HASH      = -join ($hashBytes | ForEach-Object { $_.ToString('x2') })
+$STATE_SA  = "sttfs" + $HASH.Substring(0, 12)
+
+az storage account create `
+    -g $RG -n $STATE_SA -l $LOC `
+    --sku Standard_LRS `
+    --kind StorageV2 `
+    --min-tls-version TLS1_2 `
+    --https-only true `
+    --allow-blob-public-access false `
+    --allow-shared-key-access false `
+    --default-action Deny `
+    --public-network-access Enabled `
+    --bypass AzureServices `
+    --ip-address $DEPLOYER_IP
+
+az storage container create `
+    --auth-mode login `
+    --account-name $STATE_SA `
+    -n tfstate
+```
+
+### Step 3. Init base with the remote backend + import the bootstrapped SA (~2 min)
+
+```powershell
+cd environments/ai-foundry/base/terraform
+
+terraform init `
+    -backend-config="resource_group_name=$RG" `
+    -backend-config="storage_account_name=$STATE_SA"
+
+terraform import "module.tfstate_storage.azurerm_storage_account.this" `
+    "/subscriptions/$SUB/resourceGroups/$RG/providers/Microsoft.Storage/storageAccounts/$STATE_SA"
+
+terraform import "azurerm_storage_container.tfstate" `
+    "/subscriptions/$SUB/resourceGroups/$RG/providers/Microsoft.Storage/storageAccounts/$STATE_SA/blobServices/default/containers/tfstate"
+```
+
+### Step 4. Apply base (~5 min)
+
+```powershell
+terraform apply
+```
+
+Terraform adds the blob Private Endpoint on the imported state SA, reconciles blob-service properties (soft-delete, versioning, last-access tracking) to match the module's config, then creates the VNet + 5 subnets + 11 DNS zones with VNet links.
+
+### Step 5. Init workload with remote backend + apply (~15–20 min)
+
+```powershell
+cd ../../workload/terraform
+
+terraform init `
+    -backend-config="resource_group_name=$RG" `
+    -backend-config="storage_account_name=$STATE_SA"
+
+terraform apply
+```
+
+The workload's `data.http.myip` auto-detects your IP and pins it into all 4 service firewalls. The Cosmos SQL role assignment + Foundry capability host provisioning both go through the data planes of those services, so they need your IP allowlisted at deploy time.
+
+### Step 6. Verify
+
+```powershell
+cd ../..
+az resource list -g $RG --query "[].{name:name, type:type}" -o table
+```
+
+You should see: 1 VNet, 5 subnets (child), 11 privateDnsZones, **10 privateEndpoints** (Bicep would have 9; Terraform's extra one is on the state SA), 1 Cognitive account + 1 project, 2 Storage (state SA + workload SA), 1 Cosmos, 1 Search.
+
+---
+
+## Redeploy (idempotent)
+
+Both paths are idempotent — rerun the same commands to pick up any change (config edit, code change, or your IP moved because you reconnected the VPN). The IaC reconciles the firewall allowlists automatically.
+
+### Path A — Bicep
+
+```powershell
+$env:DEPLOYER_IP = (Invoke-RestMethod https://api.ipify.org).Trim()
+
+az deployment group create `
+    -g $RG `
+    -f environments/ai-foundry/workload/bicep/main.bicep `
+    -p environments/ai-foundry/workload/bicep/main.bicepparam
+```
+
+### Path B — Terraform
+
+If your IP changed, refresh the state SA's firewall allowlist before Terraform can read state (control plane is always reachable regardless of the storage account firewall):
+
+```powershell
+$DEPLOYER_IP = (Invoke-RestMethod https://api.ipify.org).Trim()
+az storage account network-rule add -g $RG -n $STATE_SA --ip-address $DEPLOYER_IP
+
+cd environments/ai-foundry/workload/terraform
+terraform apply
+```
+
+The ad-hoc `network-rule add` stays as drift on the state SA until the next `base` apply, at which point `data.http.myip` reconciles the full allowlist canonically.
+
+---
+
+## Part C — Harden: remove deployer IP and close public endpoints
+
+Once you've finished a deploy session and want to lock the workload data planes down.
+
+### Path A — Bicep
+
+```powershell
+az deployment group create `
+    -g $RG `
+    -f environments/ai-foundry/workload/bicep/main.bicep `
+    -p environments/ai-foundry/workload/bicep/main.bicepparam `
+    -p enablePublicNetworkAccess=false `
+    -p deployerIp=""
+```
+
+All 4 workload data-plane services flip to `publicNetworkAccess = Disabled`. Private endpoints stay wired for the agent runtime.
+
+### Path B — Terraform
+
+```powershell
+cd environments/ai-foundry/workload/terraform
+terraform apply -var 'enable_public_network_access=false' -var 'deployer_ip='
+```
+
+Same result. The state SA stays reachable because base's `enable_public_network_access` is unchanged.
+
+### Un-harden (before your next deploy)
+
+**Path A — Bicep**: rerun Step 3 of Path A (`az deployment group create` with just the bicepparam file — `enablePublicNetworkAccess` and `deployerIp` snap back to their defaults).
+
+**Path B — Terraform**: rerun `terraform apply` in workload with no `-var` flags. Both flags default back to `true` / auto-detect.
+
+---
+
+## Tear down
+
+### Path A — Bicep
+
+```powershell
+az group delete -n $RG --yes --no-wait
+```
+
+### Path B — Terraform
+
+Remove the state SA + container from Terraform's tracking BEFORE destroying, so `terraform destroy` doesn't try to delete the backend it's currently reading:
+
+```powershell
+cd environments/ai-foundry/workload/terraform
+terraform destroy
+
+cd ../../base/terraform
+terraform state rm 'module.tfstate_storage.azurerm_storage_account.this'
+terraform state rm 'azurerm_storage_container.tfstate'
+terraform destroy
+
+az group delete -n $RG --yes --no-wait
+```
+
+Workload destroy runs first (its resources reference base). Base destroy only removes the VNet + DNS zones because we untracked the tfstate SA + container. The final `az group delete` cleans up the (now orphaned from Terraform, but still in Azure) tfstate SA.
+
+---
+
+## RBAC roster (workload)
+
+The workload's `foundry_project` module grants these to the Foundry project's SystemAssigned MI:
 
 | Phase | Role | Scope | Why |
 |---|---|---|---|
@@ -147,283 +321,29 @@ Plus SystemAssigned MIs on Storage, Cosmos, AI Search, Cognitive account (create
 | 5 | Search Index Data Contributor | AI Search | Agents read/write vector indexes |
 | 5 | Search Service Contributor | AI Search | Agents create indexes on demand |
 | 5 | Storage Blob Data Owner | Storage account | Agents read/write files in the auto-created containers |
-| 5 | Cosmos DB Built-in Data Contributor | Cosmos account | Agents read/write threads in `enterprise_memory` |
+| 5 | Cosmos DB Built-in Data Contributor | Cosmos account (SQL role) | Agents read/write threads in `enterprise_memory` |
 
-**Jumpbox operator logins** — Entra objects listed in `JUMPBOX_ENTRA_ADMIN_OBJECT_IDS` (granted by `jumpbox/v1`):
+Terraform waits 60 s (`time_sleep`) between assignments and capability-host provisioning; Bicep waits 60 s via `Microsoft.Resources/deploymentScripts` for the same reason.
 
-| Role | Scope | Why |
+---
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
 |---|---|---|
-| Virtual Machine Administrator Login | Jumpbox VM | Enables `az ssh vm` with AAD auth (via `AADSSHLoginForLinux` extension) |
-
-### Federated identity credentials
-
-One federated credential on the App Registration created in Prereq A:
-
-| Subject | Used from |
-|---|---|
-| `repo:{owner}/{repo}:environment:ai-foundry` | Every terraform workflow (init-backend, base plan/apply, workload plan/apply) |
-
-Issuer: `https://token.actions.githubusercontent.com`. Audience: `api://AzureADTokenExchange`.
-
-### Public network access
-
-Every workload data-plane service has `public_network_access_enabled = false`:
-
-- Foundry account (Cognitive AIServices)
-- Storage account
-- Cosmos DB
-- AI Search
-
-The **state storage account** starts each terraform workflow with public network access toggled ON (so the runner can reach the blob endpoint from its NAT-gateway public egress) and gets toggled OFF at exit — via a shell `trap` in `terraform-init-backend.yaml`, and via a final `if: always()` step in both `terraform-plan.yaml` and `terraform-apply.yaml`. Final state after every workflow run is `Disabled` (a force-cancelled or crashed runner is the one edge case that can leave it Enabled — re-run the same workflow to normalize, or toggle Disabled from the Portal).
-
-## Prereq resource providers
-
-Registered idempotently by the **base stack** at first apply (workload's `providers.tf` sets `resource_provider_registrations = "none"` because base runs first and covers everything). Namespaces covered: `Microsoft.App`, `Microsoft.CognitiveServices`, `Microsoft.Compute`, `Microsoft.ContainerService`, `Microsoft.DocumentDB`, `Microsoft.KeyVault`, `Microsoft.MachineLearningServices`, `Microsoft.ManagedIdentity`, `Microsoft.Network`, `Microsoft.Search`, `Microsoft.Storage`.
-
----
-
-
-## Deploy — CI-only
-
-Four workflow runs (the last two are stack-specific and each need one manual approval). The prereqs follow the standard repo pattern documented in the [root README](../../README.md#configure-new-app-registration-in-microsoft-entra-id) — one App Registration in Entra ID with one federated credential, no client secret anywhere.
-
-### Prereq A. Create the App Registration in Entra ID (~5 minutes)
-
-Portal UI, all clicks — no local CLI. Same pattern the root README describes for every other env in this repo.
-
-> **What you personally need to be able to do this**
->
-> - In your Entra tenant: permission to **create App Registrations** (the built-in `Application Developer` role is enough; `Application Administrator` or Global Administrator also work). Most tenants allow all users to register apps by default.
-> - On the target Azure subscription: **`Owner`** or **`User Access Administrator`** (needed to grant the two role assignments in step 4 below). Subscription `Contributor` alone cannot grant role assignments and will silently fail step 4.
->
-> Ask your tenant / subscription admin if you're not sure whether you have these.
-
-1. Azure Portal → **Microsoft Entra ID** → **App registrations** → **New registration**.
-   - Name: e.g. `cpi-ai-foundry` (any name works).
-   - Supported account types: default (single tenant).
-   - Redirect URI: leave blank.
-   - Click **Register**.
-2. On the app's overview page, copy three values into a scratchpad — you'll set them as GitHub secrets in Prereq B:
-   - **Application (client) ID** → `AZURE_CLIENT_ID`
-   - **Directory (tenant) ID** → `AZURE_TENANT_ID`
-   - Then Azure Portal → **Subscriptions** → your subscription → copy the ID → `AZURE_SUBSCRIPTION_ID`
-3. On the app: **Certificates & secrets** → **Federated credentials** → **Add credential**. Add ONE credential:
-   - Federated credential scenario: **GitHub Actions deploying Azure resources**
-   - Organization: your GitHub org / username
-   - Repository: this repo name
-   - Entity type: **Environment**
-   - GitHub environment name: `ai-foundry`
-   - Name (auto-suggested is fine): `ai-foundry`
-   - Save.
-
-   > Both Terraform stacks (base + workload) authenticate through this single federated credential because both run under the same `ai-foundry` GitHub environment. The stack they deploy is selected at workflow-dispatch time via a separate `stack` input.
-
-4. Grant the App Registration the roles it needs at **subscription scope**:
-   - **Owner** — to create the RG and all resources, and to grant phase-3/5 role assignments during workload apply.
-   - **Storage Blob Data Contributor** — for the Terraform state backend (which uses `ARM_USE_AZUREAD=true`) and for `az storage container create --auth-mode login` in the init-backend workflow.
-
-   Portal: **Subscriptions** → your subscription → **Access control (IAM)** → **Add role assignment**. Twice, once for each role. Assign to the app registration you just created.
-
-> Contributor + User Access Administrator is functionally equivalent to Owner if you prefer least-privilege naming, but you still need Storage Blob Data Contributor separately either way.
-
-### Prereq B. Create GitHub PATs + repo secrets (~4 minutes)
-
-**Two fine-grained PATs.** Create both at https://github.com/settings/personal-access-tokens/new — scope each to only this repository.
-
-| PAT | Repository permissions | Purpose |
-|---|---|---|
-| `GH_ADMIN_PAT` | Environments r/w · Secrets r/w · Variables r/w · Metadata r | The bootstrap workflow uses this to create the `ai-foundry` environment and write its scoped secrets/vars. |
-| `GH_RUNNER_PAT` | Administration r/w · Metadata r | Cloud-init on the runner VM uses this to mint fresh runner-registration tokens. Passed to the bootstrap workflow as an input. |
-
-**Four repo-level secrets.** Repo → Settings → Secrets and variables → Actions → *New repository secret*:
-
-| Name | Value |
-|---|---|
-| `AZURE_CLIENT_ID` | Application (client) ID from Prereq A step 2 |
-| `AZURE_TENANT_ID` | Directory (tenant) ID from Prereq A step 2 |
-| `AZURE_SUBSCRIPTION_ID` | Subscription ID from Prereq A step 2 |
-| `GH_ADMIN_PAT` | The admin PAT you just created |
-
-Hold on to `GH_RUNNER_PAT` — it's an input to Step 1.
-
-> **Why repo-level for AZURE_***? Both Terraform stacks share one GitHub environment (`ai-foundry`) and one App Registration; repo-level keeps them de-duplicated and matches the root README pattern.
-
----
-
-### Step 1. Actions → *Bootstrap GitHub Environments* → *Run workflow*
-
-Fill in 5 required inputs + 2 optional. `github_runner_pat` is masked in logs.
-
-| Input | Value |
-|---|---|
-| `state_storage_account_name` | Globally-unique 3-24 lowercase alphanumerics, e.g. `staifoundry123456`. |
-| `admin_ssh_public_key` | Output of `cat ~/.ssh/id_ed25519.pub` on your laptop. If you don't have a key yet: `ssh-keygen -t ed25519 -C "ai-foundry"` (accept defaults, no passphrase for the lab), then `cat ~/.ssh/id_ed25519.pub`. On Windows PowerShell: `ssh-keygen -t ed25519 -C "ai-foundry"` then `Get-Content $HOME\.ssh\id_ed25519.pub`. |
-| `github_runner_pat` | `GH_RUNNER_PAT` from Prereq B. |
-| `allowed_ssh_source_prefixes` | JSON list of CIDRs allowed to SSH the jumpbox, e.g. `["203.0.113.42/32"]`. Get your egress IP at https://ifconfig.me. Never `["0.0.0.0/0"]`. |
-| `jumpbox_entra_admin_object_ids` | JSON list of Entra object IDs (users/groups) allowed to `az ssh vm` the jumpbox. Find yours in Entra ID → Users → your account → Object ID. |
-| `resource_group_name` (optional) | Default `rg-ai-foundry-dev`. |
-| `tags` (optional) | Default `environment=dev workload=ai-foundry`. |
-
-Takes ~15 seconds. Preflight verifies that Prereq B set the three `AZURE_*` repo secrets before writing anything. Also cleans up the legacy `ai-foundry-base` and `ai-foundry-workload` environments if they exist from an earlier iteration.
-
-**Verify** (workflow log tail):
-
-```
-Bootstrap complete.
-  ai-foundry: 3 secrets + 10 variables
-
-TERRAFORM_STATE_CONTAINER and TERRAFORM_STATE_BLOB are NOT stored;
-they are derived at dispatch time from the 'stack' input.
-```
-
-Re-run any time to rotate `GH_RUNNER_PAT`, change the SSH allowlist, etc. — it's idempotent.
-
----
-
-### Step 2. Actions → *Terraform Init Remote Backend* → *Run workflow*
-
-Environment: **`ai-foundry`**. Takes ~2 minutes.
-
-Creates the resource group + state storage account + **both** state containers (`tfstate-base` and `tfstate-workload` — the two Terraform stacks get physically separate containers). Public network access ends `Disabled` (the workflow's `trap`).
-
-**Verify**: workflow log ends with `Creating storage container 'tfstate-base'...` and `Creating storage container 'tfstate-workload'...` (or `already exists` on a re-run). Public network access ends `Disabled` (workflow's `trap`).
-
----
-
-### Step 3. Actions → *Terraform Plan, Approve, Apply* → *Run workflow*
-
-Environment: **`ai-foundry`**, **stack: `base`**. Runs on `ubuntu-latest`. Takes **~10–15 minutes** end-to-end.
-
-The workflow derives the working directory (`environments/ai-foundry/base/terraform`), the state container (`tfstate-base`), and the state blob (`base.tfstate`) automatically from the stack input.
-
-When the approval issue opens, comment **`approve`** (or `approved`, `lgtm`, `yes`) in the issue — the [`trstringer/manual-approval` action](https://github.com/trstringer/manual-approval) is comment-driven; there is no button. The workflow assigns the issue to `${{ github.repository_owner }}` (your GitHub username for personal repos; the org login for org repos — in an org repo, that principal must be able to comment on the issue).
-
-**Verify**: workflow log shows `Apply complete!` and lists the outputs (VNet name, jumpbox / runner VM names, jumpbox public IP). Wait for the runner to come online (Step 4) before running the workload stack.
-
----
-
-### Step 4. (~5–15 minutes wait) Verify the self-hosted runner is online
-
-Repo → Settings → Actions → Runners. Wait for `vm-playground-dev-runner` to show `Idle` with labels `self-hosted`, `linux`, `ai-foundry` (plus GitHub's auto-added `X64`). Cloud-init downloads and installs packages, so first-boot registration takes 5–15 minutes after Step 3 finishes.
-
-> If you dispatch Step 5 before the runner is `Idle`, the workflow will **sit queued silently** waiting for a matching runner — there is no error until GitHub eventually times out the job (24h default). Always confirm the runner is `Idle` first.
-
-If the runner doesn't come online after 15 minutes, see the [troubleshooting appendix](#appendix-a--optional-local-debugging).
-
----
-
-### Step 5. Actions → *Terraform Plan, Approve, Apply* → *Run workflow*
-
-Environment: **`ai-foundry`**, **stack: `workload`**. The caller workflow auto-selects `runs-on: [self-hosted, ai-foundry]` when `stack=workload`, so it lands on the runner from Step 4. Working directory becomes `environments/ai-foundry/workload/terraform`; state lives in `tfstate-workload/workload.tfstate`.
-
-Takes **~15–20 minutes** (Storage + Cosmos + AI Search + Foundry account + **9 private endpoints** — 1 for Cognitive, 6 for Storage (blob/file/queue/table/web/dfs), 1 for Cosmos, 1 for Search — plus capability hosts + 60s RBAC-propagation wait).
-
-Approve the plan when the issue opens.
-
-**Verify**: workflow log ends with `Apply complete!`. You now have the full Foundry Agent Service stack deployed on private endpoints.
-
----
-
-## Appendix A — Optional local debugging
-
-Nothing below is required for the happy path. Use only if a workflow fails and you need to poke at the deployed resources.
-
-> **RG name in the commands below:** these examples hard-code `rg-ai-foundry-dev`. If you overrode `resource_group_name` in Step 1, substitute your value throughout (or `export RG=<your-rg>` and use `$RG` in place of the literal). VM / SA names use the shared `local.base_name = "playground"` and are unaffected by the RG override.
-
-### Diagnose runner cloud-init from your laptop
-
-SSH to the runner is blocked (its NSG denies all inbound at priority 4000). Use Azure's built-in run-command instead — no network path required, no SSH keys:
-
-```bash
-az vm run-command invoke \
-  --resource-group rg-ai-foundry-dev \
-  --name vm-playground-dev-runner \
-  --command-id RunShellScript \
-  --scripts "sudo tail -n 200 /var/log/cloud-init-output.log"
-
-az vm run-command invoke \
-  --resource-group rg-ai-foundry-dev \
-  --name vm-playground-dev-runner \
-  --command-id RunShellScript \
-  --scripts "sudo systemctl status 'actions.runner.*.service' --no-pager"
-```
-
-Common failures:
-
-| Log line contains | Cause | Fix |
-|---|---|---|
-| `Failed to mint runner registration token` | `GH_RUNNER_PAT` scope is wrong | Regenerate the PAT with `Administration: r/w`, re-run Step 1 (bootstrap re-writes the env secret), then re-dispatch Step 3 (base plan/apply). If the cloud-init input didn't change, force VM recreation by re-running Step 3 after tainting via the reusable workflow — easiest path: delete the runner in Repo → Settings → Actions → Runners, then re-dispatch Step 3 with the same inputs and Terraform will detect the missing registration and recreate the VM on the next apply. |
-| `Could not resolve host: api.github.com` | NAT gateway not attached | Should not happen if base applied cleanly; check `azurerm_subnet_nat_gateway_association.cicd` in state. |
-| `Runner already exists` (from a prior half-registration) | Cloud-init's `runcmd` only fires on first boot — a restart does NOT re-run it | Delete the orphaned runner in Repo → Settings → Actions → Runners, then re-dispatch Step 3 to force a fresh apply that recreates the VM (Terraform sees the runner's cloud-init token is invalidated and rebuilds the VM). |
-
-### Validate private connectivity from the jumpbox
-
-`az ssh vm` uses AAD SSH (the jumpbox has the `AADSSHLoginForLinux` extension + role assignments granted to the Entra IDs you listed in Step 1). No local SSH keys needed if you use it.
-
-```bash
-az ssh vm --resource-group rg-ai-foundry-dev --name vm-playground-dev-jumpbox
-```
-
-Once inside:
-
-```bash
-# Every FQDN must resolve to a 10.0.x.x address (private endpoint IP)
-nslookup cog-acc-playground-dev-centralus.cognitiveservices.azure.com
-nslookup $(az storage account list -g rg-ai-foundry-dev --query "[?tags.workload=='ai-foundry'].name | [0]" -o tsv).blob.core.windows.net
-nslookup $(az cosmosdb list        -g rg-ai-foundry-dev --query "[0].name" -o tsv).documents.azure.com
-nslookup $(az search service list  -g rg-ai-foundry-dev --query "[0].name" -o tsv).search.windows.net
-
-# Reachability check — HTTP 401 (auth required) is success. Connection refused = broken PE.
-curl -sI https://cog-acc-playground-dev-centralus.cognitiveservices.azure.com | head -1
-```
-
-**Same nslookup from OUTSIDE the VNet** (from your laptop) returns the PUBLIC IP, and `curl` fails because `public_network_access_enabled = false`.
-
-### Fetch Terraform outputs from your laptop
-
-Not needed for the CI flow (the base apply logs the outputs). But if you want to poke at state directly:
-
-```bash
-# Requires an interactive Azure identity that has Storage Blob Data
-# Contributor on the state SA. If you're running as your own user, grant
-# yourself the role temporarily on the RG.
-# Temporarily enable public access on the state SA (workflow does this
-# automatically; from laptop you do it manually):
-az storage account update --name <STORAGE_ACCOUNT> --resource-group rg-ai-foundry-dev --public-network-access Enabled
-sleep 10
-
-terraform -chdir=environments/ai-foundry/base/terraform init \
-  -backend-config="resource_group_name=rg-ai-foundry-dev" \
-  -backend-config="storage_account_name=<STORAGE_ACCOUNT>" \
-  -backend-config="container_name=tfstate-base" \
-  -backend-config="key=base.tfstate"
-terraform -chdir=environments/ai-foundry/base/terraform output
-
-az storage account update --name <STORAGE_ACCOUNT> --resource-group rg-ai-foundry-dev --public-network-access Disabled
-```
-
----
-
-## Appendix B — Troubleshooting cheatsheet
-
-| Symptom | Likely cause | Fix |
-|---|---|---|
-| Bootstrap workflow fails on `gh api` with `HTTP 403` | `GH_ADMIN_PAT` lacks Environments/Secrets/Variables r/w | Regenerate PAT with correct scopes, update the repo secret, re-run Step 1. |
-| Bootstrap workflow preflight says `MISSING repo secret: AZURE_CLIENT_ID` | You skipped Prereq B (or the App Registration secrets weren't stored at REPO level) | Complete Prereq B — set `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` as repository-level secrets. |
-| `azure/login@v2` fails with `AADSTS70021: No matching federated identity record found` | The App Registration's federated credential subject doesn't match the GitHub environment the workflow selected | In Azure Portal → App Registration → Federated credentials, confirm the subject `repo:{owner}/{repo}:environment:ai-foundry` exists. Use the exact string the Portal wizard generates for your repo. |
-| Base apply fails with `AuthorizationFailed` on role assignment | App Registration has Contributor but not Owner (or UAA) | Grant the App Registration Owner (or Contributor + User Access Administrator) at subscription scope — see Prereq A. |
-| Base apply fails with `SubscriptionNotRegistered` | RP registration failed | Grant the App Registration subscription-scope Owner, or manually run `az provider register --namespace <RP>` for each namespace in `base/terraform/providers.tf`. |
-| Step 5 job stays **queued** with no logs (`Waiting for a runner...`) | Self-hosted runner not online yet | Wait 5–15 minutes after Step 3 completes; check Repo → Settings → Actions → Runners for `vm-playground-dev-runner` in `Idle`. If it never shows up, use the run-command diagnostics in Appendix A. The workflow does **not** error out immediately — it will sit queued until a matching runner appears or GitHub times out (24h default). |
-| Step 5 apply fails on Cosmos SQL role assignment with a network error | Workflow accidentally ran on `ubuntu-latest` | Confirm you selected `stack=workload` (not `base`) when dispatching the workflow. |
-| Step 5 apply fails on `azurerm_cognitive_account_capability_host` | Foundry data-plane RBAC hasn't propagated | Wait a couple of minutes and re-run apply; the `time_sleep` module is 60s which is usually enough but Azure control-plane RBAC can lag longer under load. |
+| `terraform apply` returns `AuthorizationFailed` on the tfstate blob | Your IP changed and isn't allowlisted on the state SA | `az storage account network-rule add -g $RG -n $STATE_SA --ip-address $((Invoke-RestMethod https://api.ipify.org).Trim())` then retry |
+| Bicep or Terraform deploy fails on `Microsoft.CognitiveServices/accounts/capabilityHosts` with 403 | RBAC propagation lag (Entra ID replication) | Rerun the deployment; the sleep re-fires and the role assignments are eventually consistent |
+| `Microsoft.Storage/storageAccounts` 409 `StorageAccountAlreadyTaken` on the state SA | Your `sttfs<hash>` name collides globally with someone else's account | Override the SA name: `terraform apply -var 'tfstate_storage_account_name=<your-unique-name>'` — pass the same name to `terraform init -backend-config=storage_account_name=...` AND to the manual `az storage account create` in Step 2 |
+| First `terraform apply` for base wants to *create* the storage account instead of updating it | You skipped the `terraform import` in Step 3 | Cancel the apply, run the two `terraform import` commands, then rerun `terraform apply` |
+| Workload deploys OK but `curl` to a workload endpoint returns 403 | Your IP wasn't the one currently allowlisted, or you hardened | Rerun the workload deploy from the current network; if hardened, use un-harden step above |
+| `az storage container create --auth-mode login` returns 403 | RBAC propagation lag on the `Storage Blob Data Contributor` assignment | Wait 30-60 s and retry (Step 1 already includes a `Start-Sleep 60`) |
 
 ---
 
 ## References
 
 - [Foundry Standard Agent Setup](https://learn.microsoft.com/azure/ai-foundry/agents/concepts/standard-agent-setup)
-- [Foundry private networking guide](https://learn.microsoft.com/azure/foundry/agents/how-to/virtual-networks)
-- [Foundry supported regions for private networking](https://learn.microsoft.com/azure/foundry/agents/concepts/limits-quotas-regions#supported-regions)
-- [GitHub Actions self-hosted runners](https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/about-self-hosted-runners)
-- [Azure OIDC federation for GitHub Actions](https://learn.microsoft.com/azure/developer/github/connect-from-azure)
-- [GitHub CLI `gh secret set` / `gh variable set`](https://cli.github.com/manual/gh_secret_set)
+- [Foundry private networking guide](https://learn.microsoft.com/azure/ai-foundry/agents/how-to/virtual-networks)
+- [Foundry supported regions for private networking](https://learn.microsoft.com/azure/ai-foundry/agents/concepts/limits-quotas-regions#supported-regions)
+- [Terraform azurerm provider](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs)
+- [Bicep language reference](https://learn.microsoft.com/azure/azure-resource-manager/bicep/)
