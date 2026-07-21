@@ -97,6 +97,14 @@ If it returns a public IP, you're on the public path — either set `deployerIp`
 
 Both RGs are region-scoped and expected to live in the same region. To collapse into a single-RG topology (dev / lab shortcut), point both stacks' `resource_group_name` (Terraform) / `-g` flag (Bicep) at the same RG name and set the workload's `baseResourceGroupName` / `base_resource_group_name` to match.
 
+> ⚠️ **Every resource in this stack must be in the SAME Azure region.** That means both RGs, the VNet, the 5 subnets, the 11 private DNS zone links, all 9 workload private endpoints, and the 4 data-plane services (Foundry, Storage, Cosmos, AI Search). This is an Azure requirement, not a lab convention:
+>
+> - A **private endpoint MUST be in the same region** as the service it targets (`Microsoft.Network/privateEndpoints` fails at deploy time if the PE's subnet and the target service are in different regions).
+> - The **Foundry account MUST be in the same region as its injected VNet** (per [Microsoft's Foundry Agent Service private-networking docs](https://learn.microsoft.com/azure/ai-foundry/agents/how-to/virtual-networks#limitations)).
+> - Storage / Cosmos / AI Search technically *can* be in different regions in general, but since we wire them via private endpoints in the base VNet, they too must match. Cross-region PEs are neither supported nor useful for this topology.
+>
+> The templates enforce co-location by using a single `location` variable in both stacks, defaulting to `westus3`. If you change the region, change it in **both** stacks (base's `location` param + workload's `location` param) — otherwise the workload's PE creation fails with a region-mismatch error. Also verify the target region is on Microsoft's [supported-regions list for Foundry Agent Service private networking](https://learn.microsoft.com/azure/ai-foundry/agents/concepts/limits-quotas-regions#supported-regions).
+
 ---
 
 ## Path A — Bicep
