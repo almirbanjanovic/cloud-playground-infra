@@ -201,7 +201,19 @@ data "azurerm_private_dns_zone" "cognitive" {
 }
 
 data "azurerm_private_dns_zone" "storage" {
-  for_each            = toset(local.storage_private_dns_zones)
+  # Key the map by SUBRESOURCE (blob/file/queue/table/dfs/web) not by zone NAME so
+  # the module can reference each zone with a stable key regardless of whether
+  # the caller overrode `storage_private_dns_zone_names` (e.g. for a sovereign
+  # cloud or a custom naming scheme). The base stack always emits the 6 zones
+  # in this canonical subresource order.
+  for_each = {
+    blob  = local.storage_private_dns_zones[0]
+    file  = local.storage_private_dns_zones[1]
+    queue = local.storage_private_dns_zones[2]
+    table = local.storage_private_dns_zones[3]
+    dfs   = local.storage_private_dns_zones[4]
+    web   = local.storage_private_dns_zones[5]
+  }
   name                = each.value
   resource_group_name = local.base_resource_group_name
 }
@@ -250,12 +262,12 @@ module "storage" {
 
   # The module wires six private endpoints (blob/file/queue/table/dfs/web),
   # so we need to hand back the DNS zone for each one.
-  blob_private_dns_zone_ids  = [data.azurerm_private_dns_zone.storage["privatelink.blob.core.windows.net"].id]
-  file_private_dns_zone_ids  = [data.azurerm_private_dns_zone.storage["privatelink.file.core.windows.net"].id]
-  queue_private_dns_zone_ids = [data.azurerm_private_dns_zone.storage["privatelink.queue.core.windows.net"].id]
-  table_private_dns_zone_ids = [data.azurerm_private_dns_zone.storage["privatelink.table.core.windows.net"].id]
-  dfs_private_dns_zone_ids   = [data.azurerm_private_dns_zone.storage["privatelink.dfs.core.windows.net"].id]
-  web_private_dns_zone_ids   = [data.azurerm_private_dns_zone.storage["privatelink.web.core.windows.net"].id]
+  blob_private_dns_zone_ids  = [data.azurerm_private_dns_zone.storage["blob"].id]
+  file_private_dns_zone_ids  = [data.azurerm_private_dns_zone.storage["file"].id]
+  queue_private_dns_zone_ids = [data.azurerm_private_dns_zone.storage["queue"].id]
+  table_private_dns_zone_ids = [data.azurerm_private_dns_zone.storage["table"].id]
+  dfs_private_dns_zone_ids   = [data.azurerm_private_dns_zone.storage["dfs"].id]
+  web_private_dns_zone_ids   = [data.azurerm_private_dns_zone.storage["web"].id]
 }
 
 module "cosmos_db" {

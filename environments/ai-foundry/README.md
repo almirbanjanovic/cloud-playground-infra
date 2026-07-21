@@ -34,6 +34,21 @@ The diagram shows the runtime architecture that both paths provision. Path B add
 
 Every private-endpoint-bearing service uses the same posture: local (shared-key/API-key) auth **disabled**, SystemAssigned MI, private endpoint from the VNet, public endpoint restricted to the deployer's IP (which you can strip in the [hardening step](#part-c--harden-remove-deployer-ip-and-close-public-endpoints)).
 
+### DNS zones + private endpoints
+
+The base stack creates **11 private DNS zones**, all VNet-linked, matching the authoritative Microsoft [private endpoint DNS zone table](https://learn.microsoft.com/azure/private-link/private-endpoint-dns):
+
+| Service | Subresource / groupId | Zone (Azure public cloud) |
+|---|---|---|
+| Foundry account (`Microsoft.CognitiveServices/accounts`, kind=AIServices) | `account` | `privatelink.cognitiveservices.azure.com` + `privatelink.openai.azure.com` + `privatelink.services.ai.azure.com` (all three are required for Foundry Standard Setup) |
+| Storage account (`Microsoft.Storage/storageAccounts`) | `blob` / `file` / `queue` / `table` / `dfs` / `web` | `privatelink.<subresource>.core.windows.net` (6 zones) |
+| Cosmos DB (`Microsoft.DocumentDB/databaseAccounts`, SQL API) | `Sql` | `privatelink.documents.azure.com` |
+| AI Search (`Microsoft.Search/searchServices`) | `searchService` | `privatelink.search.windows.net` |
+
+Total: 3 + 6 + 1 + 1 = **11 zones**. Base VNet-links them BEFORE the workload's PEs are created so `privateDnsZoneGroups` auto-register the PE A-records at creation time. Bicep derives the storage suffix via `az.environment().suffixes.storage` for cross-cloud portability; the other 3 zone names are hardcoded to commercial-cloud values. **Sovereign-cloud deploys (Azure Gov / China) need to override `cosmosPrivateDnsZoneName`, `searchPrivateDnsZoneName`, and (in Terraform only) `storagePrivateDnsZoneNames` to their cloud-specific values** — see the MS DNS zone table's Government / China sections.
+
+**On storage PE breadth:** we create all 6 storage subresource PEs (blob/file/queue/table/dfs/web) for symmetry with Microsoft's general private-endpoint patterns. Foundry Agent Service Standard Setup itself only *uses* `blob` at runtime — the other 5 are ~$35/month of belt-and-braces provisioning that lets you later use File Share, Queue-backed Function tools, ADLS Gen2, or Static Web hosting without changing the network topology. If cost matters and you know you'll only use blob, pass empty arrays for the 5 unused subresources' `*PrivateDnsZoneIds` params on the storage_account module (Bicep) / `*_private_dns_zone_ids` variables (Terraform) — the module skips creating a PE for any subresource with an empty zone list.
+
 ---
 
 ## Prerequisites
