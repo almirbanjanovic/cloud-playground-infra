@@ -60,9 +60,6 @@ param aiSearchEndpoint string
 @description('Create the account + project capability hosts (Foundry Agent Service Standard Setup). Set false to defer.')
 param enableCapabilityHost bool = true
 
-@description('Resource ID of the delegated agent subnet (`Microsoft.App/environments` delegation) that the parent Cognitive account was network-injected into via `networkInjections.scenario=agent`. Required when `enableCapabilityHost = true` and the account uses network injection: the project capability host binds to it via the `customerSubnet` property, which ARM validates must match the subnet recorded on the Foundry account. Leave blank only if the account has NO network injection (rare -- most private-networking Standard Setups use it).')
-param agentSubnetId string = ''
-
 @description('Tags applied to created resources.')
 param tags object = {}
 
@@ -315,12 +312,11 @@ resource projectCapabilityHost 'Microsoft.CognitiveServices/accounts/projects/ca
     storageConnections: [connStorage.name]
     threadStorageConnections: [connCosmos.name]
     vectorStoreConnections: [connSearch.name]
-    // customerSubnet must match the subnet the parent Cognitive account was
-    // injected into via `networkInjections.scenario='agent'`. ARM validates
-    // this against the account's recorded subnet and rejects a mismatch with
-    // `The customerSubnet property must match the subnet recorded on the
-    // Foundry account.`
-    customerSubnet: empty(agentSubnetId) ? null : agentSubnetId
+    // NOTE: `customerSubnet` is NOT a valid property on the PROJECT capability
+    // host schema. The subnet is recorded on the parent Cognitive account via
+    // `networkInjections.scenario='agent'`, and the platform-provisioned
+    // account capability host wraps it. The project host inherits the
+    // account's subnet -- no explicit reference needed here.
   }
   dependsOn: [
     raCosmosOperator

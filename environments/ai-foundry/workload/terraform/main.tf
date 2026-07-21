@@ -372,11 +372,6 @@ module "foundry_project" {
   ai_search_id       = module.ai_search.id
   ai_search_endpoint = module.ai_search.search_service_url
 
-  # Must match the subnet passed to the cognitive_account module's
-  # network injection: the project capability host's `customerSubnet`
-  # property is validated against the account's recorded subnet.
-  agent_subnet_id = data.azurerm_subnet.agent.id
-
   # The BYO services' outputs (.id, .endpoint) become available as soon
   # as the service resource itself is created, NOT after the private
   # endpoint completes. Because the services have public network access

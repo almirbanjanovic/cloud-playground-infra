@@ -325,12 +325,11 @@ resource "azapi_resource" "capability_host" {
       storageConnections       = var.storage_account_id == null ? [] : [azurerm_cognitive_account_connection_entra_id.storage[0].name]
       threadStorageConnections = var.cosmos_db_account_id == null ? [] : [azurerm_cognitive_account_connection_entra_id.cosmos[0].name]
       vectorStoreConnections   = var.ai_search_id == null ? [] : [azurerm_cognitive_account_connection_entra_id.search[0].name]
-      # customerSubnet must match the subnet the parent Cognitive account was
-      # injected into via `networkInjections.scenario='agent'`. ARM validates
-      # this against the account's recorded subnet and rejects a mismatch with
-      # `The customerSubnet property must match the subnet recorded on the
-      # Foundry account.`
-      customerSubnet = var.agent_subnet_id
+      # NOTE: `customerSubnet` is NOT a valid property on the PROJECT capability
+      # host schema. The subnet is recorded on the parent Cognitive account via
+      # `networkInjections.scenario='agent'`, and the platform-provisioned
+      # account capability host wraps it. The project host inherits the
+      # account's subnet -- no explicit reference needed here.
     }
   }
 

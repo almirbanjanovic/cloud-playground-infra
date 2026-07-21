@@ -86,9 +86,3 @@ variable "enable_capability_host" {
   description = "Whether to create the Agent Service capability host that binds the three BYO connections to the project. Set to false to only create the connections."
   default     = true
 }
-
-variable "agent_subnet_id" {
-  type        = string
-  description = "Resource ID of the delegated agent subnet (`Microsoft.App/environments` delegation) that the parent Cognitive account was network-injected into. Required when `enable_capability_host = true` and the account uses network injection: the project capability host binds to it via the `customerSubnet` property, which ARM validates must match the subnet recorded on the Foundry account. Leave null only if the account has NO network injection (rare -- most private-networking Standard Setups use it)."
-  default     = null
-}

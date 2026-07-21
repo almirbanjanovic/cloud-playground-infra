@@ -39,11 +39,6 @@ output "search_connection_id" {
 }
 
 output "capability_host_id" {
-  description = "ID of the project-scoped Agent Service capability host, if enabled."
+  description = "ID of the project-scoped Agent Service capability host, if enabled. The account-scoped host is provisioned implicitly by the platform via networkInjections on the parent Cognitive account -- it has no ID output here."
   value       = try(azapi_resource.capability_host[0].id, null)
-}
-
-output "account_capability_host_id" {
-  description = "ID of the account-scoped Agent Service capability host, if enabled. Required to exist alongside the project host per Standard Agent Setup."
-  value       = try(azapi_resource.account_capability_host[0].id, null)
 }

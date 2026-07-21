@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.45.15.27210",
-      "templateHash": "10000874248922843411"
+      "templateHash": "9943510248156308998"
     }
   },
   "parameters": {
@@ -96,13 +96,6 @@
       "defaultValue": true,
       "metadata": {
         "description": "Create the account + project capability hosts (Foundry Agent Service Standard Setup). Set false to defer."
-      }
-    },
-    "agentSubnetId": {
-      "type": "string",
-      "defaultValue": "",
-      "metadata": {
-        "description": "Resource ID of the delegated agent subnet (`Microsoft.App/environments` delegation) that the parent Cognitive account was network-injected into via `networkInjections.scenario=agent`. Required when `enableCapabilityHost = true` and the account uses network injection: the project capability host binds to it via the `customerSubnet` property, which ARM validates must match the subnet recorded on the Foundry account. Leave blank only if the account has NO network injection (rare -- most private-networking Standard Setups use it)."
       }
     },
     "tags": {
@@ -292,8 +285,7 @@
         ],
         "vectorStoreConnections": [
           "conn-aisearch"
-        ],
-        "customerSubnet": "[if(empty(parameters('agentSubnetId')), null(), parameters('agentSubnetId'))]"
+        ]
       },
       "dependsOn": [
         "[resourceId('Microsoft.CognitiveServices/accounts/connections', parameters('cognitiveAccountName'), 'conn-cosmos')]",
