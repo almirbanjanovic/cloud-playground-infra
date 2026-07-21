@@ -26,7 +26,7 @@ The diagram shows the runtime architecture that both paths provision. Path B add
 
 **Workload stack (both paths)** creates:
 - Foundry account (`AIServices` kind, project management enabled, agent-subnet network injection) + Private Endpoint
-- BYO Storage account (6 PEs: blob/file/queue/table/dfs/web), Cosmos DB (SQL API + 1 PE), AI Search (basic + 1 PE)
+- BYO Storage account (6 PEs: blob/file/queue/table/dfs/web), Cosmos DB (SQL API + 1 PE), AI Search (standard + 1 PE)
 - Foundry project + 3 Entra-ID connections + all Phase-3 / Phase-5 RBAC + account & project capability hosts
 - All 4 data-plane services default to **public network access enabled** with a **default-deny** firewall + deployer-IP allowlist
 
@@ -45,7 +45,7 @@ Every private-endpoint-bearing service uses the same posture: local (shared-key/
 
 Each deploy step below **starts with a `Set-Location` (`cd`) into the specific stack directory** — `environments/ai-foundry/base/bicep`, `environments/ai-foundry/base/terraform`, `environments/ai-foundry/workload/bicep`, or `environments/ai-foundry/workload/terraform` — and all Bicep / Terraform commands in that step use short relative paths (`main.bicep`, `.`) from there. If a command errors with `Could not find ...\main.bicep` or Terraform picks up the wrong module, check `Get-Location` — you're in the wrong directory. Sign-in / variable-setup steps and `az` verification commands don't depend on your working directory, so you can run them from anywhere.
 
-Both paths default to region `eastus2` and RG name `rg-ai-foundry-dev-eastus2`.
+Both paths default to region `westus3` and RG name `rg-ai-foundry-dev-westus3`.
 
 ---
 
@@ -66,7 +66,7 @@ az account show --query "{Subscription:name, Id:id, Tenant:tenantId}" -o table
 Set naming variables and echo:
 
 ```powershell
-$LOC = "eastus2"
+$LOC = "westus3"
 $RG  = "rg-ai-foundry-dev-$LOC"
 Write-Host "LOC = $LOC"
 Write-Host "RG  = $RG"
@@ -132,7 +132,7 @@ Verify:
 az resource list -g $RG --query "[?type=='Microsoft.Network/virtualNetworks' || type=='Microsoft.Network/privateDnsZones'].{Name:name, Type:type}" -o table
 ```
 
-Expected: 1 VNet (`vnet-ai-foundry-dev-eastus2`) + 11 privateDnsZones.
+Expected: 1 VNet (`vnet-ai-foundry-dev-westus3`) + 11 privateDnsZones.
 
 ### Step 3. Deploy the workload stack (~15–20 min)
 
@@ -196,7 +196,7 @@ Sign in and set variables:
 az login
 az account set --subscription <YOUR_SUBSCRIPTION_ID>
 
-$LOC = "eastus2"
+$LOC = "westus3"
 $RG  = "rg-ai-foundry-dev-$LOC"
 $SUB = (az account show --query id -o tsv)
 $ME  = (az ad signed-in-user show --query id -o tsv)
@@ -472,7 +472,7 @@ az deployment group create `
 Verify all 4 services flipped to `Disabled`:
 
 ```powershell
-az cognitiveservices account show -g $RG -n "cog-acc-ai-foundry-dev-eastus2" --query "properties.publicNetworkAccess" -o tsv
+az cognitiveservices account show -g $RG -n "cog-acc-ai-foundry-dev-westus3" --query "properties.publicNetworkAccess" -o tsv
 az storage account list -g $RG --query "[?!contains(name, 'sttfs')].{Name:name, PublicNetwork:publicNetworkAccess}" -o table
 az cosmosdb list -g $RG --query "[].{Name:name, PublicNetwork:publicNetworkAccess}" -o table
 az search service list -g $RG --query "[].{Name:name, PublicNetwork:publicNetworkAccess}" -o table

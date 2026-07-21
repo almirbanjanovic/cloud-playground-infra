@@ -43,7 +43,7 @@ locals {
 
   # 10.0.0.0/16 is a Class A range that fits comfortably in any of the
   # regions on Microsoft's Foundry Agent Service private-networking list
-  # (eastus2 default; see the `location` variable). Foundry accepts any
+  # (westus3 default; see the `location` variable). Foundry accepts any
   # RFC1918 range in supported regions; Class A aligns with Microsoft's
   # Foundry Standard Setup examples and leaves plenty of room to grow.
   # https://learn.microsoft.com/azure/ai-foundry/agents/concepts/limits-quotas-regions#supported-regions

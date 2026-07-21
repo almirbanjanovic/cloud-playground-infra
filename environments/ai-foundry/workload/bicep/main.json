@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.45.15.27210",
-      "templateHash": "1531878395378363837"
+      "templateHash": "17079700282234105907"
     }
   },
   "parameters": {
@@ -25,9 +25,9 @@
     },
     "location": {
       "type": "string",
-      "defaultValue": "eastus2",
+      "defaultValue": "westus3",
       "metadata": {
-        "description": "Azure region for the workload. Must match the base stack; default eastus2 supports Foundry Agent Service private networking."
+        "description": "Azure region for the workload. Must match the base stack; default westus3 supports Foundry Agent Service private networking."
       }
     },
     "vnetName": {
@@ -95,12 +95,12 @@
     "storagePrivateDnsZoneNames": {
       "type": "array",
       "defaultValue": [
-        "privatelink.blob.core.windows.net",
-        "privatelink.file.core.windows.net",
-        "privatelink.queue.core.windows.net",
-        "privatelink.table.core.windows.net",
-        "privatelink.dfs.core.windows.net",
-        "privatelink.web.core.windows.net"
+        "[format('privatelink.blob.{0}', environment().suffixes.storage)]",
+        "[format('privatelink.file.{0}', environment().suffixes.storage)]",
+        "[format('privatelink.queue.{0}', environment().suffixes.storage)]",
+        "[format('privatelink.table.{0}', environment().suffixes.storage)]",
+        "[format('privatelink.dfs.{0}', environment().suffixes.storage)]",
+        "[format('privatelink.web.{0}', environment().suffixes.storage)]"
       ],
       "minLength": 6,
       "maxLength": 6,
@@ -238,7 +238,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.45.15.27210",
-              "templateHash": "11372145168733099685"
+              "templateHash": "1049330330251972689"
             }
           },
           "parameters": {
@@ -380,7 +380,7 @@
             }
           },
           "variables": {
-            "derivedAccountName": "[toLower(format('st{0}{1}{2}{3}', parameters('baseName'), parameters('environment'), parameters('location'), parameters('suffix')))]",
+            "derivedAccountName": "[replace(toLower(format('st{0}{1}{2}{3}', parameters('baseName'), parameters('environment'), parameters('location'), parameters('suffix'))), '-', '')]",
             "accountName": "[if(empty(parameters('customName')), variables('derivedAccountName'), parameters('customName'))]"
           },
           "resources": [
@@ -1834,7 +1834,7 @@
             "value": "[parameters('tags')]"
           },
           "sku": {
-            "value": "basic"
+            "value": "standard"
           },
           "publicNetworkAccessEnabled": {
             "value": "[parameters('enablePublicNetworkAccess')]"

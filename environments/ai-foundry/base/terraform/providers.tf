@@ -23,14 +23,14 @@ terraform {
   # Typical init command (after bootstrap.ps1 / bootstrap.sh):
   #
   #   terraform init \
-  #     -backend-config="resource_group_name=rg-ai-foundry-dev-eastus2" \
+  #     -backend-config="resource_group_name=rg-ai-foundry-dev-westus3" \
   #     -backend-config="storage_account_name=sttfs<hash>"
   #
   # Then, before the FIRST `terraform apply`, import the bootstrapped
   # storage account + container so Terraform manages them going forward:
   #
   #   terraform import 'module.tfstate_storage.azurerm_storage_account.this' \
-  #     "/subscriptions/<sub>/resourceGroups/rg-ai-foundry-dev-eastus2/providers/Microsoft.Storage/storageAccounts/sttfs<hash>"
+  #     "/subscriptions/<sub>/resourceGroups/rg-ai-foundry-dev-westus3/providers/Microsoft.Storage/storageAccounts/sttfs<hash>"
   #
   #   terraform import azurerm_storage_container.tfstate \
   #     "https://sttfs<hash>.blob.core.windows.net/tfstate"

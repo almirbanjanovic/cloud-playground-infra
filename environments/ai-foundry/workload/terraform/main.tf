@@ -50,7 +50,7 @@
 #    base stack's convention when the variable is null.
 #
 # Default flow (nothing overridden):
-#   base_name = "ai-foundry", environment = "dev", location = "eastus2"
+#   base_name = "ai-foundry", environment = "dev", location = "westus3"
 #   -> VNet name, subnet names, Foundry custom subdomain all derived from
 #      those three -> exact match to the base stack's outputs.
 #
@@ -275,7 +275,7 @@ module "ai_search" {
   resource_group_name = var.resource_group_name
   tags                = local.tags
 
-  search_sku                           = "basic"
+  search_sku                           = "standard"
   search_public_network_access_enabled = var.enable_public_network_access
   allowed_ips                          = local.allowed_ips
 

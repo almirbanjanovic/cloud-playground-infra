@@ -1,13 +1,13 @@
 # Every variable in variables.tf has a working default, so you can just run
 # `terraform apply` with no `-var` flags. It will look up the base stack's
-# resources in `rg-ai-foundry-dev-eastus2` under the default naming convention
+# resources in `rg-ai-foundry-dev-westus3` under the default naming convention
 # and auto-detect your public IP for the firewall allowlist.
 #
 # Copy this file to `terraform.tfvars` and uncomment lines only if you want
 # to override defaults. `terraform.tfvars` is git-ignored.
 
 # --- Optional: override the RG (must match the base stack) ---
-# resource_group_name = "rg-ai-foundry-dev-eastus2"
+# resource_group_name = "rg-ai-foundry-dev-westus3"
 
 # --- Optional: naming ---
 # All name variables default to null, and null triggers the built-in
@@ -17,10 +17,10 @@
 #
 # base_name   = "ai-foundry"
 # environment = "dev"
-# location    = "eastus2"     # see variables.tf for the list of supported Foundry regions
+# location    = "westus3"     # see variables.tf for the list of supported Foundry regions
 #
 # Override individual data-source names:
-# vnet_name                 = "vnet-mycompany-shared-eastus2"
+# vnet_name                 = "vnet-mycompany-shared-westus3"
 # subnet_name_cognitive_pep = "snet-mycompany-cognitive-pe"
 # subnet_name_storage_pep   = "snet-mycompany-storage-pe"
 # subnet_name_cosmos_pep    = "snet-mycompany-cosmos-pe"

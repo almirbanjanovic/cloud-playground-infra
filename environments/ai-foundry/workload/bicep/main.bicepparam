@@ -8,7 +8,7 @@ using 'main.bicep'
 //   $env:DEPLOYER_IP = (Invoke-RestMethod https://api.ipify.org).Trim()
 //
 // Then deploy:
-//   az deployment group create -g rg-ai-foundry-dev-eastus2 -f main.bicep -p main.bicepparam
+//   az deployment group create -g rg-ai-foundry-dev-westus3 -f main.bicep -p main.bicepparam
 //
 // For the HARDENING step (README Part C), pass overrides on the CLI:
 //   az deployment group create ... -p deployerIp='' -p enablePublicNetworkAccess=false
@@ -18,14 +18,14 @@ param deployerIp = readEnvironmentVariable('DEPLOYER_IP', '')
 // param enablePublicNetworkAccess = true   // set to false to harden (see README Part C)
 // param baseName    = 'ai-foundry'
 // param environment = 'dev'
-// param location    = 'eastus2'
+// param location    = 'westus3'
 // param allowedIpsExtra = [
 //   '198.51.100.0/24'
 //   '203.0.113.99'
 // ]
 
 // Individual name overrides (blank = derive from baseName/environment/location):
-// param vnetName                     = 'vnet-mycompany-shared-eastus2'
+// param vnetName                     = 'vnet-mycompany-shared-westus3'
 // param subnetNameCognitivePep       = 'snet-mycompany-cognitive-pe'
 // param subnetNameStoragePep         = 'snet-mycompany-storage-pe'
 // param subnetNameCosmosPep          = 'snet-mycompany-cosmos-pe'

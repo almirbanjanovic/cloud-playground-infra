@@ -3,10 +3,10 @@
 //
 // Deploy from your laptop AFTER the base stack has been applied:
 //
-//   az group create -n rg-ai-foundry-dev-eastus2 -l eastus2   # if not already
+//   az group create -n rg-ai-foundry-dev-westus3 -l westus3   # if not already
 //   MYIP=$(curl -s https://api.ipify.org)
 //   az deployment group create \
-//     -g rg-ai-foundry-dev-eastus2 \
+//     -g rg-ai-foundry-dev-westus3 \
 //     -f main.bicep \
 //     -p main.bicepparam \
 //     -p deployerIp=$MYIP
@@ -35,8 +35,8 @@ param baseName string = 'ai-foundry'
 @description('Environment suffix (e.g. dev / prod). Must match the base stack.')
 param environment string = 'dev'
 
-@description('Azure region for the workload. Must match the base stack; default eastus2 supports Foundry Agent Service private networking.')
-param location string = 'eastus2'
+@description('Azure region for the workload. Must match the base stack; default westus3 supports Foundry Agent Service private networking.')
+param location string = 'westus3'
 
 // --- Name overrides (blank = derive from baseName/environment/location) ---
 
@@ -226,7 +226,7 @@ module search '../../../../iac-modules/bicep/ai_search/v1/ai_search.bicep' = {
     location: location
     tags: tags
 
-    sku: 'basic'
+    sku: 'standard'
     publicNetworkAccessEnabled: enablePublicNetworkAccess
     allowedIps: allowedIps
 

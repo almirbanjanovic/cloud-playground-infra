@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.45.15.27210",
-      "templateHash": "15451602893724174820"
+      "templateHash": "9657309725680362396"
     }
   },
   "parameters": {
@@ -25,9 +25,9 @@
     },
     "location": {
       "type": "string",
-      "defaultValue": "eastus2",
+      "defaultValue": "westus3",
       "metadata": {
-        "description": "Azure region for the VNet + every regional resource. `eastus2` is on Microsoft's list of Foundry Agent Service regions that support the private-networking Standard Setup and hosts the full model catalog."
+        "description": "Azure region for the VNet + every regional resource. `westus3` is on Microsoft's list of Foundry Agent Service regions that support the private-networking Standard Setup, has 3 availability zones, and has broad Azure OpenAI model coverage."
       }
     },
     "vnetName": {
@@ -67,12 +67,12 @@
       "privatelink.services.ai.azure.com"
     ],
     "storageDnsZones": [
-      "privatelink.blob.core.windows.net",
-      "privatelink.file.core.windows.net",
-      "privatelink.queue.core.windows.net",
-      "privatelink.table.core.windows.net",
-      "privatelink.dfs.core.windows.net",
-      "privatelink.web.core.windows.net"
+      "[format('privatelink.blob.{0}', environment().suffixes.storage)]",
+      "[format('privatelink.file.{0}', environment().suffixes.storage)]",
+      "[format('privatelink.queue.{0}', environment().suffixes.storage)]",
+      "[format('privatelink.table.{0}', environment().suffixes.storage)]",
+      "[format('privatelink.dfs.{0}', environment().suffixes.storage)]",
+      "[format('privatelink.web.{0}', environment().suffixes.storage)]"
     ],
     "cosmosDnsZone": "privatelink.documents.azure.com",
     "searchDnsZone": "privatelink.search.windows.net",
@@ -151,7 +151,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.45.15.27210",
-              "templateHash": "17927659413413224054"
+              "templateHash": "12452443616998135047"
             }
           },
           "parameters": {
@@ -211,7 +211,7 @@
               "name": "[format('{0}/{1}', parameters('name'), items(parameters('subnets'))[copyIndex()].value.name)]",
               "properties": {
                 "addressPrefixes": "[items(parameters('subnets'))[copyIndex()].value.addressPrefixes]",
-                "delegations": "[if(contains(items(parameters('subnets'))[copyIndex()].value, 'delegations'), items(parameters('subnets'))[copyIndex()].value.delegations, createArray())]",
+                "delegations": "[coalesce(tryGet(items(parameters('subnets'))[copyIndex()].value, 'delegations'), createArray())]",
                 "privateEndpointNetworkPolicies": "Disabled"
               },
               "dependsOn": [

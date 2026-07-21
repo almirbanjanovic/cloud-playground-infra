@@ -3,9 +3,9 @@
 //
 // Deploy from your laptop:
 //
-//   az group create -n rg-ai-foundry-dev-eastus2 -l eastus2
+//   az group create -n rg-ai-foundry-dev-westus3 -l westus3
 //   az deployment group create \
-//     -g rg-ai-foundry-dev-eastus2 \
+//     -g rg-ai-foundry-dev-westus3 \
 //     -f main.bicep \
 //     -p main.bicepparam
 //
@@ -31,8 +31,8 @@ param baseName string = 'ai-foundry'
 @description('Environment suffix (e.g. dev / prod).')
 param environment string = 'dev'
 
-@description('Azure region for the VNet + every regional resource. `eastus2` is on Microsoft\'s list of Foundry Agent Service regions that support the private-networking Standard Setup and hosts the full model catalog.')
-param location string = 'eastus2'
+@description('Azure region for the VNet + every regional resource. `westus3` is on Microsoft\'s list of Foundry Agent Service regions that support the private-networking Standard Setup, has 3 availability zones, and has broad Azure OpenAI model coverage.')
+param location string = 'westus3'
 
 @description('VNet name. Leave blank to use the convention vnet-<baseName>-<environment>-<location>.')
 param vnetName string = ''

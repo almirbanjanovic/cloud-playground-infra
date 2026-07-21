@@ -1,7 +1,7 @@
 variable "resource_group_name" {
-  description = "Resource group the workload deploys into. Must match the RG used by the base stack (both stacks share it). Defaults to `rg-ai-foundry-dev-eastus2`; override for a different name."
+  description = "Resource group the workload deploys into. Must match the RG used by the base stack (both stacks share it). Defaults to `rg-ai-foundry-dev-westus3`; override for a different name."
   type        = string
-  default     = "rg-ai-foundry-dev-eastus2"
+  default     = "rg-ai-foundry-dev-westus3"
 }
 
 # -----------------------------------------------------------------------------
@@ -27,9 +27,9 @@ variable "environment" {
 }
 
 variable "location" {
-  description = "Azure region for the workload resources. Must match the base stack. Default `eastus2` is on Microsoft's list of Foundry Agent Service regions that support the private-networking Standard Setup, has 3 availability zones, and hosts the full model catalog. If you change this, change it in both stacks and verify the target region is on https://learn.microsoft.com/azure/ai-foundry/agents/concepts/limits-quotas-regions#supported-regions."
+  description = "Azure region for the workload resources. Must match the base stack. Default `westus3` is on Microsoft's list of Foundry Agent Service regions that support the private-networking Standard Setup, has 3 availability zones, and has broad Azure OpenAI model coverage. If you change this, change it in both stacks and verify the target region is on https://learn.microsoft.com/azure/ai-foundry/agents/concepts/limits-quotas-regions#supported-regions."
   type        = string
-  default     = "eastus2"
+  default     = "westus3"
 }
 
 # --- Optional overrides for individual data-source names ---

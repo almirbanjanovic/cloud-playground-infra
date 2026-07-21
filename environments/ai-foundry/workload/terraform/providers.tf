@@ -34,7 +34,7 @@ terraform {
   #     -backend-config="storage_account_name=$(terraform -chdir=../../base/terraform output -raw tfstate_storage_account_name)"
   #
   # Alternative: create `workload/terraform/backend.tfbackend` with
-  #   resource_group_name  = "rg-ai-foundry-dev-eastus2"
+  #   resource_group_name  = "rg-ai-foundry-dev-westus3"
   #   storage_account_name = "sttfs<hash>"
   # then run `terraform init -backend-config=backend.tfbackend`.
   #

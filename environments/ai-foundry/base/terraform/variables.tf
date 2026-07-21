@@ -1,7 +1,7 @@
 variable "resource_group_name" {
   type        = string
-  description = "Resource group that owns everything in this base stack. Must already exist (create it manually with `az group create` before running `terraform apply` — see the ai-foundry README, Step 1). Defaults to `rg-ai-foundry-dev-eastus2`; override for a different name."
-  default     = "rg-ai-foundry-dev-eastus2"
+  description = "Resource group that owns everything in this base stack. Must already exist (create it manually with `az group create` before running `terraform apply` — see the ai-foundry README, Step 1). Defaults to `rg-ai-foundry-dev-westus3`; override for a different name."
+  default     = "rg-ai-foundry-dev-westus3"
 }
 
 # -----------------------------------------------------------------------------
@@ -25,9 +25,9 @@ variable "environment" {
 }
 
 variable "location" {
-  description = "Azure region for the VNet and every regional resource. Default `eastus2` is on Microsoft's list of Foundry Agent Service regions that support the private-networking Standard Setup, has 3 availability zones, and hosts the full model catalog. If you change this, verify the target region is on https://learn.microsoft.com/azure/ai-foundry/agents/concepts/limits-quotas-regions#supported-regions."
+  description = "Azure region for the VNet and every regional resource. Default `westus3` is on Microsoft's list of Foundry Agent Service regions that support the private-networking Standard Setup, has 3 availability zones, and has broad Azure OpenAI model coverage. If you change this, verify the target region is on https://learn.microsoft.com/azure/ai-foundry/agents/concepts/limits-quotas-regions#supported-regions."
   type        = string
-  default     = "eastus2"
+  default     = "westus3"
 }
 
 # -----------------------------------------------------------------------------
