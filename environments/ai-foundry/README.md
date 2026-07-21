@@ -756,7 +756,7 @@ Terraform waits 60 s via `time_sleep` between assignments and capability-host pr
 
 If you delete an AI Foundry account (`kind=AIServices`) that had Agent Service configured with a delegated subnet, the underlying Container Apps managed environment (in a Microsoft-owned `hobov3_*` subscription) can be orphaned. It leaves a `legionservicelink` SAL on your subnet that you can't delete directly — the account delete hangs in `Deleting`, and the subnet is stuck.
 
-Fix: recover the account, detach `networkInjections`, then delete cleanly.
+Fix: recover the account (if soft-deleted), detach `networkInjections`, wait for the SAL to clear, then delete cleanly. This works whether the account is fully soft-deleted OR stuck in `provisioningState = Deleting`.
 
 ```powershell
 $rg     = "rg-ai-foundry-dev-eastus2"
@@ -764,12 +764,19 @@ $acct   = "ais-ai-foundry-dev-eastus2"
 $loc    = "eastus2"
 $vnet   = "vnet-ai-foundry-dev-eastus2"
 $subnet = "snet-agent-ai-foundry-dev"
+
+# 1. If the account is fully soft-deleted, recover it. `2>$null` swallows the
+#    error if it isn't soft-deleted (e.g. it's stuck in `Deleting`) so we can
+#    keep going.
+az cognitiveservices account recover --location $loc --name $acct --resource-group $rg 2>$null
+
+# Fetch the account ID AFTER the recovery attempt — soft-deleted accounts don't
+# have a discoverable resource ID until recovered, so capturing it earlier would
+# leave $acctId empty and Step 2 would PATCH a malformed URL.
 $acctId = (az cognitiveservices account show -g $rg -n $acct --query id -o tsv)
+if (-not $acctId) { throw "Account '$acct' not visible in '$rg' after recovery. Check the names + subscription." }
 
-# 1. Recover the soft-deleted account
-az cognitiveservices account recover --location $loc --name $acct --resource-group $rg
-
-# 2. Detach the network injection (write body to file — az.cmd mangles inline JSON)
+# 2. Detach the network injection (write body to file — az.cmd mangles inline JSON on Windows).
 $bodyFile = Join-Path $env:TEMP "detach-ni.json"
 [System.IO.File]::WriteAllText($bodyFile, '{"properties":{"networkInjections":[]}}')
 az rest --method patch `
@@ -777,16 +784,24 @@ az rest --method patch `
   --headers "Content-Type=application/json" `
   --body "@$bodyFile"
 
-# 3. Wait for provisioningState = Succeeded and SAL to clear (5-30 min)
-az cognitiveservices account show --ids $acctId --query "properties.provisioningState" -o tsv
-az network vnet subnet show -g $rg --vnet-name $vnet -n $subnet --query "serviceAssociationLinks" -o json
+# 3. Poll until provisioningState = Succeeded AND the legionservicelink SAL has
+#    cleared from the subnet (typically 5-30 min while the platform tears down
+#    the orphaned Container Apps managed environment in the hobov3_* sub).
+do {
+    Start-Sleep -Seconds 30
+    $state = az cognitiveservices account show --ids $acctId --query "properties.provisioningState" -o tsv
+    $sal   = az network vnet subnet show -g $rg --vnet-name $vnet -n $subnet --query "serviceAssociationLinks[].name" -o tsv
+    Write-Host "provisioningState=$state  SAL='$sal'"
+} while ($state -ne "Succeeded" -or $sal)
 
-# 4. Delete + purge the account
+# 4. Delete + purge the account.
 az cognitiveservices account delete --ids $acctId
 az cognitiveservices account purge --location $loc --name $acct --resource-group $rg
 
-# 5. Remove delegation and delete the subnet
-az network vnet subnet update -g $rg --vnet-name $vnet -n $subnet --remove delegations
+# 5. Remove the subnet delegation (`--set delegations=[]` is version-safe across
+#    az CLI builds; `--remove delegations` behaves inconsistently) and delete the
+#    subnet.
+az network vnet subnet update -g $rg --vnet-name $vnet -n $subnet --set 'delegations=[]'
 az network vnet subnet delete  -g $rg --vnet-name $vnet -n $subnet
 ```
 
