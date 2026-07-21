@@ -297,21 +297,19 @@ resource "time_sleep" "wait_for_rbac_propagation" {
 # The azurerm provider does not (yet) have first-class resources for
 # capabilityHosts. Using the azapi provider against the raw ARM API is
 # the currently-supported path. Migrate to azurerm once available.
+#
+# ── Account-scoped capability host ──────────────────────────────────────
+# Foundry Agent Service Standard Setup expects an account-scoped
+# capability host in addition to the project-scoped one. This module
+# does NOT create it: the platform provisions it IMPLICITLY when the
+# parent Cognitive account is created with `networkInjections.scenario='agent'`
+# (see cognitive_account module). Only ONE account host per account is
+# allowed and trying to create a second one explicitly fails with
+# `The customerSubnet property must match the subnet recorded on the
+# Foundry account.` (Microsoft's own Standard Agent Setup sample
+# `15-private-network-standard-agent-setup` skips it for the same reason.)
 #--------------------------------------------------------------------------------------------------------------------------------
 #--------------------------------------------------------------------------------------------------------------------------------
-resource "azapi_resource" "account_capability_host" {
-  count     = var.enable_capability_host ? 1 : 0
-  type      = "Microsoft.CognitiveServices/accounts/capabilityHosts@2025-10-01-preview"
-  parent_id = var.cognitive_account_id
-  name      = "default"
-
-  body = {
-    properties = {
-      capabilityHostKind = "Agents"
-    }
-  }
-}
-
 resource "azapi_resource" "capability_host" {
   count     = var.enable_capability_host ? 1 : 0
   type      = "Microsoft.CognitiveServices/accounts/projects/capabilityHosts@2025-10-01-preview"
@@ -327,11 +325,16 @@ resource "azapi_resource" "capability_host" {
       storageConnections       = var.storage_account_id == null ? [] : [azurerm_cognitive_account_connection_entra_id.storage[0].name]
       threadStorageConnections = var.cosmos_db_account_id == null ? [] : [azurerm_cognitive_account_connection_entra_id.cosmos[0].name]
       vectorStoreConnections   = var.ai_search_id == null ? [] : [azurerm_cognitive_account_connection_entra_id.search[0].name]
+      # customerSubnet must match the subnet the parent Cognitive account was
+      # injected into via `networkInjections.scenario='agent'`. ARM validates
+      # this against the account's recorded subnet and rejects a mismatch with
+      # `The customerSubnet property must match the subnet recorded on the
+      # Foundry account.`
+      customerSubnet = var.agent_subnet_id
     }
   }
 
   depends_on = [
-    azapi_resource.account_capability_host,
     time_sleep.wait_for_rbac_propagation,
     azurerm_cognitive_account_connection_entra_id.storage,
     azurerm_cognitive_account_connection_entra_id.cosmos,

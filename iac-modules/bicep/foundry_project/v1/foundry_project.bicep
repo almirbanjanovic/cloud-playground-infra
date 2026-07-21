@@ -60,6 +60,9 @@ param aiSearchEndpoint string
 @description('Create the account + project capability hosts (Foundry Agent Service Standard Setup). Set false to defer.')
 param enableCapabilityHost bool = true
 
+@description('Resource ID of the delegated agent subnet (`Microsoft.App/environments` delegation) that the parent Cognitive account was network-injected into via `networkInjections.scenario=agent`. Required when `enableCapabilityHost = true` and the account uses network injection: the project capability host binds to it via the `customerSubnet` property, which ARM validates must match the subnet recorded on the Foundry account. Leave blank only if the account has NO network injection (rare -- most private-networking Standard Setups use it).')
+param agentSubnetId string = ''
+
 @description('Tags applied to created resources.')
 param tags object = {}
 
@@ -276,33 +279,31 @@ resource cosmosDataRole 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignment
 // ----------------------------------------------------------------------------
 
 // ----------------------------------------------------------------------------
-// 5. Capability hosts (account + project).
+// 5. Project capability host.
 //
-// Account host: marker record; lights up Agent Service for the account.
-// Project host: binds this project's agents to the 3 BYO connections above.
-// Immutable -- to change connections, delete and recreate. `dependsOn`
-// chains ensure all RBAC is created before the capability hosts try to
-// provision the backing containers/databases.
+// Foundry Agent Service Standard Setup has two capability hosts:
+//
+//   1. Account-scoped host (Microsoft.CognitiveServices/accounts/capabilityHosts).
+//      NOT created by this module -- the platform provisions it IMPLICITLY when
+//      the parent Cognitive account is created with
+//      `networkInjections.scenario='agent'` (see cognitive_account module).
+//      Only ONE account-scoped capability host per account is allowed, and
+//      trying to create a second one explicitly fails with
+//      `The customerSubnet property must match the subnet recorded on the
+//      Foundry account.` See Microsoft's official Standard Agent Setup
+//      sample (`15-private-network-standard-agent-setup`): its `main.bicep`
+//      skips creating an account host for fresh deployments for exactly this
+//      reason.
+//
+//   2. Project-scoped host (Microsoft.CognitiveServices/accounts/projects/capabilityHosts)
+//      -- created here. Binds this project's agents to the 3 BYO connections.
+//      Also needs a `customerSubnet` that MATCHES the subnet the account was
+//      injected into (that's what ARM validates in the error above).
+//
+// Immutable -- to change connections, delete and recreate. `dependsOn` chains
+// ensure all RBAC is created before the capability host tries to provision
+// the backing containers/databases.
 // ----------------------------------------------------------------------------
-
-resource accountCapabilityHost 'Microsoft.CognitiveServices/accounts/capabilityHosts@2025-10-01-preview' = if (enableCapabilityHost) {
-  parent: cognitiveAccount
-  name: 'default'
-  properties: {
-    capabilityHostKind: 'Agents'
-  }
-  // Account host is a marker record on the parent Cognitive account -- no
-  // data-plane calls, no RBAC dependency. Kept for symmetry with the
-  // project host below (both are provisioned by capability-host apply).
-  dependsOn: [
-    raCosmosOperator
-    raStorageContrib
-    raSearchIndex
-    raSearchService
-    raStorageBlob
-    cosmosDataRole
-  ]
-}
 
 resource projectCapabilityHost 'Microsoft.CognitiveServices/accounts/projects/capabilityHosts@2025-10-01-preview' = if (enableCapabilityHost) {
   parent: project
@@ -314,9 +315,20 @@ resource projectCapabilityHost 'Microsoft.CognitiveServices/accounts/projects/ca
     storageConnections: [connStorage.name]
     threadStorageConnections: [connCosmos.name]
     vectorStoreConnections: [connSearch.name]
+    // customerSubnet must match the subnet the parent Cognitive account was
+    // injected into via `networkInjections.scenario='agent'`. ARM validates
+    // this against the account's recorded subnet and rejects a mismatch with
+    // `The customerSubnet property must match the subnet recorded on the
+    // Foundry account.`
+    customerSubnet: empty(agentSubnetId) ? null : agentSubnetId
   }
   dependsOn: [
-    accountCapabilityHost
+    raCosmosOperator
+    raStorageContrib
+    raSearchIndex
+    raSearchService
+    raStorageBlob
+    cosmosDataRole
   ]
 }
 

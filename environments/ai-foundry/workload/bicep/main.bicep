@@ -311,6 +311,11 @@ module foundryProject '../../../../iac-modules/bicep/foundry_project/v1/foundry_
     aiSearchName: search.outputs.name
     aiSearchEndpoint: search.outputs.endpoint
 
+    // Must match the subnet passed to the cognitive_account module's
+    // networkInjections: the project capability host's `customerSubnet`
+    // property is validated against the account's recorded subnet.
+    agentSubnetId: snetAgent.id
+
     enableCapabilityHost: true
   }
 }
