@@ -43,7 +43,7 @@ Every private-endpoint-bearing service uses the same posture: local (shared-key/
 - **Bicep CLI** ≥ 0.30 (bundled with recent `az`; run `az bicep upgrade` if needed) — Path A only.
 - Outbound HTTPS to `https://api.ipify.org` from your laptop.
 
-All commands are written **from the repo root** (`cloud-playground-infra/`). Terraform commands use `terraform -chdir=<path>` and Bicep commands use `-f <path>` — both resolve relative to your current directory, so you must be at the repo root when you run them. Every path in this doc begins with `environments/ai-foundry/...`; if a command errors with `Could not find a part of the path 'environments\ai-foundry\...\environments\ai-foundry\...'`, you're in a subdirectory — `cd` back to the repo root and re-run.
+Each deploy step below **starts with a `Set-Location` (`cd`) into the specific stack directory** — `environments/ai-foundry/base/bicep`, `environments/ai-foundry/base/terraform`, `environments/ai-foundry/workload/bicep`, or `environments/ai-foundry/workload/terraform` — and all Bicep / Terraform commands in that step use short relative paths (`main.bicep`, `.`) from there. If a command errors with `Could not find ...\main.bicep` or Terraform picks up the wrong module, check `Get-Location` — you're in the wrong directory. Sign-in / variable-setup steps and `az` verification commands don't depend on your working directory, so you can run them from anywhere.
 
 Both paths default to region `eastus2` and RG name `rg-ai-foundry-dev-eastus2`.
 
@@ -53,12 +53,7 @@ Both paths default to region `eastus2` and RG name `rg-ai-foundry-dev-eastus2`.
 
 ### Step 1. Sign in, create the RG, register Resource Providers (~3 min)
 
-Make sure you're at the repo root before running anything below — all Bicep paths are relative to it:
-
-```powershell
-Set-Location (git rev-parse --show-toplevel)   # jump to the repo root
-Get-Location                                    # expect: ...\cloud-playground-infra
-```
+These are all `az` commands — no working-directory dependency. Run them from anywhere.
 
 Sign in and pin the subscription:
 
@@ -113,12 +108,22 @@ Expected: every row shows `Registered`.
 
 Base creates the VNet + 5 subnets + 11 private DNS zones with VNet links. No IP allowlisting needed — none of these are firewalled services.
 
+`cd` into the base Bicep directory:
+
+```powershell
+Set-Location (git rev-parse --show-toplevel)
+Set-Location environments/ai-foundry/base/bicep
+Get-Location   # expect: ...\environments\ai-foundry\base\bicep
+```
+
+Deploy:
+
 ```powershell
 az deployment group create `
     -g $RG `
     -n base-$(Get-Date -Format 'yyyyMMdd-HHmmss') `
-    -f environments/ai-foundry/base/bicep/main.bicep `
-    -p environments/ai-foundry/base/bicep/main.bicepparam
+    -f main.bicep `
+    -p main.bicepparam
 ```
 
 Verify:
@@ -130,6 +135,14 @@ az resource list -g $RG --query "[?type=='Microsoft.Network/virtualNetworks' || 
 Expected: 1 VNet (`vnet-ai-foundry-dev-eastus2`) + 11 privateDnsZones.
 
 ### Step 3. Deploy the workload stack (~15–20 min)
+
+`cd` into the workload Bicep directory:
+
+```powershell
+Set-Location (git rev-parse --show-toplevel)
+Set-Location environments/ai-foundry/workload/bicep
+Get-Location   # expect: ...\environments\ai-foundry\workload\bicep
+```
 
 Set your public IP as an environment variable (Bicep's `main.bicepparam` reads it via `readEnvironmentVariable('DEPLOYER_IP', '')`):
 
@@ -144,8 +157,8 @@ Deploy:
 az deployment group create `
     -g $RG `
     -n workload-$(Get-Date -Format 'yyyyMMdd-HHmmss') `
-    -f environments/ai-foundry/workload/bicep/main.bicep `
-    -p environments/ai-foundry/workload/bicep/main.bicepparam
+    -f main.bicep `
+    -p main.bicepparam
 ```
 
 Verify the 4 data-plane services and the 9 workload PEs:
@@ -175,12 +188,7 @@ Terraform can't atomically create its own backing store, so the flow has one ext
 
 ### Step 1. Sign in, create the RG, register Resource Providers, grant blob data access (~3 min)
 
-Make sure you're at the repo root before running anything below — all Terraform and Bicep paths are relative to it:
-
-```powershell
-Set-Location (git rev-parse --show-toplevel)   # jump to the repo root
-Get-Location                                    # expect: ...\cloud-playground-infra
-```
+These are all `az` commands — no working-directory dependency. Run them from anywhere.
 
 Sign in and set variables:
 
@@ -310,8 +318,18 @@ Expected: `tfstate` container present with `PublicAccess = None`.
 
 ### Step 3. Init base with the remote backend + import the bootstrapped SA (~2 min)
 
+`cd` into the base Terraform directory — everything in Steps 3 and 4 runs from here:
+
 ```powershell
-terraform -chdir=environments/ai-foundry/base/terraform init `
+Set-Location (git rev-parse --show-toplevel)
+Set-Location environments/ai-foundry/base/terraform
+Get-Location   # expect: ...\environments\ai-foundry\base\terraform
+```
+
+Init:
+
+```powershell
+terraform init `
     -backend-config="resource_group_name=$RG" `
     -backend-config="storage_account_name=$STATE_SA"
 ```
@@ -321,25 +339,25 @@ Expected: `Terraform has been successfully initialized!`
 Import the storage account and its container so Terraform manages them going forward:
 
 ```powershell
-terraform -chdir=environments/ai-foundry/base/terraform import `
+terraform import `
     "module.tfstate_storage.azurerm_storage_account.this" `
     "/subscriptions/$SUB/resourceGroups/$RG/providers/Microsoft.Storage/storageAccounts/$STATE_SA"
 
-terraform -chdir=environments/ai-foundry/base/terraform import `
+terraform import `
     "azurerm_storage_container.tfstate" `
     "/subscriptions/$SUB/resourceGroups/$RG/providers/Microsoft.Storage/storageAccounts/$STATE_SA/blobServices/default/containers/tfstate"
 
-terraform -chdir=environments/ai-foundry/base/terraform state list
+terraform state list
 ```
 
 Expected: at minimum `azurerm_storage_container.tfstate` and `module.tfstate_storage.azurerm_storage_account.this` present in the list.
 
 ### Step 4. Apply base (~5 min)
 
-If you overrode `$STATE_SA` from the default, pass it as a variable — otherwise omit the `-var` flag:
+Still in `environments/ai-foundry/base/terraform` from Step 3. If you overrode `$STATE_SA` from the default, pass it as a variable — otherwise omit the `-var` flag:
 
 ```powershell
-terraform -chdir=environments/ai-foundry/base/terraform apply `
+terraform apply `
     -var "tfstate_storage_account_name=$STATE_SA"
 ```
 
@@ -355,10 +373,18 @@ Expected: 1 VNet, 11 privateDnsZones, **1 privateEndpoint** (on the state SA).
 
 ### Step 5. Init workload with remote backend + apply (~15–20 min)
 
+`cd` into the workload Terraform directory:
+
+```powershell
+Set-Location (git rev-parse --show-toplevel)
+Set-Location environments/ai-foundry/workload/terraform
+Get-Location   # expect: ...\environments\ai-foundry\workload\terraform
+```
+
 Init points at the same tfstate SA as base, but with a different blob key (`workload.tfstate`):
 
 ```powershell
-terraform -chdir=environments/ai-foundry/workload/terraform init `
+terraform init `
     -backend-config="resource_group_name=$RG" `
     -backend-config="storage_account_name=$STATE_SA"
 ```
@@ -366,7 +392,7 @@ terraform -chdir=environments/ai-foundry/workload/terraform init `
 Apply:
 
 ```powershell
-terraform -chdir=environments/ai-foundry/workload/terraform apply
+terraform apply
 ```
 
 The workload's `data.http.myip` auto-detects your IP and pins it into all 4 service firewalls. The Cosmos SQL role assignment + Foundry capability host provisioning both perform data-plane calls from your laptop, so your IP must be allowlisted at deploy time.
@@ -390,13 +416,16 @@ Both paths are idempotent — rerun the deploy commands to pick up any change (c
 ### Path A — Bicep
 
 ```powershell
+Set-Location (git rev-parse --show-toplevel)
+Set-Location environments/ai-foundry/workload/bicep
+
 $env:DEPLOYER_IP = (Invoke-RestMethod https://api.ipify.org).Trim()
 
 az deployment group create `
     -g $RG `
     -n workload-$(Get-Date -Format 'yyyyMMdd-HHmmss') `
-    -f environments/ai-foundry/workload/bicep/main.bicep `
-    -p environments/ai-foundry/workload/bicep/main.bicepparam
+    -f main.bicep `
+    -p main.bicepparam
 ```
 
 ### Path B — Terraform
@@ -411,7 +440,10 @@ az storage account network-rule add -g $RG -n $STATE_SA --ip-address $DEPLOYER_I
 Then apply workload:
 
 ```powershell
-terraform -chdir=environments/ai-foundry/workload/terraform apply
+Set-Location (git rev-parse --show-toplevel)
+Set-Location environments/ai-foundry/workload/terraform
+
+terraform apply
 ```
 
 The ad-hoc network-rule stays as drift on the state SA until the next `base` apply, at which point `data.http.myip` reconciles the full allowlist canonically.
@@ -425,11 +457,14 @@ Once you've finished a deploy session, lock the workload data planes down.
 ### Path A — Bicep
 
 ```powershell
+Set-Location (git rev-parse --show-toplevel)
+Set-Location environments/ai-foundry/workload/bicep
+
 az deployment group create `
     -g $RG `
     -n harden-$(Get-Date -Format 'yyyyMMdd-HHmmss') `
-    -f environments/ai-foundry/workload/bicep/main.bicep `
-    -p environments/ai-foundry/workload/bicep/main.bicepparam `
+    -f main.bicep `
+    -p main.bicepparam `
     -p enablePublicNetworkAccess=false `
     -p deployerIp=""
 ```
@@ -448,7 +483,10 @@ Expected: `Disabled` for the Foundry account, the workload Storage account (not 
 ### Path B — Terraform
 
 ```powershell
-terraform -chdir=environments/ai-foundry/workload/terraform apply `
+Set-Location (git rev-parse --show-toplevel)
+Set-Location environments/ai-foundry/workload/terraform
+
+terraform apply `
     -var 'enable_public_network_access=false' `
     -var 'deployer_ip='
 ```
@@ -457,9 +495,9 @@ Same result. Verify identically to Path A.
 
 ### Un-harden (before your next deploy)
 
-**Path A — Bicep**: rerun Path A Step 3 exactly as written — `$env:DEPLOYER_IP` gets re-read from the current session, and `enablePublicNetworkAccess` falls back to its default (`true`).
+**Path A — Bicep**: rerun Path A Step 3 exactly as written (including the `cd` into `environments/ai-foundry/workload/bicep`) — `$env:DEPLOYER_IP` gets re-read from the current session, and `enablePublicNetworkAccess` falls back to its default (`true`).
 
-**Path B — Terraform**: rerun `terraform -chdir=environments/ai-foundry/workload/terraform apply` with no `-var` flags. `enable_public_network_access` defaults back to `true` and `deployer_ip` re-auto-detects via `data.http.myip`.
+**Path B — Terraform**: `cd` into `environments/ai-foundry/workload/terraform` and rerun `terraform apply` with no `-var` flags. `enable_public_network_access` defaults back to `true` and `deployer_ip` re-auto-detects via `data.http.myip`.
 
 ---
 
@@ -476,15 +514,31 @@ Expected: `false` once the async delete completes (typically 2–5 min).
 
 ### Path B — Terraform
 
-Remove the state SA + container from Terraform's tracking BEFORE destroying, so `terraform destroy` on base doesn't try to delete the backend it's currently reading state from:
+Remove the state SA + container from Terraform's tracking BEFORE destroying, so `terraform destroy` on base doesn't try to delete the backend it's currently reading state from.
+
+First, destroy the workload stack:
 
 ```powershell
-terraform -chdir=environments/ai-foundry/workload/terraform destroy
+Set-Location (git rev-parse --show-toplevel)
+Set-Location environments/ai-foundry/workload/terraform
 
-terraform -chdir=environments/ai-foundry/base/terraform state rm 'module.tfstate_storage.azurerm_storage_account.this'
-terraform -chdir=environments/ai-foundry/base/terraform state rm 'azurerm_storage_container.tfstate'
-terraform -chdir=environments/ai-foundry/base/terraform destroy
+terraform destroy
+```
 
+Then switch to base, untrack the state SA + container, and destroy:
+
+```powershell
+Set-Location (git rev-parse --show-toplevel)
+Set-Location environments/ai-foundry/base/terraform
+
+terraform state rm 'module.tfstate_storage.azurerm_storage_account.this'
+terraform state rm 'azurerm_storage_container.tfstate'
+terraform destroy
+```
+
+Finally, delete the RG (which cleans up the still-in-Azure, no-longer-in-Terraform tfstate SA + container):
+
+```powershell
 az group delete -n $RG --yes --no-wait
 az group exists -n $RG
 ```
@@ -516,7 +570,7 @@ Terraform waits 60 s via `time_sleep` between assignments and capability-host pr
 |---|---|---|
 | `terraform apply` fails reading state with an authorization / 403 on the tfstate blob | Your IP changed and isn't allowlisted on the state SA firewall | `az storage account network-rule add -g $RG -n $STATE_SA --ip-address $((Invoke-RestMethod https://api.ipify.org).Trim())` then retry |
 | `az storage account create` in Path B Step 2 returns `StorageAccountAlreadyTaken` | Your derived `sttfs<hash>` name collides globally with someone else's account | See the collision note **inside Path B Step 2** — pick a unique name for `$STATE_SA` and re-run Step 2 with it; carry the same value through `terraform init` and the `-var 'tfstate_storage_account_name=...'` in Step 4 |
-| Bicep or Terraform deploy fails on `Microsoft.CognitiveServices/accounts/capabilityHosts` with 403 | RBAC propagation lag (Entra ID replication) between the workload's role assignments and the data-plane call to create the capability host | Rerun the deployment. Bicep's `deploymentScripts` re-fires its 60 s sleep on every apply (via `forceUpdateTag: utcNow()`). Terraform's `time_sleep` will NOT re-fire if already in state — if the retry still 403s, force the sleep to re-run: `terraform -chdir=environments/ai-foundry/workload/terraform apply -replace='module.foundry_project.time_sleep.wait_for_rbac_propagation'` |
+| Bicep or Terraform deploy fails on `Microsoft.CognitiveServices/accounts/capabilityHosts` with 403 | RBAC propagation lag (Entra ID replication) between the workload's role assignments and the data-plane call to create the capability host | Rerun the deployment. Bicep's `deploymentScripts` re-fires its 60 s sleep on every apply (via `forceUpdateTag: utcNow()`). Terraform's `time_sleep` will NOT re-fire if already in state — if the retry still 403s, force the sleep to re-run from `environments/ai-foundry/workload/terraform`: `terraform apply -replace='module.foundry_project.time_sleep.wait_for_rbac_propagation'` |
 | First `terraform apply` for base in Path B Step 4 wants to *create* the state SA instead of updating it | You skipped the `terraform import` commands in Path B Step 3 | Cancel the apply, run the two `terraform import` commands from Step 3, then rerun `terraform apply` |
 | Workload deployed OK but hitting a workload endpoint (e.g. `Invoke-RestMethod` to the Foundry account) returns 403 | Your public IP isn't currently allowlisted, or you ran the [hardening step](#part-c--harden-remove-deployer-ip-and-close-public-endpoints) | Rerun the workload deploy from the current network to reconcile the allowlist; if hardened, follow the [un-harden step](#un-harden-before-your-next-deploy) |
 | `az storage container create --auth-mode login` returns 403 | RBAC propagation lag on the `Storage Blob Data Contributor` assignment | Wait 30-60 s and retry (Path B Step 1 already includes a `Start-Sleep 60`) |

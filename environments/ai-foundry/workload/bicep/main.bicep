@@ -76,12 +76,12 @@ param cognitivePrivateDnsZoneNames array = [
 @minLength(6)
 @maxLength(6)
 param storagePrivateDnsZoneNames array = [
-  'privatelink.blob.core.windows.net'
-  'privatelink.file.core.windows.net'
-  'privatelink.queue.core.windows.net'
-  'privatelink.table.core.windows.net'
-  'privatelink.dfs.core.windows.net'
-  'privatelink.web.core.windows.net'
+  'privatelink.blob.${az.environment().suffixes.storage}'
+  'privatelink.file.${az.environment().suffixes.storage}'
+  'privatelink.queue.${az.environment().suffixes.storage}'
+  'privatelink.table.${az.environment().suffixes.storage}'
+  'privatelink.dfs.${az.environment().suffixes.storage}'
+  'privatelink.web.${az.environment().suffixes.storage}'
 ]
 
 @description('Cosmos SQL DNS zone. Default: privatelink.documents.azure.com.')

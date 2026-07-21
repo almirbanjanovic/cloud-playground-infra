@@ -54,7 +54,7 @@ resource subnet 'Microsoft.Network/virtualNetworks/subnets@2024-05-01' = [for ke
   name: key.value.name
   properties: {
     addressPrefixes: key.value.addressPrefixes
-    delegations: contains(key.value, 'delegations') ? key.value.delegations : []
+    delegations: key.value.?delegations ?? []
     // PE + agent subnets historically default privateEndpointNetworkPolicies
     // to Disabled. Keep that platform default so both PE and network-injection
     // scenarios "just work".

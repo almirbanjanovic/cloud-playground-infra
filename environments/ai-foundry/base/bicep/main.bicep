@@ -61,12 +61,12 @@ var cognitiveDnsZones = [
 ]
 
 var storageDnsZones = [
-  'privatelink.blob.core.windows.net'
-  'privatelink.file.core.windows.net'
-  'privatelink.queue.core.windows.net'
-  'privatelink.table.core.windows.net'
-  'privatelink.dfs.core.windows.net'
-  'privatelink.web.core.windows.net'
+  'privatelink.blob.${az.environment().suffixes.storage}'
+  'privatelink.file.${az.environment().suffixes.storage}'
+  'privatelink.queue.${az.environment().suffixes.storage}'
+  'privatelink.table.${az.environment().suffixes.storage}'
+  'privatelink.dfs.${az.environment().suffixes.storage}'
+  'privatelink.web.${az.environment().suffixes.storage}'
 ]
 
 var cosmosDnsZone = 'privatelink.documents.azure.com'
