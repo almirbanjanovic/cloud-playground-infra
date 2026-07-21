@@ -1,6 +1,6 @@
 <mxfile host="65bd71144e">
     <diagram name="AI Foundry — Architecture &amp; Deployment" id="ai-foundry-arch">
-        <mxGraphModel dx="3184" dy="737" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1620" pageHeight="1440" math="0" shadow="0">
+        <mxGraphModel dx="3165" dy="737" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1620" pageHeight="1440" math="0" shadow="0">
             <root>
                 <mxCell id="0"/>
                 <mxCell id="1" parent="0"/>
@@ -122,7 +122,7 @@
                 </mxCell>
                 <mxCell id="edge_agent_foundry_lbl" value="&lt;span style=&quot;font-weight: normal;&quot;&gt;&lt;font style=&quot;font-size: 11px;&quot;&gt;Network Injection&lt;/font&gt;&lt;/span&gt;" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;fontStyle=1;fillColor=#FEF5F4;strokeColor=#B85450;spacingLeft=6;spacingRight=6;" parent="edge_agent_foundry" vertex="1" connectable="0">
                     <mxGeometry x="-0.3" relative="1" as="geometry">
-                        <mxPoint x="-23" y="-1" as="offset"/>
+                        <mxPoint x="-6" y="-1" as="offset"/>
                     </mxGeometry>
                 </mxCell>
                 <mxCell id="user_icon" value="User" style="shape=image;image=data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2218%22%20height%3D%2218%22%20viewBox%3D%220%200%2018%2018%22%3E%3Cdefs%3E%3ClinearGradient%20id%3D%22user-grad%22%20x1%3D%229%22%20y1%3D%221%22%20x2%3D%229%22%20y2%3D%2217%22%20gradientUnits%3D%22userSpaceOnUse%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%235EA0EF%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%230078D4%22%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%3Ccircle%20cx%3D%229%22%20cy%3D%225.5%22%20r%3D%223.2%22%20fill%3D%22url%28%23user-grad%29%22%2F%3E%3Cpath%20d%3D%22M2.5%2016.5%20c0%20-3.6%202.9%20-6.2%206.5%20-6.2%20s6.5%202.6%206.5%206.2%20z%22%20fill%3D%22url%28%23user-grad%29%22%2F%3E%3C%2Fsvg%3E;html=1;imageAspect=1;verticalLabelPosition=bottom;verticalAlign=top;labelBackgroundColor=none;fontSize=12;fontStyle=1;fontColor=#232F3E;" parent="1" vertex="1">
