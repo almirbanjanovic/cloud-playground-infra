@@ -99,9 +99,7 @@ Register Resource Providers, then show the state for all of them in one query:
 $rps = @(
     'Microsoft.App',                # required by the agent subnet's Microsoft.App/environments delegation (Foundry Agent Service runtime)
     'Microsoft.CognitiveServices',  # Foundry account + project + connections + capability hosts
-    'Microsoft.ContainerInstance',  # backs Microsoft.Resources/deploymentScripts (workload's RBAC-propagation sleep, Bicep only)
     'Microsoft.DocumentDB',         # Cosmos DB
-    'Microsoft.ManagedIdentity',    # user-assigned identity attached to the RBAC-propagation deploymentScripts (Bicep only)
     'Microsoft.Network',            # VNet, subnets, private DNS zones, private endpoints
     'Microsoft.Search',             # AI Search
     'Microsoft.Storage'             # Storage account
@@ -589,7 +587,7 @@ The workload's `foundry_project` module grants these to the Foundry project's Sy
 | 5 | Storage Blob Data Contributor | Storage account | Agents read/write files in the auto-created containers (Contributor, not Owner — Owner's ACL / POSIX management bits aren't needed at runtime) |
 | 5 | Cosmos DB Built-in Data Contributor | Cosmos account (SQL role) | Agents read/write threads in `enterprise_memory` |
 
-Terraform waits 60 s via `time_sleep` between assignments and capability-host provisioning; Bicep does the same via a `Microsoft.Resources/deploymentScripts` resource with `forceUpdateTag: utcNow()` (which makes it re-fire on every apply).
+Terraform waits 60 s via `time_sleep` between assignments and capability-host provisioning — that's a client-side wait, no Azure resources involved. Bicep has no equivalent primitive: we used to insert a `Microsoft.Resources/deploymentScripts` (Azure Container Instance running `sleep 60`) to force a delay, but deploymentScripts requires shared-key auth to its own auto-provisioned Storage account, which is incompatible with tenant policies that enforce `allowSharedKeyAccess = false`. Bicep therefore relies purely on ARM's `dependsOn` chain and accepts that first-apply capability-host creation may occasionally 403 on RBAC propagation lag — recovery is a plain rerun of the same `az deployment group create` (idempotent; everything else is a no-op; the capability host retry succeeds after propagation completes).
 
 ---
 
@@ -599,7 +597,7 @@ Terraform waits 60 s via `time_sleep` between assignments and capability-host pr
 |---|---|---|
 | `terraform apply` fails reading state with an authorization / 403 on the tfstate blob | Your IP changed and isn't allowlisted on the state SA firewall | `az storage account network-rule add -g $RG_NETWORK -n $STATE_SA --ip-address $((Invoke-RestMethod https://api.ipify.org).Trim())` then retry |
 | `az storage account create` in Path B Step 2 returns `StorageAccountAlreadyTaken` | Your derived `sttfs<hash>` name collides globally with someone else's account | See the collision note **inside Path B Step 2** — pick a unique name for `$STATE_SA` and re-run Step 2 with it; carry the same value through `terraform init` and the `-var 'tfstate_storage_account_name=...'` in Step 4 |
-| Bicep or Terraform deploy fails on `Microsoft.CognitiveServices/accounts/capabilityHosts` with 403 | RBAC propagation lag (Entra ID replication) between the workload's role assignments and the data-plane call to create the capability host | Rerun the deployment. Bicep's `deploymentScripts` re-fires its 60 s sleep on every apply (via `forceUpdateTag: utcNow()`). Terraform's `time_sleep` will NOT re-fire if already in state — if the retry still 403s, force the sleep to re-run from `environments/ai-foundry/workload/terraform`: `terraform apply -replace='module.foundry_project.time_sleep.wait_for_rbac_propagation'` |
+| Bicep or Terraform deploy fails on `Microsoft.CognitiveServices/accounts/capabilityHosts` with 403 | RBAC propagation lag (Entra ID replication) between the workload's role assignments and the data-plane call to create the capability host | **Bicep**: rerun `az deployment group create` — the whole deploy is idempotent and everything else is a no-op; the capability host retry succeeds once propagation completes (typically < 60 s). **Terraform**: `time_sleep` will NOT re-fire if already in state — if the retry still 403s, force the sleep to re-run from `environments/ai-foundry/workload/terraform`: `terraform apply -replace='module.foundry_project.time_sleep.wait_for_rbac_propagation'` |
 | First `terraform apply` for base in Path B Step 4 wants to *create* the state SA instead of updating it | You skipped the `terraform import` commands in Path B Step 3 | Cancel the apply, run the two `terraform import` commands from Step 3, then rerun `terraform apply` |
 | Workload deployed OK but hitting a workload endpoint (e.g. `Invoke-RestMethod` to the Foundry account) returns 403 | Your public IP isn't currently allowlisted, or you ran the [hardening step](#part-c--harden-remove-deployer-ip-and-close-public-endpoints) | Rerun the workload deploy from the current network to reconcile the allowlist; if hardened, follow the [un-harden step](#un-harden-before-your-next-deploy) |
 | `az storage container create --auth-mode login` returns 403 | RBAC propagation lag on the `Storage Blob Data Contributor` assignment | Wait 30-60 s and retry (Path B Step 1 already includes a `Start-Sleep 60`) |

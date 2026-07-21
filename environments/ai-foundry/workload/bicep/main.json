@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.45.15.27210",
-      "templateHash": "17507957697174377567"
+      "templateHash": "4870924609640424931"
     }
   },
   "parameters": {
@@ -2606,7 +2606,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.45.15.27210",
-              "templateHash": "8989956518825405061"
+              "templateHash": "13106848226288047447"
             }
           },
           "parameters": {
@@ -2705,10 +2705,6 @@
               "metadata": {
                 "description": "Tags applied to created resources."
               }
-            },
-            "rbacPropagationScriptForceUpdateTag": {
-              "type": "string",
-              "defaultValue": "[utcNow()]"
             }
           },
           "variables": {
@@ -2878,44 +2874,6 @@
             },
             {
               "condition": "[parameters('enableCapabilityHost')]",
-              "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
-              "apiVersion": "2023-01-31",
-              "name": "[format('id-sleep-rbac-{0}', variables('effectiveProjectName'))]",
-              "location": "[parameters('location')]"
-            },
-            {
-              "condition": "[parameters('enableCapabilityHost')]",
-              "type": "Microsoft.Resources/deploymentScripts",
-              "apiVersion": "2023-08-01",
-              "name": "[format('sleep-rbac-propagation-{0}', variables('effectiveProjectName'))]",
-              "location": "[parameters('location')]",
-              "kind": "AzureCLI",
-              "identity": {
-                "type": "UserAssigned",
-                "userAssignedIdentities": {
-                  "[format('{0}', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('id-sleep-rbac-{0}', variables('effectiveProjectName'))))]": {}
-                }
-              },
-              "properties": {
-                "azCliVersion": "2.60.0",
-                "scriptContent": "echo \"Waiting 60s for RBAC propagation before creating Foundry capability hosts\"; sleep 60",
-                "retentionInterval": "PT1H",
-                "cleanupPreference": "OnSuccess",
-                "timeout": "PT10M",
-                "forceUpdateTag": "[parameters('rbacPropagationScriptForceUpdateTag')]"
-              },
-              "dependsOn": [
-                "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments', parameters('cosmosAccountName'), guid(resourceId('Microsoft.DocumentDB/databaseAccounts', parameters('cosmosAccountName')), resourceId('Microsoft.CognitiveServices/accounts/projects', parameters('cognitiveAccountName'), variables('effectiveProjectName')), variables('cosmosBuiltInDataContributorRoleDefinitionId')))]",
-                "[extensionResourceId(resourceId('Microsoft.DocumentDB/databaseAccounts', parameters('cosmosAccountName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.DocumentDB/databaseAccounts', parameters('cosmosAccountName')), resourceId('Microsoft.CognitiveServices/accounts/projects', parameters('cognitiveAccountName'), variables('effectiveProjectName')), variables('roleIds').cosmosDbOperator))]",
-                "[extensionResourceId(resourceId('Microsoft.Search/searchServices', parameters('aiSearchName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Search/searchServices', parameters('aiSearchName')), resourceId('Microsoft.CognitiveServices/accounts/projects', parameters('cognitiveAccountName'), variables('effectiveProjectName')), variables('roleIds').searchIndexDataContributor))]",
-                "[extensionResourceId(resourceId('Microsoft.Search/searchServices', parameters('aiSearchName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Search/searchServices', parameters('aiSearchName')), resourceId('Microsoft.CognitiveServices/accounts/projects', parameters('cognitiveAccountName'), variables('effectiveProjectName')), variables('roleIds').searchServiceContributor))]",
-                "[extensionResourceId(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), resourceId('Microsoft.CognitiveServices/accounts/projects', parameters('cognitiveAccountName'), variables('effectiveProjectName')), variables('roleIds').storageBlobDataContributor))]",
-                "[extensionResourceId(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), resourceId('Microsoft.CognitiveServices/accounts/projects', parameters('cognitiveAccountName'), variables('effectiveProjectName')), variables('roleIds').storageAccountContributor))]",
-                "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('id-sleep-rbac-{0}', variables('effectiveProjectName')))]"
-              ]
-            },
-            {
-              "condition": "[parameters('enableCapabilityHost')]",
               "type": "Microsoft.CognitiveServices/accounts/capabilityHosts",
               "apiVersion": "2025-10-01-preview",
               "name": "[format('{0}/{1}', parameters('cognitiveAccountName'), 'default')]",
@@ -2923,7 +2881,12 @@
                 "capabilityHostKind": "Agents"
               },
               "dependsOn": [
-                "[resourceId('Microsoft.Resources/deploymentScripts', format('sleep-rbac-propagation-{0}', variables('effectiveProjectName')))]"
+                "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments', parameters('cosmosAccountName'), guid(resourceId('Microsoft.DocumentDB/databaseAccounts', parameters('cosmosAccountName')), resourceId('Microsoft.CognitiveServices/accounts/projects', parameters('cognitiveAccountName'), variables('effectiveProjectName')), variables('cosmosBuiltInDataContributorRoleDefinitionId')))]",
+                "[extensionResourceId(resourceId('Microsoft.DocumentDB/databaseAccounts', parameters('cosmosAccountName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.DocumentDB/databaseAccounts', parameters('cosmosAccountName')), resourceId('Microsoft.CognitiveServices/accounts/projects', parameters('cognitiveAccountName'), variables('effectiveProjectName')), variables('roleIds').cosmosDbOperator))]",
+                "[extensionResourceId(resourceId('Microsoft.Search/searchServices', parameters('aiSearchName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Search/searchServices', parameters('aiSearchName')), resourceId('Microsoft.CognitiveServices/accounts/projects', parameters('cognitiveAccountName'), variables('effectiveProjectName')), variables('roleIds').searchIndexDataContributor))]",
+                "[extensionResourceId(resourceId('Microsoft.Search/searchServices', parameters('aiSearchName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Search/searchServices', parameters('aiSearchName')), resourceId('Microsoft.CognitiveServices/accounts/projects', parameters('cognitiveAccountName'), variables('effectiveProjectName')), variables('roleIds').searchServiceContributor))]",
+                "[extensionResourceId(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), resourceId('Microsoft.CognitiveServices/accounts/projects', parameters('cognitiveAccountName'), variables('effectiveProjectName')), variables('roleIds').storageBlobDataContributor))]",
+                "[extensionResourceId(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), resourceId('Microsoft.CognitiveServices/accounts/projects', parameters('cognitiveAccountName'), variables('effectiveProjectName')), variables('roleIds').storageAccountContributor))]"
               ]
             },
             {
