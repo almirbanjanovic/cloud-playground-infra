@@ -101,6 +101,7 @@ $rps = @(
     'Microsoft.CognitiveServices',  # Foundry account + project + connections + capability hosts
     'Microsoft.ContainerInstance',  # backs Microsoft.Resources/deploymentScripts (workload's RBAC-propagation sleep, Bicep only)
     'Microsoft.DocumentDB',         # Cosmos DB
+    'Microsoft.ManagedIdentity',    # user-assigned identity attached to the RBAC-propagation deploymentScripts (Bicep only)
     'Microsoft.Network',            # VNet, subnets, private DNS zones, private endpoints
     'Microsoft.Search',             # AI Search
     'Microsoft.Storage'             # Storage account
@@ -585,7 +586,7 @@ The workload's `foundry_project` module grants these to the Foundry project's Sy
 | 3 | Storage Account Contributor | Storage account | Foundry creates agent blob containers |
 | 5 | Search Index Data Contributor | AI Search | Agents read/write vector indexes |
 | 5 | Search Service Contributor | AI Search | Agents create indexes on demand |
-| 5 | Storage Blob Data Owner | Storage account | Agents read/write files in the auto-created containers |
+| 5 | Storage Blob Data Contributor | Storage account | Agents read/write files in the auto-created containers (Contributor, not Owner — Owner's ACL / POSIX management bits aren't needed at runtime) |
 | 5 | Cosmos DB Built-in Data Contributor | Cosmos account (SQL role) | Agents read/write threads in `enterprise_memory` |
 
 Terraform waits 60 s via `time_sleep` between assignments and capability-host provisioning; Bicep does the same via a `Microsoft.Resources/deploymentScripts` resource with `forceUpdateTag: utcNow()` (which makes it re-fire on every apply).

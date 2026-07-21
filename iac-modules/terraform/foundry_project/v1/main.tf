@@ -41,9 +41,12 @@
 #   Search Service Contributor       on the AI Search service
 #     → agents create new vector-store indexes on demand
 #
-#   Storage Blob Data Owner          on the Storage account
-#     → agents read/write files in the two auto-created containers
-#       (broader than the doc's per-container scoping, but the container
+#   Storage Blob Data Contributor   on the Storage account
+#     → agents read/write files in the two auto-created containers.
+#       Contributor (not Owner) is the least-privilege choice for the
+#       runtime data-plane use case — Owner adds ACL / POSIX management
+#       that agents don't need.
+#       (Broader than the doc's per-container scoping, but the container
 #       names aren't known at plan time — see comment below)
 #
 #   Cosmos DB Built-in Data Contributor  on the Cosmos account (SQL role)
@@ -191,10 +194,10 @@ resource "azurerm_role_assignment" "project_search_service_contributor" {
   principal_type       = "ServicePrincipal"
 }
 
-resource "azurerm_role_assignment" "project_storage_blob_data_owner" {
+resource "azurerm_role_assignment" "project_storage_blob_data_contributor" {
   count                = var.enable_capability_host && var.storage_account_id != null ? 1 : 0
   scope                = var.storage_account_id
-  role_definition_name = "Storage Blob Data Owner"
+  role_definition_name = "Storage Blob Data Contributor"
   principal_id         = azurerm_cognitive_account_project.this.identity[0].principal_id
   principal_type       = "ServicePrincipal"
 }
@@ -233,7 +236,7 @@ resource "time_sleep" "wait_for_rbac_propagation" {
     storage_contributor = try(azurerm_role_assignment.project_storage_account_contributor[0].id, "")
     search_index        = try(azurerm_role_assignment.project_search_index_contributor[0].id, "")
     search_service      = try(azurerm_role_assignment.project_search_service_contributor[0].id, "")
-    storage_blob        = try(azurerm_role_assignment.project_storage_blob_data_owner[0].id, "")
+    storage_blob        = try(azurerm_role_assignment.project_storage_blob_data_contributor[0].id, "")
     cosmos_data         = try(azurerm_cosmosdb_sql_role_assignment.project_cosmos_data_contributor[0].id, "")
   }
 
@@ -242,7 +245,7 @@ resource "time_sleep" "wait_for_rbac_propagation" {
     azurerm_role_assignment.project_storage_account_contributor,
     azurerm_role_assignment.project_search_index_contributor,
     azurerm_role_assignment.project_search_service_contributor,
-    azurerm_role_assignment.project_storage_blob_data_owner,
+    azurerm_role_assignment.project_storage_blob_data_contributor,
     azurerm_cosmosdb_sql_role_assignment.project_cosmos_data_contributor,
   ]
 }

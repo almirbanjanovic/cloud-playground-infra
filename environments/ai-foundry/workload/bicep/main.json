@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.45.15.27210",
-      "templateHash": "5627866916631194275"
+      "templateHash": "17507957697174377567"
     }
   },
   "parameters": {
@@ -2606,7 +2606,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.45.15.27210",
-              "templateHash": "17547340280574080544"
+              "templateHash": "8989956518825405061"
             }
           },
           "parameters": {
@@ -2721,7 +2721,7 @@
               "storageAccountContributor": "17d1049b-9a84-46fb-8f53-869881c3d3ab",
               "searchIndexDataContributor": "8ebe5a00-799e-43f5-93ac-243d3dce84a7",
               "searchServiceContributor": "7ca78c08-252a-4471-8644-bb5ff32d4ba0",
-              "storageBlobDataOwner": "b7e6dc6d-f1e8-4753-8033-0f276bb0955b"
+              "storageBlobDataContributor": "ba92f5b4-2d11-453d-a403-e96b0029c9fe"
             }
           },
           "resources": [
@@ -2852,10 +2852,10 @@
               "type": "Microsoft.Authorization/roleAssignments",
               "apiVersion": "2022-04-01",
               "scope": "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]",
-              "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), resourceId('Microsoft.CognitiveServices/accounts/projects', parameters('cognitiveAccountName'), variables('effectiveProjectName')), variables('roleIds').storageBlobDataOwner)]",
+              "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), resourceId('Microsoft.CognitiveServices/accounts/projects', parameters('cognitiveAccountName'), variables('effectiveProjectName')), variables('roleIds').storageBlobDataContributor)]",
               "properties": {
                 "principalId": "[reference(resourceId('Microsoft.CognitiveServices/accounts/projects', parameters('cognitiveAccountName'), variables('effectiveProjectName')), '2025-04-01-preview', 'full').identity.principalId]",
-                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('roleIds').storageBlobDataOwner)]",
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('roleIds').storageBlobDataContributor)]",
                 "principalType": "ServicePrincipal"
               },
               "dependsOn": [
@@ -2878,13 +2878,23 @@
             },
             {
               "condition": "[parameters('enableCapabilityHost')]",
+              "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+              "apiVersion": "2023-01-31",
+              "name": "[format('id-sleep-rbac-{0}', variables('effectiveProjectName'))]",
+              "location": "[parameters('location')]"
+            },
+            {
+              "condition": "[parameters('enableCapabilityHost')]",
               "type": "Microsoft.Resources/deploymentScripts",
               "apiVersion": "2023-08-01",
               "name": "[format('sleep-rbac-propagation-{0}', variables('effectiveProjectName'))]",
               "location": "[parameters('location')]",
               "kind": "AzureCLI",
               "identity": {
-                "type": "SystemAssigned"
+                "type": "UserAssigned",
+                "userAssignedIdentities": {
+                  "[format('{0}', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('id-sleep-rbac-{0}', variables('effectiveProjectName'))))]": {}
+                }
               },
               "properties": {
                 "azCliVersion": "2.60.0",
@@ -2899,8 +2909,9 @@
                 "[extensionResourceId(resourceId('Microsoft.DocumentDB/databaseAccounts', parameters('cosmosAccountName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.DocumentDB/databaseAccounts', parameters('cosmosAccountName')), resourceId('Microsoft.CognitiveServices/accounts/projects', parameters('cognitiveAccountName'), variables('effectiveProjectName')), variables('roleIds').cosmosDbOperator))]",
                 "[extensionResourceId(resourceId('Microsoft.Search/searchServices', parameters('aiSearchName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Search/searchServices', parameters('aiSearchName')), resourceId('Microsoft.CognitiveServices/accounts/projects', parameters('cognitiveAccountName'), variables('effectiveProjectName')), variables('roleIds').searchIndexDataContributor))]",
                 "[extensionResourceId(resourceId('Microsoft.Search/searchServices', parameters('aiSearchName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Search/searchServices', parameters('aiSearchName')), resourceId('Microsoft.CognitiveServices/accounts/projects', parameters('cognitiveAccountName'), variables('effectiveProjectName')), variables('roleIds').searchServiceContributor))]",
-                "[extensionResourceId(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), resourceId('Microsoft.CognitiveServices/accounts/projects', parameters('cognitiveAccountName'), variables('effectiveProjectName')), variables('roleIds').storageBlobDataOwner))]",
-                "[extensionResourceId(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), resourceId('Microsoft.CognitiveServices/accounts/projects', parameters('cognitiveAccountName'), variables('effectiveProjectName')), variables('roleIds').storageAccountContributor))]"
+                "[extensionResourceId(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), resourceId('Microsoft.CognitiveServices/accounts/projects', parameters('cognitiveAccountName'), variables('effectiveProjectName')), variables('roleIds').storageBlobDataContributor))]",
+                "[extensionResourceId(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), resourceId('Microsoft.CognitiveServices/accounts/projects', parameters('cognitiveAccountName'), variables('effectiveProjectName')), variables('roleIds').storageAccountContributor))]",
+                "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('id-sleep-rbac-{0}', variables('effectiveProjectName')))]"
               ]
             },
             {

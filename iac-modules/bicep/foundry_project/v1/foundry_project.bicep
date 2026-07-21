@@ -80,7 +80,7 @@ var roleIds = {
   storageAccountContributor    : '17d1049b-9a84-46fb-8f53-869881c3d3ab'
   searchIndexDataContributor   : '8ebe5a00-799e-43f5-93ac-243d3dce84a7'
   searchServiceContributor     : '7ca78c08-252a-4471-8644-bb5ff32d4ba0'
-  storageBlobDataOwner         : 'b7e6dc6d-f1e8-4753-8033-0f276bb0955b'
+  storageBlobDataContributor   : 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
 }
 
 // ----------------------------------------------------------------------------
@@ -222,11 +222,11 @@ resource raSearchService 'Microsoft.Authorization/roleAssignments@2022-04-01' = 
 }
 
 resource raStorageBlob 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (enableCapabilityHost) {
-  name: guid(storageAccount.id, project.id, roleIds.storageBlobDataOwner)
+  name: guid(storageAccount.id, project.id, roleIds.storageBlobDataContributor)
   scope: storageAccount
   properties: {
     principalId: project.identity.principalId
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roleIds.storageBlobDataOwner)
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roleIds.storageBlobDataContributor)
     principalType: 'ServicePrincipal'
   }
 }
@@ -243,54 +243,37 @@ resource cosmosDataRole 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignment
 }
 
 // ----------------------------------------------------------------------------
-// RBAC-propagation sleep (Bicep equivalent of Terraform's `time_sleep`).
+// RBAC-propagation ordering.
 //
 // Entra ID typically takes 30-60 seconds to replicate a new role assignment
 // out to the data-plane services that need to enforce it. Without a wait,
-// the capability host below almost always 403s on first apply. We use a
-// short deployment script (Azure Container Instances behind the scenes) as
-// the only bicep-native way to introduce a delay in the dependency graph.
+// the project capability host below can 403 on first apply when it tries
+// to provision the backing DB / blob containers via the newly-assigned
+// project MI.
 //
-// The script:
-//   - Runs a Linux container that does `sleep 60` and exits 0.
-//   - `retentionInterval: PT1H` keeps ARM cleaning up the ACI within an hour.
-//   - `forceUpdateTag` uses `utcNow()` so the script re-runs on every deploy
-//     (deploymentScripts are idempotent by name; without the tag change ARM
-//     would skip re-execution on the second apply, which is fine).
-//   - Ordering: dependsOn every role assignment above so the sleep starts
-//     ONLY once all assignments are created. Capability hosts below dependOn
-//     this script so they wait for both.
+// We used to insert a `Microsoft.Resources/deploymentScripts` (Azure
+// Container Instance running `sleep 60`) here to force a delay in the
+// dependency graph -- Bicep's only native "wait" primitive. That approach
+// is fundamentally incompatible with Azure Policies that enforce
+// `allowSharedKeyAccess = false` on all storage accounts: the
+// deploymentScripts service authenticates to its own auto-provisioned SA
+// with shared-key auth ONLY, so under such a policy every apply fails
+// with `KeyBasedAuthenticationNotPermitted`. Since the ai-foundry lab
+// creates its BYO Storage account with shared-key disabled (and the same
+// policy usually applies at subscription scope), we cannot use
+// deploymentScripts here.
+//
+// Instead we rely purely on ARM's `dependsOn` chain: capability hosts
+// wait for every role assignment to be CREATED (which is what ARM tracks
+// -- not "propagated"). The lag between "created" and "usable at the
+// data plane" is what causes the occasional first-apply 403. Recovery
+// is trivial: `az deployment group create ...` a second time; the whole
+// deploy is idempotent, everything else is a no-op, and the capability
+// host retry succeeds because RBAC has finished propagating during the
+// interval. Terraform's `time_sleep` avoids this by living entirely
+// client-side (no Azure resources), which is why the Terraform path
+// still keeps its 60s sleep.
 // ----------------------------------------------------------------------------
-
-param rbacPropagationScriptForceUpdateTag string = utcNow()
-
-resource rbacPropagationSleep 'Microsoft.Resources/deploymentScripts@2023-08-01' = if (enableCapabilityHost) {
-  name: 'sleep-rbac-propagation-${effectiveProjectName}'
-  location: location
-  kind: 'AzureCLI'
-  // SystemAssigned identity is required by some deployment-scripts API
-  // validators even when the script doesn't call Azure APIs. The identity
-  // gets no explicit role assignments -- the script only runs `sleep 60`.
-  identity: {
-    type: 'SystemAssigned'
-  }
-  properties: {
-    azCliVersion: '2.60.0'
-    scriptContent: 'echo "Waiting 60s for RBAC propagation before creating Foundry capability hosts"; sleep 60'
-    retentionInterval: 'PT1H'
-    cleanupPreference: 'OnSuccess'
-    timeout: 'PT10M'
-    forceUpdateTag: rbacPropagationScriptForceUpdateTag
-  }
-  dependsOn: [
-    raCosmosOperator
-    raStorageContrib
-    raSearchIndex
-    raSearchService
-    raStorageBlob
-    cosmosDataRole
-  ]
-}
 
 // ----------------------------------------------------------------------------
 // 5. Capability hosts (account + project).
@@ -308,8 +291,16 @@ resource accountCapabilityHost 'Microsoft.CognitiveServices/accounts/capabilityH
   properties: {
     capabilityHostKind: 'Agents'
   }
+  // Account host is a marker record on the parent Cognitive account -- no
+  // data-plane calls, no RBAC dependency. Kept for symmetry with the
+  // project host below (both are provisioned by capability-host apply).
   dependsOn: [
-    rbacPropagationSleep
+    raCosmosOperator
+    raStorageContrib
+    raSearchIndex
+    raSearchService
+    raStorageBlob
+    cosmosDataRole
   ]
 }
 
