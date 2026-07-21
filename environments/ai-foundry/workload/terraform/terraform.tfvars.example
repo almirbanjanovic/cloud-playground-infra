@@ -1,13 +1,21 @@
 # Every variable in variables.tf has a working default, so you can just run
 # `terraform apply` with no `-var` flags. It will look up the base stack's
-# resources in `rg-ai-foundry-dev-westus3` under the default naming convention
-# and auto-detect your public IP for the firewall allowlist.
+# resources in `rg-ai-foundry-network-dev-westus3` (per the CAF landing-zone
+# pattern) and create workload resources in `rg-ai-foundry-workload-dev-westus3`,
+# then auto-detect your public IP for the firewall allowlist.
 #
 # Copy this file to `terraform.tfvars` and uncomment lines only if you want
 # to override defaults. `terraform.tfvars` is git-ignored.
 
-# --- Optional: override the RG (must match the base stack) ---
-# resource_group_name = "rg-ai-foundry-dev-westus3"
+# --- Optional: override the workload RG ---
+# resource_group_name = "rg-ai-foundry-workload-dev-westus3"
+
+# --- Optional: cross-RG lookup for base (CAF landing-zone pattern) ---
+# Defaults to `rg-ai-foundry-network-dev-westus3` — the separate networking RG
+# owned by base. Set to the same value as `resource_group_name` to collapse
+# both stacks into a single RG, or override to point at a base stack owned by
+# a different central team.
+# base_resource_group_name = "rg-ai-foundry-network-dev-westus3"
 
 # --- Optional: naming ---
 # All name variables default to null, and null triggers the built-in

@@ -2,12 +2,14 @@
 
 Foundry Agent Service with a **BYO stateful stack** — Storage, Cosmos DB, and AI Search stay in your subscription, wired to Foundry via managed-identity connections + capability hosts, over a fully-private VNet.
 
+This lab follows the [Cloud Adoption Framework (CAF) landing-zone pattern](https://learn.microsoft.com/azure/cloud-adoption-framework/ready/landing-zone/design-area/network-topology-and-connectivity) for network topology: **networking / platform resources live in a dedicated networking RG**, and **workload data-plane resources live in a separate per-workload RG**. This mirrors production CAF landing zones where a central platform team owns and manages shared networking (VNets, private DNS zones, subnets), and application teams deploy their workloads cross-RG on top of it.
+
 Two implementations of the same architecture, side-by-side:
 
 - **Path A — Bicep** in [`base/bicep/`](base/bicep/) + [`workload/bicep/`](workload/bicep/). No state to manage; ARM tracks deployment history natively.
 - **Path B — Terraform** in [`base/terraform/`](base/terraform/) + [`workload/terraform/`](workload/terraform/). Uses a remote `azurerm` backend; the state Storage account itself is bootstrapped with `az`, then imported so Terraform manages it (including adding its Private Endpoint) from there.
 
-Pick one path. **Do not run both against the same RG** — they'd fight over the same names.
+Pick one path. Don't mix Path A + Path B against the same RGs — the two paths use identical naming conventions and would fight over resource names.
 
 ## Architecture
 
@@ -17,14 +19,14 @@ Source: [`assets/architecture.drawio`](assets/architecture.drawio) &nbsp; · &nb
 
 The diagram shows the runtime architecture that both paths provision. Path B additionally bootstraps a Terraform-state Storage account with a blob Private Endpoint — a Terraform mechanism, not part of the deployed application — described in Path B Step 2 but intentionally omitted from the diagram.
 
-**Base stack (both paths)** creates:
+**Base stack (both paths)** — deploys into the **networking RG** (`rg-ai-foundry-network-dev-westus3` by default):
 - 1 VNet (`10.0.0.0/16`) + 5 subnets: 4 private-endpoint subnets + 1 agent subnet delegated to `Microsoft.App/environments`
 - 11 private DNS zones (3 Cognitive + 6 Storage + Cosmos + Search) linked to the VNet
 
-**Base stack (Path B only)** additionally bootstraps:
+**Base stack (Path B only)** additionally bootstraps (into the networking RG):
 - A **Terraform-state Storage account** (`sttfs<hash>`) with a blob Private Endpoint, holding a `tfstate` container that both stacks use as their remote-state backend. Path A doesn't need this — ARM tracks its own deployment history.
 
-**Workload stack (both paths)** creates:
+**Workload stack (both paths)** — deploys into the **workload RG** (`rg-ai-foundry-workload-dev-westus3` by default) and looks up base's VNet + DNS zones cross-RG:
 - Foundry account (`AIServices` kind, project management enabled, agent-subnet network injection) + Private Endpoint
 - BYO Storage account (6 PEs: blob/file/queue/table/dfs/web), Cosmos DB (SQL API + 1 PE), AI Search (standard + 1 PE)
 - Foundry project + 3 Entra-ID connections + all Phase-3 / Phase-5 RBAC + account & project capability hosts
@@ -45,7 +47,14 @@ Every private-endpoint-bearing service uses the same posture: local (shared-key/
 
 Each deploy step below **starts with a `Set-Location` (`cd`) into the specific stack directory** — `environments/ai-foundry/base/bicep`, `environments/ai-foundry/base/terraform`, `environments/ai-foundry/workload/bicep`, or `environments/ai-foundry/workload/terraform` — and all Bicep / Terraform commands in that step use short relative paths (`main.bicep`, `.`) from there. If a command errors with `Could not find ...\main.bicep` or Terraform picks up the wrong module, check `Get-Location` — you're in the wrong directory. Sign-in / variable-setup steps and `az` verification commands don't depend on your working directory, so you can run them from anywhere.
 
-Both paths default to region `westus3` and RG name `rg-ai-foundry-dev-westus3`.
+Both paths default to region `westus3` and the CAF split-RG layout:
+
+| Stack | Default RG name | Contents |
+|---|---|---|
+| Base (networking) | `rg-ai-foundry-network-dev-westus3` | VNet, subnets, private DNS zones (+ tfstate SA for Path B) |
+| Workload (data plane) | `rg-ai-foundry-workload-dev-westus3` | Foundry, Storage, Cosmos, AI Search + all workload private endpoints |
+
+Both RGs are region-scoped and expected to live in the same region. To collapse into a single-RG topology (dev / lab shortcut), point both stacks' `resource_group_name` (Terraform) / `-g` flag (Bicep) at the same RG name and set the workload's `baseResourceGroupName` / `base_resource_group_name` to match.
 
 ---
 
@@ -63,23 +72,26 @@ az account set --subscription <YOUR_SUBSCRIPTION_ID>
 az account show --query "{Subscription:name, Id:id, Tenant:tenantId}" -o table
 ```
 
-Set naming variables and echo:
+Set naming variables for the two CAF-pattern RGs and echo:
 
 ```powershell
-$LOC = "westus3"
-$RG  = "rg-ai-foundry-dev-$LOC"
-Write-Host "LOC = $LOC"
-Write-Host "RG  = $RG"
+$LOC          = "westus3"
+$RG_NETWORK   = "rg-ai-foundry-network-dev-$LOC"    # base stack lives here
+$RG_WORKLOAD  = "rg-ai-foundry-workload-dev-$LOC"   # workload stack lives here
+Write-Host "LOC          = $LOC"
+Write-Host "RG_NETWORK   = $RG_NETWORK"
+Write-Host "RG_WORKLOAD  = $RG_WORKLOAD"
 ```
 
-Create the RG:
+Create both RGs:
 
 ```powershell
-az group create -n $RG -l $LOC --tags environment=dev workload=ai-foundry
-az group show -n $RG --query "{Name:name, Location:location, State:properties.provisioningState}" -o table
+az group create -n $RG_NETWORK  -l $LOC --tags environment=dev workload=ai-foundry stack=network
+az group create -n $RG_WORKLOAD -l $LOC --tags environment=dev workload=ai-foundry stack=workload
+az group list --query "[?name=='$RG_NETWORK' || name=='$RG_WORKLOAD'].{Name:name, Location:location, State:properties.provisioningState}" -o table
 ```
 
-Expected: `Succeeded` in the `State` column.
+Expected: both rows show `Succeeded` in the `State` column.
 
 Register Resource Providers, then show the state for all of them in one query:
 
@@ -103,7 +115,7 @@ Expected: every row shows `Registered`.
 
 ### Step 2. Deploy the base stack (~4 min)
 
-Base creates the VNet + 5 subnets + 11 private DNS zones with VNet links. No IP allowlisting needed — none of these are firewalled services.
+Base creates the VNet + 5 subnets + 11 private DNS zones with VNet links, **into the networking RG (`$RG_NETWORK`)**. No IP allowlisting needed — none of these are firewalled services.
 
 `cd` into the base Bicep directory:
 
@@ -117,7 +129,7 @@ Deploy:
 
 ```powershell
 az deployment group create `
-    -g $RG `
+    -g $RG_NETWORK `
     -n base-$(Get-Date -Format 'yyyyMMdd-HHmmss') `
     -f main.bicep `
     -p main.bicepparam
@@ -126,12 +138,14 @@ az deployment group create `
 Verify:
 
 ```powershell
-az resource list -g $RG --query "[?type=='Microsoft.Network/virtualNetworks' || type=='Microsoft.Network/privateDnsZones'].{Name:name, Type:type}" -o table
+az resource list -g $RG_NETWORK --query "[?type=='Microsoft.Network/virtualNetworks' || type=='Microsoft.Network/privateDnsZones'].{Name:name, Type:type}" -o table
 ```
 
-Expected: 1 VNet (`vnet-ai-foundry-dev-westus3`) + 11 privateDnsZones.
+Expected: 1 VNet (`vnet-ai-foundry-dev-westus3`) + 11 privateDnsZones — all in `$RG_NETWORK`.
 
 ### Step 3. Deploy the workload stack (~15–20 min)
+
+The workload deploys **into `$RG_WORKLOAD`** and looks up base's VNet + DNS zones cross-RG in `$RG_NETWORK` (the `baseResourceGroupName` param in `main.bicep` defaults to `rg-ai-foundry-network-dev-westus3`).
 
 `cd` into the workload Bicep directory:
 
@@ -152,30 +166,35 @@ Deploy:
 
 ```powershell
 az deployment group create `
-    -g $RG `
+    -g $RG_WORKLOAD `
     -n workload-$(Get-Date -Format 'yyyyMMdd-HHmmss') `
     -f main.bicep `
     -p main.bicepparam
 ```
 
-Verify the 4 data-plane services and the 9 workload PEs:
+Verify the 4 data-plane services and the 9 workload PEs (all in `$RG_WORKLOAD`):
 
 ```powershell
-az resource list -g $RG --query "[?type=='Microsoft.CognitiveServices/accounts' || type=='Microsoft.Storage/storageAccounts' || type=='Microsoft.DocumentDB/databaseAccounts' || type=='Microsoft.Search/searchServices'].{Name:name, Type:type}" -o table
-az resource list -g $RG --resource-type Microsoft.Network/privateEndpoints --query "length(@)" -o tsv
+az resource list -g $RG_WORKLOAD --query "[?type=='Microsoft.CognitiveServices/accounts' || type=='Microsoft.Storage/storageAccounts' || type=='Microsoft.DocumentDB/databaseAccounts' || type=='Microsoft.Search/searchServices'].{Name:name, Type:type}" -o table
+az resource list -g $RG_WORKLOAD --resource-type Microsoft.Network/privateEndpoints --query "length(@)" -o tsv
 ```
 
 Expected: 1 Cognitive account + 1 Storage + 1 Cosmos + 1 Search; PE count = **9** (1 Foundry + 6 Storage sub-resources + 1 Cosmos + 1 Search).
 
 Why the IP is required *at deploy time*: the workload deployment performs data-plane calls from your laptop's `az` session (Cosmos SQL role provisioning, Foundry connection creation, capability-host creation), and those calls hit each service's firewall directly — the RP orchestrating the deploy does the control-plane resource creation, but the data-plane side-effects go through your laptop.
 
-### Step 4. Full inventory
+### Step 4. Full inventory (across both RGs)
 
 ```powershell
-az resource list -g $RG --query "sort_by([], &type)[].{Name:name, Type:type}" -o table
+Write-Host "--- $RG_NETWORK ---"
+az resource list -g $RG_NETWORK  --query "sort_by([], &type)[].{Name:name, Type:type}" -o table
+Write-Host "--- $RG_WORKLOAD ---"
+az resource list -g $RG_WORKLOAD --query "sort_by([], &type)[].{Name:name, Type:type}" -o table
 ```
 
-Expected: 1 VNet, 5 subnets, 11 privateDnsZones, 9 privateEndpoints, 1 Cognitive account + 1 project, 1 Storage, 1 Cosmos, 1 Search.
+Expected:
+- `$RG_NETWORK`: 1 VNet, 5 subnets, 11 privateDnsZones
+- `$RG_WORKLOAD`: 9 privateEndpoints, 1 Cognitive account + 1 project, 1 Storage, 1 Cosmos, 1 Search
 
 ---
 
@@ -193,24 +212,27 @@ Sign in and set variables:
 az login
 az account set --subscription <YOUR_SUBSCRIPTION_ID>
 
-$LOC = "westus3"
-$RG  = "rg-ai-foundry-dev-$LOC"
-$SUB = (az account show --query id -o tsv)
-$ME  = (az ad signed-in-user show --query id -o tsv)
+$LOC          = "westus3"
+$RG_NETWORK   = "rg-ai-foundry-network-dev-$LOC"    # base stack + tfstate SA live here
+$RG_WORKLOAD  = "rg-ai-foundry-workload-dev-$LOC"   # workload stack lives here
+$SUB          = (az account show --query id -o tsv)
+$ME           = (az ad signed-in-user show --query id -o tsv)
 
-Write-Host "LOC = $LOC"
-Write-Host "RG  = $RG"
-Write-Host "SUB = $SUB"
-Write-Host "ME  = $ME"
+Write-Host "LOC          = $LOC"
+Write-Host "RG_NETWORK   = $RG_NETWORK"
+Write-Host "RG_WORKLOAD  = $RG_WORKLOAD"
+Write-Host "SUB          = $SUB"
+Write-Host "ME           = $ME"
 ```
 
-Expected: all four echoes non-empty; `SUB` looks like a GUID, `ME` looks like a GUID.
+Expected: all six echoes non-empty; `SUB` looks like a GUID, `ME` looks like a GUID.
 
-Create the RG:
+Create both RGs:
 
 ```powershell
-az group create -n $RG -l $LOC --tags environment=dev workload=ai-foundry
-az group show -n $RG --query "{Name:name, Location:location, State:properties.provisioningState}" -o table
+az group create -n $RG_NETWORK  -l $LOC --tags environment=dev workload=ai-foundry stack=network
+az group create -n $RG_WORKLOAD -l $LOC --tags environment=dev workload=ai-foundry stack=workload
+az group list --query "[?name=='$RG_NETWORK' || name=='$RG_WORKLOAD'].{Name:name, Location:location, State:properties.provisioningState}" -o table
 ```
 
 Register Resource Providers (Terraform's `resource_provider_registrations = "none"` means Terraform will NOT auto-register, so this is required):
@@ -232,33 +254,33 @@ az provider list --query "[?contains([$rpList], namespace)].{Namespace:namespace
 
 Expected: every row shows `Registered`.
 
-Grant yourself `Storage Blob Data Contributor` at RG scope so `az storage container create --auth-mode login` and Terraform's `azurerm` backend can both authenticate via Entra ID (shared-key access is disabled on the state SA):
+Grant yourself `Storage Blob Data Contributor` at the **networking RG** scope (that's where the tfstate SA will live) so `az storage container create --auth-mode login` and Terraform's `azurerm` backend can both authenticate via Entra ID (shared-key access is disabled on the state SA):
 
 ```powershell
 az role assignment create `
     --assignee-object-id $ME `
     --assignee-principal-type User `
     --role "Storage Blob Data Contributor" `
-    --scope "/subscriptions/$SUB/resourceGroups/$RG"
+    --scope "/subscriptions/$SUB/resourceGroups/$RG_NETWORK"
 
 # Wait for the role assignment to propagate before using it.
 Start-Sleep -Seconds 60
 
-az role assignment list --assignee $ME --scope "/subscriptions/$SUB/resourceGroups/$RG" --query "[?roleDefinitionName=='Storage Blob Data Contributor'].{Role:roleDefinitionName, Scope:scope}" -o table
+az role assignment list --assignee $ME --scope "/subscriptions/$SUB/resourceGroups/$RG_NETWORK" --query "[?roleDefinitionName=='Storage Blob Data Contributor'].{Role:roleDefinitionName, Scope:scope}" -o table
 ```
 
-Expected: one row with `Storage Blob Data Contributor` at the RG scope.
+Expected: one row with `Storage Blob Data Contributor` at the `$RG_NETWORK` scope.
 
 ### Step 2. Bootstrap the Terraform-state Storage account (~2 min)
 
-Detect your IP and derive the state SA name (`sttfs<md5(RG + base_name + environment + location)>` truncated to 12 hex chars — must match what base's `main.tf` will compute):
+The tfstate SA lives in the **networking RG** (`$RG_NETWORK`) — it's part of the base / platform stack's lifecycle. Detect your IP and derive the state SA name (`sttfs<md5(RG + base_name + environment + location)>` truncated to 12 hex chars — must match what base's `main.tf` will compute):
 
 ```powershell
 $DEPLOYER_IP = (Invoke-RestMethod https://api.ipify.org).Trim()
 $BASE_NAME   = "ai-foundry"        # must match base_name default in variables.tf
 $ENVIRONMENT = "dev"               # must match environment default in variables.tf
 
-$hashInput = "${RG}${BASE_NAME}${ENVIRONMENT}${LOC}"
+$hashInput = "${RG_NETWORK}${BASE_NAME}${ENVIRONMENT}${LOC}"
 $md5       = [System.Security.Cryptography.MD5]::Create()
 $hashBytes = $md5.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($hashInput))
 $HASH      = -join ($hashBytes | ForEach-Object { $_.ToString('x2') })
@@ -270,11 +292,11 @@ Write-Host "STATE_SA    = $STATE_SA"
 
 Expected: `DEPLOYER_IP` is a public IPv4; `STATE_SA` is 17 chars starting with `sttfs`.
 
-Create the storage account:
+Create the storage account in `$RG_NETWORK`:
 
 ```powershell
 az storage account create `
-    -g $RG -n $STATE_SA -l $LOC `
+    -g $RG_NETWORK -n $STATE_SA -l $LOC `
     --sku Standard_LRS `
     --kind StorageV2 `
     --min-tls-version TLS1_2 `
@@ -286,7 +308,7 @@ az storage account create `
     --bypass AzureServices `
     --ip-address $DEPLOYER_IP
 
-az storage account show -g $RG -n $STATE_SA --query "{Name:name, SKU:sku.name, PublicNetwork:publicNetworkAccess, TLS:minimumTlsVersion, SharedKey:allowSharedKeyAccess}" -o table
+az storage account show -g $RG_NETWORK -n $STATE_SA --query "{Name:name, SKU:sku.name, PublicNetwork:publicNetworkAccess, TLS:minimumTlsVersion, SharedKey:allowSharedKeyAccess}" -o table
 ```
 
 Expected: `SKU = Standard_LRS`, `TLS = TLS1_2`, `SharedKey = False`.
@@ -323,7 +345,7 @@ Init:
 
 ```powershell
 terraform init `
-    -backend-config="resource_group_name=$RG" `
+    -backend-config="resource_group_name=$RG_NETWORK" `
     -backend-config="storage_account_name=$STATE_SA"
 ```
 
@@ -334,11 +356,11 @@ Import the storage account and its container so Terraform manages them going for
 ```powershell
 terraform import `
     "module.tfstate_storage.azurerm_storage_account.this" `
-    "/subscriptions/$SUB/resourceGroups/$RG/providers/Microsoft.Storage/storageAccounts/$STATE_SA"
+    "/subscriptions/$SUB/resourceGroups/$RG_NETWORK/providers/Microsoft.Storage/storageAccounts/$STATE_SA"
 
 terraform import `
     "azurerm_storage_container.tfstate" `
-    "/subscriptions/$SUB/resourceGroups/$RG/providers/Microsoft.Storage/storageAccounts/$STATE_SA/blobServices/default/containers/tfstate"
+    "/subscriptions/$SUB/resourceGroups/$RG_NETWORK/providers/Microsoft.Storage/storageAccounts/$STATE_SA/blobServices/default/containers/tfstate"
 
 terraform state list
 ```
@@ -354,17 +376,19 @@ terraform apply `
     -var "tfstate_storage_account_name=$STATE_SA"
 ```
 
-Terraform reconciles the imported state SA (adds its blob PE, applies blob-service properties: 30-day soft delete + versioning + last-access tracking), then creates the VNet + 5 subnets + 11 DNS zones with VNet links.
+Terraform reconciles the imported state SA (adds its blob PE, applies blob-service properties: 30-day soft delete + versioning + last-access tracking), then creates the VNet + 5 subnets + 11 DNS zones with VNet links — all in `$RG_NETWORK`.
 
 Verify:
 
 ```powershell
-az resource list -g $RG --query "[?type=='Microsoft.Network/virtualNetworks' || type=='Microsoft.Network/privateDnsZones' || type=='Microsoft.Network/privateEndpoints'].{Name:name, Type:type}" -o table
+az resource list -g $RG_NETWORK --query "[?type=='Microsoft.Network/virtualNetworks' || type=='Microsoft.Network/privateDnsZones' || type=='Microsoft.Network/privateEndpoints'].{Name:name, Type:type}" -o table
 ```
 
-Expected: 1 VNet, 11 privateDnsZones, **1 privateEndpoint** (on the state SA).
+Expected: 1 VNet, 11 privateDnsZones, **1 privateEndpoint** (on the state SA), all in `$RG_NETWORK`.
 
 ### Step 5. Init workload with remote backend + apply (~15–20 min)
+
+The workload deploys **into `$RG_WORKLOAD`** and looks up base's VNet + DNS zones cross-RG in `$RG_NETWORK` (`variables.tf`'s `resource_group_name` defaults to `rg-ai-foundry-workload-dev-westus3` and `base_resource_group_name` defaults to `rg-ai-foundry-network-dev-westus3`).
 
 `cd` into the workload Terraform directory:
 
@@ -374,11 +398,11 @@ Set-Location environments/ai-foundry/workload/terraform
 Get-Location   # expect: ...\environments\ai-foundry\workload\terraform
 ```
 
-Init points at the same tfstate SA as base, but with a different blob key (`workload.tfstate`):
+Init points at the same tfstate SA (in `$RG_NETWORK`) as base, but with a different blob key (`workload.tfstate`):
 
 ```powershell
 terraform init `
-    -backend-config="resource_group_name=$RG" `
+    -backend-config="resource_group_name=$RG_NETWORK" `
     -backend-config="storage_account_name=$STATE_SA"
 ```
 
@@ -390,13 +414,18 @@ terraform apply
 
 The workload's `data.http.myip` auto-detects your IP and pins it into all 4 service firewalls. The Cosmos SQL role assignment + Foundry capability host provisioning both perform data-plane calls from your laptop, so your IP must be allowlisted at deploy time.
 
-### Step 6. Full inventory
+### Step 6. Full inventory (across both RGs)
 
 ```powershell
-az resource list -g $RG --query "sort_by([], &type)[].{Name:name, Type:type}" -o table
+Write-Host "--- $RG_NETWORK ---"
+az resource list -g $RG_NETWORK  --query "sort_by([], &type)[].{Name:name, Type:type}" -o table
+Write-Host "--- $RG_WORKLOAD ---"
+az resource list -g $RG_WORKLOAD --query "sort_by([], &type)[].{Name:name, Type:type}" -o table
 ```
 
-Expected: 1 VNet, 5 subnets, 11 privateDnsZones, **10 privateEndpoints** (Path A would have 9; Path B's extra PE is on the state SA), 1 Cognitive account + 1 project, 2 Storage (state SA + workload SA), 1 Cosmos, 1 Search.
+Expected:
+- `$RG_NETWORK`: 1 VNet, 5 subnets, 11 privateDnsZones, 1 privateEndpoint (on the state SA), 1 Storage account (the state SA itself)
+- `$RG_WORKLOAD`: 9 privateEndpoints, 1 Cognitive account + 1 project, 1 Storage, 1 Cosmos, 1 Search
 
 ---
 
@@ -415,7 +444,7 @@ Set-Location environments/ai-foundry/workload/bicep
 $env:DEPLOYER_IP = (Invoke-RestMethod https://api.ipify.org).Trim()
 
 az deployment group create `
-    -g $RG `
+    -g $RG_WORKLOAD `
     -n workload-$(Get-Date -Format 'yyyyMMdd-HHmmss') `
     -f main.bicep `
     -p main.bicepparam
@@ -423,11 +452,11 @@ az deployment group create `
 
 ### Path B — Terraform
 
-If your IP changed since the last apply, refresh the state SA's firewall allowlist first (Storage's control plane is always reachable regardless of the data-plane firewall — that's how this ad-hoc rule gets added):
+If your IP changed since the last apply, refresh the state SA's firewall allowlist first (Storage's control plane is always reachable regardless of the data-plane firewall — that's how this ad-hoc rule gets added). The state SA lives in `$RG_NETWORK`:
 
 ```powershell
 $DEPLOYER_IP = (Invoke-RestMethod https://api.ipify.org).Trim()
-az storage account network-rule add -g $RG -n $STATE_SA --ip-address $DEPLOYER_IP
+az storage account network-rule add -g $RG_NETWORK -n $STATE_SA --ip-address $DEPLOYER_IP
 ```
 
 Then apply workload:
@@ -454,7 +483,7 @@ Set-Location (git rev-parse --show-toplevel)
 Set-Location environments/ai-foundry/workload/bicep
 
 az deployment group create `
-    -g $RG `
+    -g $RG_WORKLOAD `
     -n harden-$(Get-Date -Format 'yyyyMMdd-HHmmss') `
     -f main.bicep `
     -p main.bicepparam `
@@ -462,16 +491,16 @@ az deployment group create `
     -p deployerIp=""
 ```
 
-Verify all 4 services flipped to `Disabled`:
+Verify all 4 services flipped to `Disabled` (all workload services live in `$RG_WORKLOAD`):
 
 ```powershell
-az cognitiveservices account show -g $RG -n "cog-acc-ai-foundry-dev-westus3" --query "properties.publicNetworkAccess" -o tsv
-az storage account list -g $RG --query "[?!contains(name, 'sttfs')].{Name:name, PublicNetwork:publicNetworkAccess}" -o table
-az cosmosdb list -g $RG --query "[].{Name:name, PublicNetwork:publicNetworkAccess}" -o table
-az search service list -g $RG --query "[].{Name:name, PublicNetwork:publicNetworkAccess}" -o table
+az cognitiveservices account show -g $RG_WORKLOAD -n "cog-acc-ai-foundry-dev-westus3" --query "properties.publicNetworkAccess" -o tsv
+az storage account list -g $RG_WORKLOAD --query "[].{Name:name, PublicNetwork:publicNetworkAccess}" -o table
+az cosmosdb list -g $RG_WORKLOAD --query "[].{Name:name, PublicNetwork:publicNetworkAccess}" -o table
+az search service list -g $RG_WORKLOAD --query "[].{Name:name, PublicNetwork:publicNetworkAccess}" -o table
 ```
 
-Expected: `Disabled` for the Foundry account, the workload Storage account (not the state SA), Cosmos, and Search.
+Expected: `Disabled` for the Foundry account, the workload Storage account, Cosmos, and Search. The state SA (Path B only, in `$RG_NETWORK`) is intentionally untouched — keep its public endpoint enabled so subsequent Terraform runs can reach the backend.
 
 ### Path B — Terraform
 
@@ -498,12 +527,16 @@ Same result. Verify identically to Path A.
 
 ### Path A — Bicep
 
+Delete both RGs (workload first for cleanliness, though the operations are RG-scoped and won't cross-block):
+
 ```powershell
-az group delete -n $RG --yes --no-wait
-az group exists -n $RG
+az group delete -n $RG_WORKLOAD --yes --no-wait
+az group delete -n $RG_NETWORK  --yes --no-wait
+az group exists -n $RG_WORKLOAD
+az group exists -n $RG_NETWORK
 ```
 
-Expected: `false` once the async delete completes (typically 2–5 min).
+Expected: both return `false` once the async deletes complete (typically 2–5 min each).
 
 ### Path B — Terraform
 
@@ -529,14 +562,16 @@ terraform state rm 'azurerm_storage_container.tfstate'
 terraform destroy
 ```
 
-Finally, delete the RG (which cleans up the still-in-Azure, no-longer-in-Terraform tfstate SA + container):
+Finally, delete both RGs (which cleans up the still-in-Azure, no-longer-in-Terraform tfstate SA + container):
 
 ```powershell
-az group delete -n $RG --yes --no-wait
-az group exists -n $RG
+az group delete -n $RG_WORKLOAD --yes --no-wait
+az group delete -n $RG_NETWORK  --yes --no-wait
+az group exists -n $RG_WORKLOAD
+az group exists -n $RG_NETWORK
 ```
 
-Workload destroy runs first (its resources reference base). Base destroy only removes the VNet + DNS zones because we untracked the tfstate SA + container. The final `az group delete` cleans up the (still in Azure, no longer in Terraform) tfstate SA and its container.
+Workload destroy runs first (its resources reference base). Base destroy only removes the VNet + DNS zones because we untracked the tfstate SA + container. The final `az group delete` on both RGs cleans up the (still in Azure, no longer in Terraform) tfstate SA and its container from `$RG_NETWORK`, plus anything untracked in `$RG_WORKLOAD`.
 
 ---
 
@@ -561,7 +596,7 @@ Terraform waits 60 s via `time_sleep` between assignments and capability-host pr
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `terraform apply` fails reading state with an authorization / 403 on the tfstate blob | Your IP changed and isn't allowlisted on the state SA firewall | `az storage account network-rule add -g $RG -n $STATE_SA --ip-address $((Invoke-RestMethod https://api.ipify.org).Trim())` then retry |
+| `terraform apply` fails reading state with an authorization / 403 on the tfstate blob | Your IP changed and isn't allowlisted on the state SA firewall | `az storage account network-rule add -g $RG_NETWORK -n $STATE_SA --ip-address $((Invoke-RestMethod https://api.ipify.org).Trim())` then retry |
 | `az storage account create` in Path B Step 2 returns `StorageAccountAlreadyTaken` | Your derived `sttfs<hash>` name collides globally with someone else's account | See the collision note **inside Path B Step 2** — pick a unique name for `$STATE_SA` and re-run Step 2 with it; carry the same value through `terraform init` and the `-var 'tfstate_storage_account_name=...'` in Step 4 |
 | Bicep or Terraform deploy fails on `Microsoft.CognitiveServices/accounts/capabilityHosts` with 403 | RBAC propagation lag (Entra ID replication) between the workload's role assignments and the data-plane call to create the capability host | Rerun the deployment. Bicep's `deploymentScripts` re-fires its 60 s sleep on every apply (via `forceUpdateTag: utcNow()`). Terraform's `time_sleep` will NOT re-fire if already in state — if the retry still 403s, force the sleep to re-run from `environments/ai-foundry/workload/terraform`: `terraform apply -replace='module.foundry_project.time_sleep.wait_for_rbac_propagation'` |
 | First `terraform apply` for base in Path B Step 4 wants to *create* the state SA instead of updating it | You skipped the `terraform import` commands in Path B Step 3 | Cancel the apply, run the two `terraform import` commands from Step 3, then rerun `terraform apply` |

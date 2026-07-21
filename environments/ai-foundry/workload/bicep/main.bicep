@@ -1,12 +1,16 @@
 // ============================================================================
 // AI Foundry -- WORKLOAD stack (Bicep, RG-scoped).
 //
+// This is the DATA-PLANE stack in the CAF landing-zone split. It deploys into
+// its own workload RG and looks up the base stack's VNet + DNS zones cross-RG
+// (see `baseResourceGroupName` param, defaulted to the networking RG below).
+//
 // Deploy from your laptop AFTER the base stack has been applied:
 //
-//   az group create -n rg-ai-foundry-dev-westus3 -l westus3   # if not already
+//   az group create -n rg-ai-foundry-workload-dev-westus3 -l westus3   # if not already
 //   MYIP=$(curl -s https://api.ipify.org)
 //   az deployment group create \
-//     -g rg-ai-foundry-dev-westus3 \
+//     -g rg-ai-foundry-workload-dev-westus3 \
 //     -f main.bicep \
 //     -p main.bicepparam \
 //     -p deployerIp=$MYIP
@@ -37,6 +41,11 @@ param environment string = 'dev'
 
 @description('Azure region for the workload. Must match the base stack; default westus3 supports Foundry Agent Service private networking.')
 param location string = 'westus3'
+
+// --- Base-stack lookup RG (defaults to the CAF-pattern networking RG) ---
+
+@description('Resource group where the BASE stack lives (VNet + subnets + private DNS zones). Defaults to `rg-ai-foundry-network-dev-westus3` per the CAF landing-zone pattern: base networking in a dedicated platform RG, workload data-plane services in a separate per-workload RG. Set to the same value as the workload RG (passed via `-g`) for the single-RG topology; override to any other name to point at a base stack owned by a different central team.')
+param baseResourceGroupName string = 'rg-ai-foundry-network-dev-westus3'
 
 // --- Name overrides (blank = derive from baseName/environment/location) ---
 
@@ -121,6 +130,14 @@ var effectiveSearchSubnetName    = empty(subnetNameSearchPep)    ? 'snet-search-
 var effectiveAgentSubnetName     = empty(subnetNameAgent)        ? 'snet-agent-${baseName}-${environment}'     : subnetNameAgent
 var effectiveCognitiveSubdomain  = empty(cognitiveCustomSubdomainName) ? 'cog-acc-${baseName}-${environment}-${location}' : cognitiveCustomSubdomainName
 
+// Base-stack RG for `existing` lookups below. The default is the networking
+// RG per the CAF landing-zone split (base + workload in separate RGs); set
+// `baseResourceGroupName` to the workload RG to collapse both stacks into a
+// single RG instead. Empty string is treated as "use the workload RG" as a
+// convenience so callers can pass `-p baseResourceGroupName=''` on the CLI
+// without having to know the workload RG name.
+var effectiveBaseRg = empty(baseResourceGroupName) ? resourceGroup().name : baseResourceGroupName
+
 // DNS zone params default to the full required set, and length is locked to
 // exactly 3/6 by @minLength/@maxLength decorators, so we can use the param
 // values directly without an "empty -> defaults" fallback.
@@ -134,11 +151,14 @@ var effectiveCognitiveSubdomain  = empty(cognitiveCustomSubdomainName) ? 'cog-ac
 var allowedIps = union(empty(deployerIp) ? [] : [deployerIp], allowedIpsExtra)
 
 // ----------------------------------------------------------------------------
-// Existing base-stack resources (looked up by name; created by base main.bicep).
+// Existing base-stack resources (looked up by name in `effectiveBaseRg`;
+// created by base main.bicep). Subnet lookups inherit their RG scope from
+// the parent VNet, so only the VNet + DNS zones need an explicit `scope:`.
 // ----------------------------------------------------------------------------
 
 resource vnet 'Microsoft.Network/virtualNetworks@2024-05-01' existing = {
   name: effectiveVnetName
+  scope: resourceGroup(effectiveBaseRg)
 }
 
 resource snetCognitive 'Microsoft.Network/virtualNetworks/subnets@2024-05-01' existing = {
@@ -164,15 +184,19 @@ resource snetAgent 'Microsoft.Network/virtualNetworks/subnets@2024-05-01' existi
 
 resource cognitiveZones 'Microsoft.Network/privateDnsZones@2024-06-01' existing = [for zone in cognitivePrivateDnsZoneNames: {
   name: zone
+  scope: resourceGroup(effectiveBaseRg)
 }]
 resource storageZones 'Microsoft.Network/privateDnsZones@2024-06-01' existing = [for zone in storagePrivateDnsZoneNames: {
   name: zone
+  scope: resourceGroup(effectiveBaseRg)
 }]
 resource cosmosZone 'Microsoft.Network/privateDnsZones@2024-06-01' existing = {
   name: cosmosPrivateDnsZoneName
+  scope: resourceGroup(effectiveBaseRg)
 }
 resource searchZone 'Microsoft.Network/privateDnsZones@2024-06-01' existing = {
   name: searchPrivateDnsZoneName
+  scope: resourceGroup(effectiveBaseRg)
 }
 
 // ----------------------------------------------------------------------------

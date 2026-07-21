@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.45.15.27210",
-      "templateHash": "17079700282234105907"
+      "templateHash": "5627866916631194275"
     }
   },
   "parameters": {
@@ -28,6 +28,13 @@
       "defaultValue": "westus3",
       "metadata": {
         "description": "Azure region for the workload. Must match the base stack; default westus3 supports Foundry Agent Service private networking."
+      }
+    },
+    "baseResourceGroupName": {
+      "type": "string",
+      "defaultValue": "rg-ai-foundry-network-dev-westus3",
+      "metadata": {
+        "description": "Resource group where the BASE stack lives (VNet + subnets + private DNS zones). Defaults to `rg-ai-foundry-network-dev-westus3` per the CAF landing-zone pattern: base networking in a dedicated platform RG, workload data-plane services in a separate per-workload RG. Set to the same value as the workload RG (passed via `-g`) for the single-RG topology; override to any other name to point at a base stack owned by a different central team."
       }
     },
     "vnetName": {
@@ -163,6 +170,7 @@
     "effectiveSearchSubnetName": "[if(empty(parameters('subnetNameSearchPep')), format('snet-search-{0}-{1}', parameters('baseName'), parameters('environment')), parameters('subnetNameSearchPep'))]",
     "effectiveAgentSubnetName": "[if(empty(parameters('subnetNameAgent')), format('snet-agent-{0}-{1}', parameters('baseName'), parameters('environment')), parameters('subnetNameAgent'))]",
     "effectiveCognitiveSubdomain": "[if(empty(parameters('cognitiveCustomSubdomainName')), format('cog-acc-{0}-{1}-{2}', parameters('baseName'), parameters('environment'), parameters('location')), parameters('cognitiveCustomSubdomainName'))]",
+    "effectiveBaseRg": "[if(empty(parameters('baseResourceGroupName')), resourceGroup().name, parameters('baseResourceGroupName'))]",
     "allowedIps": "[union(if(empty(parameters('deployerIp')), createArray(), createArray(parameters('deployerIp'))), parameters('allowedIpsExtra'))]"
   },
   "resources": [
@@ -198,36 +206,36 @@
             "value": "[variables('allowedIps')]"
           },
           "subnetId": {
-            "value": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('effectiveVnetName'), variables('effectiveStorageSubnetName'))]"
+            "value": "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('effectiveBaseRg')), 'Microsoft.Network/virtualNetworks/subnets', variables('effectiveVnetName'), variables('effectiveStorageSubnetName'))]"
           },
           "blobPrivateDnsZoneIds": {
             "value": [
-              "[resourceId('Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[0])]"
+              "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('effectiveBaseRg')), 'Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[0])]"
             ]
           },
           "filePrivateDnsZoneIds": {
             "value": [
-              "[resourceId('Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[1])]"
+              "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('effectiveBaseRg')), 'Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[1])]"
             ]
           },
           "queuePrivateDnsZoneIds": {
             "value": [
-              "[resourceId('Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[2])]"
+              "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('effectiveBaseRg')), 'Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[2])]"
             ]
           },
           "tablePrivateDnsZoneIds": {
             "value": [
-              "[resourceId('Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[3])]"
+              "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('effectiveBaseRg')), 'Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[3])]"
             ]
           },
           "dfsPrivateDnsZoneIds": {
             "value": [
-              "[resourceId('Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[4])]"
+              "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('effectiveBaseRg')), 'Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[4])]"
             ]
           },
           "webPrivateDnsZoneIds": {
             "value": [
-              "[resourceId('Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[5])]"
+              "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('effectiveBaseRg')), 'Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[5])]"
             ]
           }
         },
@@ -1456,11 +1464,11 @@
             "value": "[variables('allowedIps')]"
           },
           "subnetId": {
-            "value": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('effectiveVnetName'), variables('effectiveCosmosSubnetName'))]"
+            "value": "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('effectiveBaseRg')), 'Microsoft.Network/virtualNetworks/subnets', variables('effectiveVnetName'), variables('effectiveCosmosSubnetName'))]"
           },
           "privateDnsZoneIds": {
             "value": [
-              "[resourceId('Microsoft.Network/privateDnsZones', parameters('cosmosPrivateDnsZoneName'))]"
+              "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('effectiveBaseRg')), 'Microsoft.Network/privateDnsZones', parameters('cosmosPrivateDnsZoneName'))]"
             ]
           }
         },
@@ -1843,11 +1851,11 @@
             "value": "[variables('allowedIps')]"
           },
           "subnetId": {
-            "value": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('effectiveVnetName'), variables('effectiveSearchSubnetName'))]"
+            "value": "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('effectiveBaseRg')), 'Microsoft.Network/virtualNetworks/subnets', variables('effectiveVnetName'), variables('effectiveSearchSubnetName'))]"
           },
           "privateDnsZoneIds": {
             "value": [
-              "[resourceId('Microsoft.Network/privateDnsZones', parameters('searchPrivateDnsZoneName'))]"
+              "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('effectiveBaseRg')), 'Microsoft.Network/privateDnsZones', parameters('searchPrivateDnsZoneName'))]"
             ]
           }
         },
@@ -2193,19 +2201,19 @@
             "value": "[variables('allowedIps')]"
           },
           "subnetId": {
-            "value": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('effectiveVnetName'), variables('effectiveCognitiveSubnetName'))]"
+            "value": "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('effectiveBaseRg')), 'Microsoft.Network/virtualNetworks/subnets', variables('effectiveVnetName'), variables('effectiveCognitiveSubnetName'))]"
           },
           "privateDnsZoneIds": {
             "copy": [
               {
                 "name": "value",
                 "count": "[length(range(0, length(parameters('cognitivePrivateDnsZoneNames'))))]",
-                "input": "[resourceId('Microsoft.Network/privateDnsZones', parameters('cognitivePrivateDnsZoneNames')[range(0, length(parameters('cognitivePrivateDnsZoneNames')))[copyIndex('value')]])]"
+                "input": "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('effectiveBaseRg')), 'Microsoft.Network/privateDnsZones', parameters('cognitivePrivateDnsZoneNames')[range(0, length(parameters('cognitivePrivateDnsZoneNames')))[copyIndex('value')]])]"
               }
             ]
           },
           "agentSubnetId": {
-            "value": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('effectiveVnetName'), variables('effectiveAgentSubnetName'))]"
+            "value": "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('effectiveBaseRg')), 'Microsoft.Network/virtualNetworks/subnets', variables('effectiveVnetName'), variables('effectiveAgentSubnetName'))]"
           }
         },
         "template": {

@@ -1,7 +1,7 @@
 variable "resource_group_name" {
   type        = string
-  description = "Resource group that owns everything in this base stack. Must already exist (create it manually with `az group create` before running `terraform apply` — see the ai-foundry README, Step 1). Defaults to `rg-ai-foundry-dev-westus3`; override for a different name."
-  default     = "rg-ai-foundry-dev-westus3"
+  description = "Networking / platform resource group that owns the base stack (VNet, subnets, private DNS zones, and — for Terraform — the tfstate storage account). Must already exist (create it manually with `az group create` before running `terraform apply` — see the ai-foundry README, Step 1). Defaults to `rg-ai-foundry-network-dev-westus3` per the CAF landing-zone pattern where this networking RG is separate from the per-workload RG(s) that consume it. Override for a different name."
+  default     = "rg-ai-foundry-network-dev-westus3"
 }
 
 # -----------------------------------------------------------------------------

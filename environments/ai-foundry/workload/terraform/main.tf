@@ -65,6 +65,13 @@ locals {
   environment = var.environment
   location    = var.location
 
+  # RG where base's VNet + DNS zones live. Defaults per CAF landing-zone
+  # pattern to the separate networking RG (`var.base_resource_group_name` =
+  # `rg-ai-foundry-network-dev-westus3`). Set both `var.base_resource_group_name`
+  # and `var.resource_group_name` to the same value to collapse into a
+  # single-RG topology.
+  base_resource_group_name = coalesce(var.base_resource_group_name, var.resource_group_name)
+
   vnet_name                       = coalesce(var.vnet_name, "vnet-${local.base_name}-${local.environment}-${local.location}")
   cognitive_custom_subdomain_name = coalesce(var.cognitive_custom_subdomain_name, "cog-acc-${local.base_name}-${local.environment}-${local.location}")
 
@@ -144,66 +151,69 @@ data "http" "myip" {
 #----------------------------------------------------------------
 # 2. Data sources — everything the base stack created.
 #
-# All lookups are by NAME in the shared RG using azurerm data sources.
+# All lookups are by NAME in `local.base_resource_group_name` (defaults
+# to `var.resource_group_name` when `var.base_resource_group_name` is
+# null — same-RG topology). Override `base_resource_group_name` to look
+# base resources up in a separate networking / platform RG (CAF pattern).
 # No `terraform_remote_state` and no reads of base's Terraform outputs,
 # so the two stacks aren't coupled through state files.
 #----------------------------------------------------------------
 
 data "azurerm_virtual_network" "this" {
   name                = local.vnet_name
-  resource_group_name = var.resource_group_name
+  resource_group_name = local.base_resource_group_name
 }
 
 data "azurerm_subnet" "cognitive_pep" {
   name                 = local.subnet_name_cognitive_pep
   virtual_network_name = data.azurerm_virtual_network.this.name
-  resource_group_name  = var.resource_group_name
+  resource_group_name  = local.base_resource_group_name
 }
 
 data "azurerm_subnet" "storage_pep" {
   name                 = local.subnet_name_storage_pep
   virtual_network_name = data.azurerm_virtual_network.this.name
-  resource_group_name  = var.resource_group_name
+  resource_group_name  = local.base_resource_group_name
 }
 
 data "azurerm_subnet" "cosmos_pep" {
   name                 = local.subnet_name_cosmos_pep
   virtual_network_name = data.azurerm_virtual_network.this.name
-  resource_group_name  = var.resource_group_name
+  resource_group_name  = local.base_resource_group_name
 }
 
 data "azurerm_subnet" "search_pep" {
   name                 = local.subnet_name_search_pep
   virtual_network_name = data.azurerm_virtual_network.this.name
-  resource_group_name  = var.resource_group_name
+  resource_group_name  = local.base_resource_group_name
 }
 
 data "azurerm_subnet" "agent" {
   name                 = local.subnet_name_agent
   virtual_network_name = data.azurerm_virtual_network.this.name
-  resource_group_name  = var.resource_group_name
+  resource_group_name  = local.base_resource_group_name
 }
 
 data "azurerm_private_dns_zone" "cognitive" {
   for_each            = toset(local.cognitive_private_dns_zones)
   name                = each.value
-  resource_group_name = var.resource_group_name
+  resource_group_name = local.base_resource_group_name
 }
 
 data "azurerm_private_dns_zone" "storage" {
   for_each            = toset(local.storage_private_dns_zones)
   name                = each.value
-  resource_group_name = var.resource_group_name
+  resource_group_name = local.base_resource_group_name
 }
 
 data "azurerm_private_dns_zone" "cosmos" {
   name                = local.cosmos_private_dns_zone
-  resource_group_name = var.resource_group_name
+  resource_group_name = local.base_resource_group_name
 }
 
 data "azurerm_private_dns_zone" "search" {
   name                = local.search_private_dns_zone
-  resource_group_name = var.resource_group_name
+  resource_group_name = local.base_resource_group_name
 }
 
 #----------------------------------------------------------------

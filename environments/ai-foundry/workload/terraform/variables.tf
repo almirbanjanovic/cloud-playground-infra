@@ -1,7 +1,13 @@
 variable "resource_group_name" {
-  description = "Resource group the workload deploys into. Must match the RG used by the base stack (both stacks share it). Defaults to `rg-ai-foundry-dev-westus3`; override for a different name."
+  description = "Workload resource group where this stack deploys its data-plane resources (Storage, Cosmos, AI Search, Foundry account + all workload private endpoints). Defaults to `rg-ai-foundry-workload-dev-westus3` per the CAF landing-zone pattern: workload data-plane in a per-workload RG, base networking (VNet + DNS zones) in a separate platform RG (see `base_resource_group_name`). Override to collapse both stacks into a single RG, or to run the workload in a different RG."
   type        = string
-  default     = "rg-ai-foundry-dev-westus3"
+  default     = "rg-ai-foundry-workload-dev-westus3"
+}
+
+variable "base_resource_group_name" {
+  description = "Resource group where the BASE stack lives (VNet + subnets + private DNS zones). Defaults to `rg-ai-foundry-network-dev-westus3` per the CAF landing-zone pattern. Set to the same value as `resource_group_name` to collapse into a single-RG topology; override to any other name to point at a base stack owned by a different central team."
+  type        = string
+  default     = "rg-ai-foundry-network-dev-westus3"
 }
 
 # -----------------------------------------------------------------------------

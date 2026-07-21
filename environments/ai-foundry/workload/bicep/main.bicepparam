@@ -8,7 +8,7 @@ using 'main.bicep'
 //   $env:DEPLOYER_IP = (Invoke-RestMethod https://api.ipify.org).Trim()
 //
 // Then deploy:
-//   az deployment group create -g rg-ai-foundry-dev-westus3 -f main.bicep -p main.bicepparam
+//   az deployment group create -g rg-ai-foundry-workload-dev-westus3 -f main.bicep -p main.bicepparam
 //
 // For the HARDENING step (README Part C), pass overrides on the CLI:
 //   az deployment group create ... -p deployerIp='' -p enablePublicNetworkAccess=false
@@ -23,6 +23,13 @@ param deployerIp = readEnvironmentVariable('DEPLOYER_IP', '')
 //   '198.51.100.0/24'
 //   '203.0.113.99'
 // ]
+
+// Cross-RG lookup: point at a base stack that lives in a DIFFERENT RG than the
+// one you deploy this workload into. Default in main.bicep is the CAF landing-
+// zone networking RG (`rg-ai-foundry-network-dev-westus3`). Override this to
+// the workload RG to collapse into a single-RG topology, or to another RG name
+// entirely (e.g. a shared platform RG owned by a central team).
+// param baseResourceGroupName = 'rg-shared-networking-westus3'
 
 // Individual name overrides (blank = derive from baseName/environment/location):
 // param vnetName                     = 'vnet-mycompany-shared-westus3'

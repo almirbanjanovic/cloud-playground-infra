@@ -1,11 +1,16 @@
 // ============================================================================
 // AI Foundry -- BASE stack (Bicep, RG-scoped).
 //
+// This is the NETWORKING / PLATFORM stack in the CAF landing-zone split.
+// Deploy it into a dedicated networking RG that is separate from the workload
+// RG (the peer `workload/bicep` stack deploys into its own RG and looks base
+// resources up cross-RG). See the ai-foundry README for the full flow.
+//
 // Deploy from your laptop:
 //
-//   az group create -n rg-ai-foundry-dev-westus3 -l westus3
+//   az group create -n rg-ai-foundry-network-dev-westus3 -l westus3
 //   az deployment group create \
-//     -g rg-ai-foundry-dev-westus3 \
+//     -g rg-ai-foundry-network-dev-westus3 \
 //     -f main.bicep \
 //     -p main.bicepparam
 //
