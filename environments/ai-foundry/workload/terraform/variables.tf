@@ -138,7 +138,7 @@ variable "enable_public_network_access" {
 }
 
 variable "deployer_ip" {
-  description = "Public IPv4 of the machine running `terraform apply` (used to pin the workload services' firewalls to just this address). Leave null to auto-detect via the http provider (https://api.ipify.org). Set explicitly when your egress IP is masked (VPN, corporate proxy) or when you need to pin a stable value in CI. Set to \"\" (empty string) to skip adding the deployer IP -- useful for CI runs that shouldn't advertise their runner IP, or for the hardening step. Format: bare IPv4 (`203.0.113.42`) or CIDR /0-/30. `/31` and `/32` are rejected because Cognitive Services rejects them in `network_acls.ip_rules` -- use the bare IP."
+  description = "Public IPv4 of the machine running `terraform apply` (used to pin the workload services' firewalls to just this address). Leave null to auto-detect via the http provider (https://api.ipify.org). Set explicitly when your egress IP is masked (VPN, corporate proxy) or when you need to pin a stable value in CI. Set to \"\" (empty string) to skip adding the deployer IP -- required for the private-path deploy (deployer is on a VPN / ExpressRoute / Bastion / VNet-injected runner and reaches the workload FQDNs via the base stack's private DNS zones), and also used for the hardening step and CI runs that shouldn't advertise their runner IP. See the ai-foundry README's \"Deployment topology\" section for the full lifecycle. Format: bare IPv4 (`203.0.113.42`) or CIDR /0-/30. `/31` and `/32` are rejected because Cognitive Services rejects them in `network_acls.ip_rules` -- use the bare IP."
   type        = string
   default     = null
 

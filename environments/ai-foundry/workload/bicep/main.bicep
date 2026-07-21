@@ -104,7 +104,7 @@ param searchPrivateDnsZoneName string = 'privatelink.search.windows.net'
 @description('Master switch for the public endpoint on every workload data-plane service (Storage, Cosmos, AI Search, Foundry). When true (default) the services are reachable via their public FQDN, filtered by the IP allowlist (deployerIp + allowedIpsExtra). When false the public endpoint is disabled entirely on all 4 services -- only VNet-injected agent runtime traffic can reach them via private endpoints. Flip to false to harden the deployment once you\'re done making changes; flip back to true before your next apply that touches Cosmos SQL role assignments or Foundry capability hosts (both of which use the data plane).')
 param enablePublicNetworkAccess bool = true
 
-@description('Public IPv4 of the machine running the deployment. Bare IPv4 or CIDR /0-/30. Do NOT pass /31 or /32 -- Cognitive Services rejects them; use the bare IP. Pass "" (empty) to skip adding the deployer IP -- useful for CI runs and the hardening step.')
+@description('Public IPv4 of the machine running the deployment. Bare IPv4 or CIDR /0-/30. Do NOT pass /31 or /32 -- Cognitive Services rejects them; use the bare IP. Pass "" (empty) to skip adding the deployer IP -- required for the private-path deploy (deployer is on a VPN / ExpressRoute / Bastion / VNet-injected runner and reaches the workload FQDNs via the base stack\'s private DNS zones), and also used for the hardening step and CI runs that shouldn\'t advertise their runner IP. See the ai-foundry README\'s "Deployment topology" section for the full lifecycle.')
 param deployerIp string
 
 @description('Additional IPv4 or CIDR entries allowlisted on every workload service (teammates, office ranges, CI runner). Same format rules as deployerIp.')

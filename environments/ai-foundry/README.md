@@ -54,6 +54,38 @@ Both paths default to region `westus3` and the CAF split-RG layout:
 | Base (networking) | `rg-ai-foundry-network-dev-westus3` | VNet, subnets, private DNS zones (+ tfstate SA for Path B) |
 | Workload (data plane) | `rg-ai-foundry-workload-dev-westus3` | Foundry, Storage, Cosmos, AI Search + all workload private endpoints |
 
+---
+
+## Deployment topology: public path vs private path
+
+The workload data-plane services (Storage, Cosmos, AI Search, Foundry) all sit behind private endpoints, but their **public endpoints stay `Enabled` by default** with a default-deny firewall + explicit allowlist. The allowlist mostly exists for the **post-deploy** admin / SDK operations you're likely to run from the deployer's machine — opening the Foundry portal, listing Cosmos containers with `az cosmosdb sql container list`, uploading a test blob with `az storage blob upload`, running the Python Foundry SDK, etc. All of those go straight to the service's public FQDN and get blocked by the default-deny firewall unless your IP is on the allowlist.
+
+During the deploy itself, the picture is subtler: the workload's IaC provisions resources like `Microsoft.CognitiveServices/accounts/connections`, `Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments`, and `Microsoft.CognitiveServices/accounts/projects/capabilityHosts`. These are **ARM control-plane** operations — the deployer's `az` session calls `management.azure.com`, and Azure's own RPs then talk to the target services internally (via the `bypass = AzureServices` trusted-services path that all four workload modules set). So the deploy usually succeeds even without an allowlist entry for the deployer. The IP allowlist matters most for what you'll do with the deployment afterward.
+
+Two supported topologies. Both use the same IaC; only the value you pass for `deployerIp` (Bicep) / `deployer_ip` (Terraform) differs.
+
+| Topology | Deployer machine is… | Post-deploy admin traffic | `deployerIp` value | Typical use |
+|---|---|---|---|---|
+| **Public path** (default) | On the public internet (laptop at home, unmanaged network) | Deployer → public FQDN → firewall allowlist → service | Your public IPv4 (auto-detected in Path B via `api.ipify.org`; read from `$env:DEPLOYER_IP` in Path A) | Personal / lab deploys from an unmanaged network |
+| **Private path** | On a corporate network with VPN / ExpressRoute / Bastion into the workload VNet, or on a jump box / CI runner already in the VNet (see [`iac-modules/terraform/cicd_runner/v1/`](../../iac-modules/terraform/cicd_runner/v1/) for a starter) | Deployer → public FQDN → **resolves to private IP via the base stack's private DNS zones** → PE → service | `""` (empty string) — skips the allowlist entry | Corporate deploys where the laptop already has private DNS + routing, CI runners inside the VNet |
+
+**How the private path works:** the workload services' FQDNs (`<name>.blob.core.windows.net`, `<name>.documents.azure.com`, `<subdomain>.services.ai.azure.com`, etc.) resolve through the 11 private DNS zones the base stack VNet-links. When your deployer machine uses Azure-integrated DNS for those zones — directly (VM in the VNet), through your VPN client's DNS, or via an on-prem DNS forwarder pointed at Azure's virtual server `168.63.129.16` — the FQDNs return the PE's private IP and admin traffic never touches the public endpoint. No allowlist entry is needed.
+
+**How to verify you're on the private path** — from your deployer machine, resolve one of the service FQDNs and check it comes back private (`10.0.x.x` for this stack's default VNet):
+
+```powershell
+# Discover the Foundry account's custom-subdomain FQDN so this works even if you overrode
+# cognitiveCustomSubdomainName / base_name / environment / location:
+$foundryFqdn = (az cognitiveservices account list -g $RG_WORKLOAD --query "[?kind=='AIServices'].properties.endpoint | [0]" -o tsv) -replace 'https://', '' -replace '/$', ''
+Resolve-DnsName $foundryFqdn | Select-Object Name, IPAddress
+```
+
+If it returns a public IP, you're on the public path — either set `deployerIp` to your public IP for this deploy, or fix your DNS routing before retrying (add a conditional forwarder / peer the VPN's DNS to Azure DNS).
+
+**Once the deploy is complete you don't need `deployerIp` any longer.** The agent runtime always uses the private endpoints from inside the VNet. Any future deploys either need the IP re-added (public path) or need the deployer machine on the private path. See [Part C — Harden](#part-c--harden-remove-deployer-ip-and-close-public-endpoints) for the post-deploy lockdown that strips the IP and (optionally) fully closes the public endpoints.
+
+---
+
 Both RGs are region-scoped and expected to live in the same region. To collapse into a single-RG topology (dev / lab shortcut), point both stacks' `resource_group_name` (Terraform) / `-g` flag (Bicep) at the same RG name and set the workload's `baseResourceGroupName` / `base_resource_group_name` to match.
 
 ---
@@ -146,6 +178,36 @@ Expected: 1 VNet (`vnet-ai-foundry-dev-westus3`) + 11 privateDnsZones — all in
 
 The workload deploys **into `$RG_WORKLOAD`** and looks up base's VNet + DNS zones cross-RG in `$RG_NETWORK` (the `baseResourceGroupName` param in `main.bicep` defaults to `rg-ai-foundry-network-dev-westus3`).
 
+> **Resuming from an existing base deploy?** If you're in a new terminal session (variables gone) or the base was deployed by someone else / a prior CI run, you need at minimum these three session variables before running the deploy:
+>
+> ```powershell
+> $LOC          = "westus3"                              # region the base stack was deployed in
+> $RG_NETWORK   = "rg-ai-foundry-network-dev-$LOC"       # RG the base stack lives in
+> $RG_WORKLOAD  = "rg-ai-foundry-workload-dev-$LOC"      # RG the workload deploys into (create it below if missing)
+> ```
+>
+> Make sure `$RG_WORKLOAD` exists (Path A Step 1 creates it — skip if you already ran it):
+>
+> ```powershell
+> az group create -n $RG_WORKLOAD -l $LOC --tags environment=dev workload=ai-foundry stack=workload
+> ```
+>
+> **If the base stack was deployed with non-default names / values**, first discover what's actually in `$RG_NETWORK`:
+>
+> ```powershell
+> az resource list -g $RG_NETWORK --query "[?type=='Microsoft.Network/virtualNetworks' || type=='Microsoft.Network/privateDnsZones'].{Name:name, Type:type}" -o table
+> az network vnet subnet list -g $RG_NETWORK --vnet-name <your-vnet-name> --query "[].name" -o tsv
+> ```
+>
+> Then either:
+> - **Edit** [`main.bicepparam`](workload/bicep/main.bicepparam) directly — it has commented examples for every override (`baseName`, `environment`, `location`, `baseResourceGroupName`, `vnetName`, `subnetNameCognitivePep`, DNS zone names, `cognitiveCustomSubdomainName`, etc.), OR
+> - **Pass overrides on the CLI** via `-p` flags on the `az deployment group create` below — e.g. `-p baseResourceGroupName=<rg-name>`, `-p baseName=<value>`, `-p vnetName=<name>`. The CLI flags override anything in `main.bicepparam`.
+>
+> The three most common overrides:
+> - `-p baseResourceGroupName=<rg>` — if base lives in an RG that doesn't match the default `rg-ai-foundry-network-dev-<loc>`
+> - `-p baseName=<v> -p environment=<v> -p location=<v>` — shifts the whole derived-name set (VNet, subnet, and Cognitive subdomain names all follow `<baseName>-<environment>-<location>`)
+> - `-p vnetName=<n>` / `-p subnetName*=<n>` — override individual names if base's resources don't follow the convention (e.g. a shared platform VNet)
+
 `cd` into the workload Bicep directory:
 
 ```powershell
@@ -154,11 +216,19 @@ Set-Location environments/ai-foundry/workload/bicep
 Get-Location   # expect: ...\environments\ai-foundry\workload\bicep
 ```
 
-Set your public IP as an environment variable (Bicep's `main.bicepparam` reads it via `readEnvironmentVariable('DEPLOYER_IP', '')`):
+Set your public IP as an environment variable (Bicep's `main.bicepparam` reads it via `readEnvironmentVariable('DEPLOYER_IP', '')`). See [Deployment topology](#deployment-topology-public-path-vs-private-path) for how to choose — both are valid; pick one:
+
+**Option A — public-path deploy (default).** Laptop on the public internet. Grab your public IP so the workload firewalls allow your `az` session:
 
 ```powershell
 $env:DEPLOYER_IP = (Invoke-RestMethod https://api.ipify.org).Trim()
 Write-Host "DEPLOYER_IP = $env:DEPLOYER_IP"
+```
+
+**Option B — private-path deploy.** Deployer on VPN / ExpressRoute / Bastion / VNet-injected runner. The workload FQDNs resolve to private IPs via the base stack's private DNS zones, so no allowlist entry is needed:
+
+```powershell
+$env:DEPLOYER_IP = ""
 ```
 
 Deploy:
@@ -175,12 +245,12 @@ Verify the 4 data-plane services and the 9 workload PEs (all in `$RG_WORKLOAD`):
 
 ```powershell
 az resource list -g $RG_WORKLOAD --query "[?type=='Microsoft.CognitiveServices/accounts' || type=='Microsoft.Storage/storageAccounts' || type=='Microsoft.DocumentDB/databaseAccounts' || type=='Microsoft.Search/searchServices'].{Name:name, Type:type}" -o table
-az resource list -g $RG_WORKLOAD --resource-type Microsoft.Network/privateEndpoints --query "length(@)" -o tsv
+(az resource list -g $RG_WORKLOAD --resource-type Microsoft.Network/privateEndpoints -o json | ConvertFrom-Json).Count
 ```
 
 Expected: 1 Cognitive account + 1 Storage + 1 Cosmos + 1 Search; PE count = **9** (1 Foundry + 6 Storage sub-resources + 1 Cosmos + 1 Search).
 
-Why the IP is required *at deploy time*: the workload deployment performs data-plane calls from your laptop's `az` session (Cosmos SQL role provisioning, Foundry connection creation, capability-host creation), and those calls hit each service's firewall directly — the RP orchestrating the deploy does the control-plane resource creation, but the data-plane side-effects go through your laptop.
+Why the IP is on the allowlist by default: the deploy itself is mostly ARM control-plane (the Cognitive Services / Cosmos / Search / Storage RPs do their work internally via the `bypass = AzureServices` trusted-services path), but the allowlist entry means your `az` / Portal / SDK admin operations from this same machine keep working **after** the deploy without further changes. On the private path (see [Deployment topology](#deployment-topology-public-path-vs-private-path)) that admin traffic goes through private endpoints instead, and no allowlist entry is needed.
 
 ### Step 4. Full inventory (across both RGs)
 
@@ -389,6 +459,45 @@ Expected: 1 VNet, 11 privateDnsZones, **1 privateEndpoint** (on the state SA), a
 
 The workload deploys **into `$RG_WORKLOAD`** and looks up base's VNet + DNS zones cross-RG in `$RG_NETWORK` (`variables.tf`'s `resource_group_name` defaults to `rg-ai-foundry-workload-dev-westus3` and `base_resource_group_name` defaults to `rg-ai-foundry-network-dev-westus3`).
 
+> **Resuming from an existing base deploy?** If you're in a new terminal session (variables gone) or the base was deployed by someone else / a prior CI run, you need at minimum these session variables before running init + apply:
+>
+> ```powershell
+> $LOC          = "westus3"                              # region the base stack was deployed in
+> $RG_NETWORK   = "rg-ai-foundry-network-dev-$LOC"       # RG the base stack + tfstate SA live in
+> $RG_WORKLOAD  = "rg-ai-foundry-workload-dev-$LOC"      # RG the workload deploys into (create it below if missing)
+> ```
+>
+> The tfstate SA name lives in `$RG_NETWORK`. If you don't remember it, discover it directly (safer than recomputing the hash):
+>
+> ```powershell
+> $STATE_SA = (az storage account list -g $RG_NETWORK --query "[?starts_with(name, 'sttfs')].name | [0]" -o tsv)
+> Write-Host "STATE_SA = $STATE_SA"
+> ```
+>
+> Make sure `$RG_WORKLOAD` exists (Path B Step 1 creates it — skip if you already ran it):
+>
+> ```powershell
+> az group create -n $RG_WORKLOAD -l $LOC --tags environment=dev workload=ai-foundry stack=workload
+> ```
+>
+> **If the base stack was deployed with non-default names / values**, first discover what's actually in `$RG_NETWORK`:
+>
+> ```powershell
+> az resource list -g $RG_NETWORK --query "[?type=='Microsoft.Network/virtualNetworks' || type=='Microsoft.Network/privateDnsZones'].{Name:name, Type:type}" -o table
+> ```
+>
+> Then copy [`terraform.tfvars.example`](workload/terraform/terraform.tfvars.example) to `terraform.tfvars` (git-ignored) inside `environments/ai-foundry/workload/terraform/` and uncomment the overrides you need:
+>
+> ```powershell
+> Copy-Item environments/ai-foundry/workload/terraform/terraform.tfvars.example environments/ai-foundry/workload/terraform/terraform.tfvars
+> ```
+>
+> The most common overrides:
+> - `resource_group_name` — workload RG (if not `rg-ai-foundry-workload-dev-<loc>`)
+> - `base_resource_group_name` — where base lives (if not `rg-ai-foundry-network-dev-<loc>`)
+> - `base_name` / `environment` / `location` — shifts the whole derived-name set (VNet, subnet, and Cognitive subdomain names all follow `<base_name>-<environment>-<location>`)
+> - Individual name overrides (`vnet_name`, `subnet_name_*`, DNS zone names, `cognitive_custom_subdomain_name`) — for a shared platform VNet whose resources don't follow the convention
+
 `cd` into the workload Terraform directory:
 
 ```powershell
@@ -405,13 +514,19 @@ terraform init `
     -backend-config="storage_account_name=$STATE_SA"
 ```
 
-Apply:
+Apply. See [Deployment topology](#deployment-topology-public-path-vs-private-path) for how to choose — both are valid; pick one:
+
+**Option A — public-path deploy (default).** Deployer on the public internet. Terraform's `data.http.myip` auto-detects your public IP and pins it into the workload firewalls:
 
 ```powershell
 terraform apply
 ```
 
-The workload's `data.http.myip` auto-detects your IP and pins it into all 4 service firewalls. The Cosmos SQL role assignment + Foundry capability host provisioning both perform data-plane calls from your laptop, so your IP must be allowlisted at deploy time.
+**Option B — private-path deploy.** Deployer on VPN / ExpressRoute / Bastion / VNet-injected runner. Skip the ipify call entirely by pinning `deployer_ip` to empty string; the workload FQDNs resolve to private IPs via the base stack's private DNS zones, so no allowlist entry is needed:
+
+```powershell
+terraform apply -var 'deployer_ip='
+```
 
 ### Step 6. Full inventory (across both RGs)
 
@@ -475,6 +590,8 @@ The ad-hoc network-rule stays as drift on the state SA until the next `base` app
 
 Once you've finished a deploy session, lock the workload data planes down.
 
+> **Skip this section if you deployed on the private path** (with `deployerIp=""` / `deployer_ip=""`) — there's no allowlist entry to strip. You may still want to run the `enablePublicNetworkAccess=false` step below to close the public endpoints entirely: the default-deny firewall + empty allowlist already blocks non-Azure clients today, but the `bypass = AzureServices` trusted-services rule still lets other Azure services reach the public endpoint. Flipping public access to `Disabled` is the only way to close that path too.
+
 ### Path A — Bicep
 
 ```powershell
@@ -490,10 +607,11 @@ az deployment group create `
     -p deployerIp=""
 ```
 
-Verify all 4 services flipped to `Disabled` (all workload services live in `$RG_WORKLOAD`):
+Verify all 4 services flipped to `Disabled` (all workload services live in `$RG_WORKLOAD`). The Foundry account resource name is `ais-<baseName>-<environment>-<location>` (the `cog-acc-...` string you may see elsewhere is the custom subdomain, not the account name) — discover it dynamically so this works regardless of override:
 
 ```powershell
-az cognitiveservices account show -g $RG_WORKLOAD -n "cog-acc-ai-foundry-dev-westus3" --query "properties.publicNetworkAccess" -o tsv
+$foundryAccount = (az cognitiveservices account list -g $RG_WORKLOAD --query "[?kind=='AIServices'].name | [0]" -o tsv)
+az cognitiveservices account show -g $RG_WORKLOAD -n $foundryAccount --query "properties.publicNetworkAccess" -o tsv
 az storage account list -g $RG_WORKLOAD --query "[].{Name:name, PublicNetwork:publicNetworkAccess}" -o table
 az cosmosdb list -g $RG_WORKLOAD --query "[].{Name:name, PublicNetwork:publicNetworkAccess}" -o table
 az search service list -g $RG_WORKLOAD --query "[].{Name:name, PublicNetwork:publicNetworkAccess}" -o table
