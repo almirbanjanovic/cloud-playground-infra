@@ -40,10 +40,19 @@ Every private-endpoint-bearing service uses the same posture: local (shared-key/
 
 - **Windows PowerShell 7+** — all commands below are pwsh. **Keep one session open for the whole deploy** so shell variables persist. If you close and reopen, re-run Step 1 (both paths) and Step 2 (Path B) before continuing.
 - **Azure CLI** ≥ 2.60 ([install](https://learn.microsoft.com/cli/azure/install-azure-cli)).
-- **`az login`** — for the FIRST deploy you need a role with `roleAssignments/write` at the target scope (**Owner**, **User Access Administrator**, or **Role Based Access Control Administrator**) for the workload's Phase-3 / Phase-5 RBAC assignments. RP registration by itself only needs `*/register/action` (**Contributor** is sufficient), so a returning deployer with existing role assignments can drop to Contributor.
+- **`az login` with sufficient permissions.** For a FIRST deploy the caller needs several permission classes across both RGs. **The simplest posture is `Owner` at the subscription** — it covers everything below. For least-privilege deploys, the caller needs all of these at the corresponding scopes:
+
+  | Permission | Where | Why |
+  |---|---|---|
+  | Resource creation (Contributor covers this) | Both RGs | Create/update the VNet, subnets, DNS zones, Storage, Cosmos, AI Search, Foundry account, project, PEs, connections, capability host |
+  | `Microsoft.Authorization/roleAssignments/write` (**User Access Administrator** or **Role Based Access Control Administrator**) | Workload RG | Create the 5 `Microsoft.Authorization/roleAssignments` the workload grants to the project MI on Storage / Cosmos / AI Search |
+  | `Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments/write` (**Cosmos DB Operator** on the Cosmos account, or Contributor at sub/RG scope) | Workload RG (Cosmos account) | Create the Cosmos SQL data-plane role assignment for the project MI. This is a Cosmos-native RBAC resource, NOT `Microsoft.Authorization/roleAssignments` — **UAA and RBAC Admin do NOT include it.** |
+  | `Microsoft.Network/privateDnsZones/join/action` (**Private DNS Zone Contributor** or higher) | Networking RG (private DNS zones) | Link the 9 workload PEs' DNS zone groups to the private DNS zones that live in the networking RG (per the [CAF split-RG topology](#deployment-topology-public-path-vs-private-path)). Same-RG deployers skip this. |
+
+  RP registration by itself only needs `*/register/action` (Contributor at sub scope is sufficient). Returning deployers with all existing role assignments and DNS zone group links can drop to Contributor for subsequent redeploys.
 - **Terraform** ≥ 1.7.5 ([install](https://developer.hashicorp.com/terraform/install)) — Path B only.
 - **Bicep CLI** ≥ 0.30 (bundled with recent `az`; run `az bicep upgrade` if needed) — Path A only.
-- Outbound HTTPS to `https://api.ipify.org` from your laptop.
+- Outbound HTTPS to `https://api.ipify.org` from your laptop (skip if you're on the [private-path deploy](#deployment-topology-public-path-vs-private-path)).
 
 Each deploy step below **starts with a `Set-Location` (`cd`) into the specific stack directory** — `environments/ai-foundry/base/bicep`, `environments/ai-foundry/base/terraform`, `environments/ai-foundry/workload/bicep`, or `environments/ai-foundry/workload/terraform` — and all Bicep / Terraform commands in that step use short relative paths (`main.bicep`, `.`) from there. If a command errors with `Could not find ...\main.bicep` or Terraform picks up the wrong module, check `Get-Location` — you're in the wrong directory. Sign-in / variable-setup steps and `az` verification commands don't depend on your working directory, so you can run them from anywhere.
 
