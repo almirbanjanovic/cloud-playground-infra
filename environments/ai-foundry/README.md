@@ -758,7 +758,7 @@ Terraform waits 60 s via `time_sleep` between assignments and capability-host pr
 
 If you delete an AI Foundry account (`kind=AIServices`) that had Agent Service configured with a delegated subnet, the underlying Container Apps managed environment (in a Microsoft-owned `hobov3_*` subscription) can be orphaned. It leaves a `legionservicelink` SAL on your subnet that you can't delete directly — the account delete hangs in `Deleting`, and the subnet is stuck.
 
-Fix: recover the account (if soft-deleted), detach `networkInjections`, wait for the SAL to clear, then delete cleanly. This works whether the account is fully soft-deleted OR stuck in `provisioningState = Deleting`.
+Fix: recover the account (if soft-deleted), migrate the network injection off your customer subnet to the Microsoft-managed network (this is the RP's supported detach path — an empty `networkInjections: []` array is rejected with `Invalid/Empty NetworkInjection object` on current API versions), wait for the SAL to clear, then delete cleanly. This works whether the account is fully soft-deleted OR stuck in `provisioningState = Deleting`.
 
 > **Naming conventions.** The script below uses the same session variables as the rest of the README (`$LOC`, `$RG_NETWORK`, `$RG_WORKLOAD`). The **Foundry account** lives in `$RG_WORKLOAD`; the **VNet + delegated subnet** live in `$RG_NETWORK` (per the [CAF split-RG topology](#deployment-topology-public-path-vs-private-path)). If you have a pre-CAF single-RG deployment, set `$RG_NETWORK` and `$RG_WORKLOAD` to the same value.
 
@@ -782,12 +782,26 @@ az cognitiveservices account recover --location $LOC --name $ACCT --resource-gro
 $ACCT_ID = (az cognitiveservices account show -g $RG_WORKLOAD -n $ACCT --query id -o tsv)
 if (-not $ACCT_ID) { throw "Account '$ACCT' not visible in '$RG_WORKLOAD' after recovery. Check the names + subscription." }
 
-# 2. Detach the network injection (write body to file — az.cmd mangles inline JSON on Windows).
-#    API version 2025-06-01 matches the module that created the account; earlier GA
-#    versions may not accept the `networkInjections` property and silently ignore
-#    the PATCH, which would trap Step 3 in an infinite poll.
+# 2. Migrate the network injection OFF the customer subnet by flipping
+#    `useMicrosoftManagedNetwork` to `true`. This is the RP's supported
+#    detach path -- an empty `networkInjections: []` array is rejected on
+#    api-version 2025-06-01 with `InvalidResourceProperties: Invalid/Empty
+#    NetworkInjection object`. The scenario must stay `agent`; only the
+#    network target flips. Body written to a file because az.cmd on Windows
+#    mangles inline JSON with quotes.
 $BODY_FILE = Join-Path $env:TEMP "detach-ni.json"
-[System.IO.File]::WriteAllText($BODY_FILE, '{"properties":{"networkInjections":[]}}')
+$body = @{
+    properties = @{
+        networkInjections = @(
+            @{
+                scenario                   = "agent"
+                useMicrosoftManagedNetwork = $true
+            }
+        )
+    }
+} | ConvertTo-Json -Depth 6 -Compress
+[System.IO.File]::WriteAllText($BODY_FILE, $body)
+
 az rest --method patch `
   --uri "https://management.azure.com$ACCT_ID`?api-version=2025-06-01" `
   --headers "Content-Type=application/json" `
@@ -795,7 +809,8 @@ az rest --method patch `
 
 # 3. Poll until provisioningState = Succeeded AND the legionservicelink SAL has
 #    cleared from the subnet (typically 5-30 min while the platform tears down
-#    the orphaned Container Apps managed environment in the hobov3_* sub).
+#    the customer-subnet injection in the hobov3_* sub and moves the agent
+#    runtime onto the Microsoft-managed network).
 do {
     Start-Sleep -Seconds 30
     $STATE = az cognitiveservices account show --ids $ACCT_ID --query "properties.provisioningState" -o tsv
@@ -814,7 +829,21 @@ az network vnet subnet update -g $RG_NETWORK --vnet-name $VNET -n $SUBNET --set 
 az network vnet subnet delete  -g $RG_NETWORK --vnet-name $VNET -n $SUBNET
 ```
 
-**Prevention:** always patch `networkInjections` to `[]` in Bicep / Terraform and wait for `provisioningState = Succeeded` on the Foundry account **before** deleting it — or, when tearing down the whole environment, use the [Tear down](#tear-down) section's `az group delete` which lets Azure resolve the deletion order internally.
+**If Step 2 fails** with the account stuck in `provisioningState = Deleting` (the PATCH won't be accepted on a deleting resource), skip the detach entirely and let the raw delete drive the teardown — then poll for the SAL to clear before purging:
+
+```powershell
+az cognitiveservices account delete --ids $ACCT_ID
+do {
+    Start-Sleep -Seconds 30
+    $SAL = az network vnet subnet show -g $RG_NETWORK --vnet-name $VNET -n $SUBNET --query "serviceAssociationLinks[].name" -o tsv
+    Write-Host "SAL='$SAL'"
+} while ($SAL)
+az cognitiveservices account purge --location $LOC --name $ACCT --resource-group $RG_WORKLOAD
+```
+
+If the SAL still won't clear after ~1 hour, open a support ticket referencing the account ARM ID and the orphaned `hobov3_*` managed environment — only the Foundry team can force-release the SAL at that point.
+
+**Prevention:** always flip `networkInjections[].useMicrosoftManagedNetwork` to `true` (via Bicep / Terraform / PATCH) and wait for `provisioningState = Succeeded` on the Foundry account **before** deleting it — or, when tearing down the whole environment, use the [Tear down](#tear-down) section's `az group delete` which lets Azure resolve the deletion order internally.
 
 ---
 
