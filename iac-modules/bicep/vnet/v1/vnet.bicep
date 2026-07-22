@@ -47,8 +47,15 @@ resource vnet 'Microsoft.Network/virtualNetworks@2024-05-01' = {
 // ----------------------------------------------------------------------------
 // Child subnet resources -- looped over the input map. Delegations are
 // applied per subnet without nesting a for-expression inside the VNet body.
+//
+// `@batchSize(1)` forces ARM to create the subnets SERIALLY. Parallel subnet
+// creation on the same VNet occasionally 409s with `AnotherOperationInProgress`
+// / `RetryableError` because the VNet's write lock is held per-request; the
+// first apply then fails and a rerun succeeds. Serialising the loop avoids
+// the race at the cost of a few seconds (5 subnets, ~1-2 s each).
 // ----------------------------------------------------------------------------
 
+@batchSize(1)
 resource subnet 'Microsoft.Network/virtualNetworks/subnets@2024-05-01' = [for key in items(subnets): {
   parent: vnet
   name: key.value.name

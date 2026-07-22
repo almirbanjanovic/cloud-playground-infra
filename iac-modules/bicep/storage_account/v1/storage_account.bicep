@@ -137,7 +137,29 @@ resource blobServices 'Microsoft.Storage/storageAccounts/blobServices@2024-01-01
 }
 
 // ------------------------------------------------------------------
-// Private endpoints — one per subresource with non-empty DNS zone list
+// Private endpoints — one per subresource with non-empty DNS zone list.
+//
+// The 6 PEs are SERIALISED via an explicit dependsOn chain
+// (blob -> file -> queue -> table -> dfs -> web) rather than the
+// Bicep default of parallel sibling deploys. Rationale:
+//
+//   * All 6 PEs target the SAME storage-PE subnet, so each PE's NIC
+//     creation writes to `subnet.properties.ipConfigurations` under
+//     Network RP's per-subnet write lock.
+//   * All 6 PEs target the SAME storage account, so each PE's
+//     `privateLinkServiceConnections` write hits Storage RP's per-
+//     account write lock.
+//
+// Two shared write-locks + 6 concurrent writers is the same class of
+// race that produces `RetryableError` / `AnotherOperationInProgress`
+// / `409 Conflict` on the first apply -- exactly the pattern we
+// serialised for subnets in iac-modules/bicep/vnet/v1/vnet.bicep via
+// `@batchSize(1)`. We use dependsOn here (instead of refactoring into
+// a single `[for] @batchSize(1)` module loop) so existing deployments
+// keep their symbolic-name state addresses and don't get replaced.
+//
+// Cost: ~5-10s added to first apply. Benefit: deterministic first-run
+// success on the storage private-endpoint fan-out.
 // ------------------------------------------------------------------
 
 module pe_blob '../../private_endpoint/v1/private_endpoint.bicep' = if (!empty(blobPrivateDnsZoneIds)) {
@@ -164,6 +186,7 @@ module pe_file '../../private_endpoint/v1/private_endpoint.bicep' = if (!empty(f
     privateDnsZoneIds: filePrivateDnsZoneIds
     tags: tags
   }
+  dependsOn: [pe_blob]
 }
 
 module pe_queue '../../private_endpoint/v1/private_endpoint.bicep' = if (!empty(queuePrivateDnsZoneIds)) {
@@ -177,6 +200,7 @@ module pe_queue '../../private_endpoint/v1/private_endpoint.bicep' = if (!empty(
     privateDnsZoneIds: queuePrivateDnsZoneIds
     tags: tags
   }
+  dependsOn: [pe_file]
 }
 
 module pe_table '../../private_endpoint/v1/private_endpoint.bicep' = if (!empty(tablePrivateDnsZoneIds)) {
@@ -190,6 +214,7 @@ module pe_table '../../private_endpoint/v1/private_endpoint.bicep' = if (!empty(
     privateDnsZoneIds: tablePrivateDnsZoneIds
     tags: tags
   }
+  dependsOn: [pe_queue]
 }
 
 module pe_dfs '../../private_endpoint/v1/private_endpoint.bicep' = if (!empty(dfsPrivateDnsZoneIds)) {
@@ -203,6 +228,7 @@ module pe_dfs '../../private_endpoint/v1/private_endpoint.bicep' = if (!empty(df
     privateDnsZoneIds: dfsPrivateDnsZoneIds
     tags: tags
   }
+  dependsOn: [pe_table]
 }
 
 module pe_web '../../private_endpoint/v1/private_endpoint.bicep' = if (!empty(webPrivateDnsZoneIds)) {
@@ -216,6 +242,7 @@ module pe_web '../../private_endpoint/v1/private_endpoint.bicep' = if (!empty(we
     privateDnsZoneIds: webPrivateDnsZoneIds
     tags: tags
   }
+  dependsOn: [pe_dfs]
 }
 
 // ------------------------------------------------------------------

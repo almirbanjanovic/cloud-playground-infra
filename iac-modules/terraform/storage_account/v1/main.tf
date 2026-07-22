@@ -96,6 +96,28 @@ resource "azurerm_role_assignment" "this" {
 # iac-modules/bicep/storage_account/v1/storage_account.bicep and lets
 # callers who only need a subset of PEs (e.g. the tfstate storage account
 # in ai-foundry base only needs blob) avoid provisioning the other 5.
+#
+# The 6 PEs are SERIALISED via a `depends_on` chain
+# (blob -> table -> queue -> file -> dfs -> web) rather than the
+# Terraform default of parallel siblings. Rationale:
+#
+#   * All 6 PEs target the SAME PE subnet, so each PE's NIC creation
+#     writes to `subnet.properties.ipConfigurations` under Network
+#     RP's per-subnet write lock.
+#   * All 6 PEs target the SAME storage account, so each PE's
+#     `privateLinkServiceConnections` write hits Storage RP's per-
+#     account write lock.
+#
+# Two shared write-locks + 6 concurrent writers is the same class of
+# race that produces `RetryableError` / `AnotherOperationInProgress`
+# / `409 Conflict` on the first apply -- exactly the pattern we
+# serialised for subnets in iac-modules/bicep/vnet/v1/vnet.bicep via
+# `@batchSize(1)`. In Terraform we chain the module `depends_on` in a
+# fixed order; the chain skips the disabled PEs correctly because
+# `depends_on` on an empty (count=0) module is a no-op.
+#
+# Cost: ~5-10s added to first apply. Benefit: deterministic first-run
+# success on the storage private-endpoint fan-out.
 #----------------------------------------------------------------
 module "blob_private_endpoint" {
   count  = length(var.blob_private_dns_zone_ids) > 0 ? 1 : 0
@@ -138,7 +160,10 @@ module "table_private_endpoint" {
 
   tags = var.tags
 
-  depends_on = [azurerm_storage_account.this]
+  depends_on = [
+    azurerm_storage_account.this,
+    module.blob_private_endpoint,
+  ]
 }
 
 module "queue_private_endpoint" {
@@ -160,7 +185,10 @@ module "queue_private_endpoint" {
 
   tags = var.tags
 
-  depends_on = [azurerm_storage_account.this]
+  depends_on = [
+    azurerm_storage_account.this,
+    module.table_private_endpoint,
+  ]
 }
 
 module "file_private_endpoint" {
@@ -182,7 +210,10 @@ module "file_private_endpoint" {
 
   tags = var.tags
 
-  depends_on = [azurerm_storage_account.this]
+  depends_on = [
+    azurerm_storage_account.this,
+    module.queue_private_endpoint,
+  ]
 }
 
 module "azure_data_lake_file_system_private_endpoint" {
@@ -204,7 +235,10 @@ module "azure_data_lake_file_system_private_endpoint" {
 
   tags = var.tags
 
-  depends_on = [azurerm_storage_account.this]
+  depends_on = [
+    azurerm_storage_account.this,
+    module.file_private_endpoint,
+  ]
 }
 
 module "web_private_endpoint" {
@@ -226,5 +260,8 @@ module "web_private_endpoint" {
 
   tags = var.tags
 
-  depends_on = [azurerm_storage_account.this]
+  depends_on = [
+    azurerm_storage_account.this,
+    module.azure_data_lake_file_system_private_endpoint,
+  ]
 }

@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.45.15.27210",
-      "templateHash": "11372145168733099685"
+      "templateHash": "2946639412848931861"
     }
   },
   "parameters": {
@@ -147,7 +147,7 @@
     }
   },
   "variables": {
-    "derivedAccountName": "[toLower(format('st{0}{1}{2}{3}', parameters('baseName'), parameters('environment'), parameters('location'), parameters('suffix')))]",
+    "derivedAccountName": "[replace(toLower(format('st{0}{1}{2}{3}', parameters('baseName'), parameters('environment'), parameters('location'), parameters('suffix'))), '-', '')]",
     "accountName": "[if(empty(parameters('customName')), variables('derivedAccountName'), parameters('customName'))]"
   },
   "resources": [
@@ -529,6 +529,7 @@
         }
       },
       "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', take(format('pe-{0}-blob', variables('accountName')), 64))]",
         "[resourceId('Microsoft.Storage/storageAccounts', variables('accountName'))]"
       ]
     },
@@ -689,6 +690,7 @@
         }
       },
       "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', take(format('pe-{0}-file', variables('accountName')), 64))]",
         "[resourceId('Microsoft.Storage/storageAccounts', variables('accountName'))]"
       ]
     },
@@ -849,6 +851,7 @@
         }
       },
       "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', take(format('pe-{0}-queue', variables('accountName')), 64))]",
         "[resourceId('Microsoft.Storage/storageAccounts', variables('accountName'))]"
       ]
     },
@@ -1009,6 +1012,7 @@
         }
       },
       "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', take(format('pe-{0}-table', variables('accountName')), 64))]",
         "[resourceId('Microsoft.Storage/storageAccounts', variables('accountName'))]"
       ]
     },
@@ -1169,6 +1173,7 @@
         }
       },
       "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', take(format('pe-{0}-dfs', variables('accountName')), 64))]",
         "[resourceId('Microsoft.Storage/storageAccounts', variables('accountName'))]"
       ]
     }

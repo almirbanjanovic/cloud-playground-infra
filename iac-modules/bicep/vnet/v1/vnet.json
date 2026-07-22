@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.45.15.27210",
-      "templateHash": "17927659413413224054"
+      "templateHash": "6882147717753316509"
     }
   },
   "parameters": {
@@ -58,14 +58,16 @@
     {
       "copy": {
         "name": "subnet",
-        "count": "[length(items(parameters('subnets')))]"
+        "count": "[length(items(parameters('subnets')))]",
+        "mode": "serial",
+        "batchSize": 1
       },
       "type": "Microsoft.Network/virtualNetworks/subnets",
       "apiVersion": "2024-05-01",
       "name": "[format('{0}/{1}', parameters('name'), items(parameters('subnets'))[copyIndex()].value.name)]",
       "properties": {
         "addressPrefixes": "[items(parameters('subnets'))[copyIndex()].value.addressPrefixes]",
-        "delegations": "[if(contains(items(parameters('subnets'))[copyIndex()].value, 'delegations'), items(parameters('subnets'))[copyIndex()].value.delegations, createArray())]",
+        "delegations": "[coalesce(tryGet(items(parameters('subnets'))[copyIndex()].value, 'delegations'), createArray())]",
         "privateEndpointNetworkPolicies": "Disabled"
       },
       "dependsOn": [

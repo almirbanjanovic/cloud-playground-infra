@@ -376,7 +376,10 @@ module "foundry_project" {
   cognitive_account_id = module.cognitive_account.id
 
   storage_account_id    = module.storage.id
-  storage_blob_endpoint = "https://${module.storage.name}.blob.core.windows.net/"
+  # Use the module's ARM-computed blob endpoint output rather than string-
+  # interpolating `.blob.core.windows.net` -- the suffix differs in sovereign
+  # clouds (`.core.chinacloudapi.cn`, `.core.usgovcloudapi.net`, etc.).
+  storage_blob_endpoint = module.storage.blob_endpoint
 
   cosmos_db_account_id        = module.cosmos_db.id
   cosmos_db_document_endpoint = module.cosmos_db.endpoint
