@@ -271,6 +271,8 @@ az resource list -g $RG_WORKLOAD --query "[?type=='Microsoft.CognitiveServices/a
 
 Expected: 1 Cognitive account + 1 Storage + 1 Cosmos + 1 Search; PE count = **9** (1 Foundry + 6 Storage sub-resources + 1 Cosmos + 1 Search).
 
+→ **Public-path deploys should now run [Part C1](#part-c1--strip-deployer-ip-and-any-extra-allowlisted-ips-public-path-only)** to strip the deployer IP + `allowedIpsExtra` off every workload firewall so those IPs don't linger. [Part C2](#part-c2--optionally-disable-public-endpoints-entirely-zero-trust) then optionally closes the public endpoints entirely.
+
 **Verify the private path** (only if you chose Option B above). Resolve the Foundry account's FQDN; a `10.x.x.x` address means DNS routed through the base stack's private zones and admin traffic is on the private path. A public IP means the DNS didn't integrate — either allowlist your IP + redeploy (public path), or fix your DNS routing (e.g. add a conditional forwarder / peer the VPN's DNS to Azure DNS) and rerun this verify.
 
 ```powershell
@@ -563,6 +565,8 @@ $foundryFqdn = (az cognitiveservices account list -g $RG_WORKLOAD --query "[?kin
 Resolve-DnsName $foundryFqdn | Select-Object Name, IPAddress
 ```
 
+→ **Public-path deploys should now run [Part C1](#part-c1--strip-deployer-ip-and-any-extra-allowlisted-ips-public-path-only)** to strip the deployer IP + `allowed_ips_extra` off every workload firewall so those IPs don't linger. [Part C2](#part-c2--optionally-disable-public-endpoints-entirely-zero-trust) then optionally closes the public endpoints entirely.
+
 ### Step 6. Full inventory (across both RGs)
 
 ```powershell
@@ -623,11 +627,74 @@ The ad-hoc network-rule stays as drift on the state SA until the next `base` app
 
 ## Part C — Harden: remove deployer IP and close public endpoints
 
-Once you've finished a deploy session, lock the workload data planes down.
+Once the deploy is verified, lock the workload data planes down. Two sub-parts — do them in order:
 
-> **Skip this section if you deployed on the private path** (with `deployerIp=""` / `deployer_ip=""`) — there's no allowlist entry to strip. You may still want to run the `enablePublicNetworkAccess=false` step below to close the public endpoints entirely: the default-deny firewall + empty allowlist already blocks non-Azure clients today, but the `bypass = AzureServices` trusted-services rule still lets other Azure services reach the public endpoint. Flipping public access to `Disabled` is the only way to close that path too.
+1. **[Part C1](#part-c1--strip-deployer-ip-and-any-extra-allowlisted-ips-public-path-only)** — strip **every** whitelisted IP off the 4 workload firewalls (deployer IP + `allowedIpsExtra`). Recommended immediately after every public-path deploy so your IP doesn't linger. Public endpoints stay enabled with a default-deny firewall + empty allowlist; the agent runtime keeps working over private endpoints, and Azure trusted services keep working over the `bypass = AzureServices` path.
+2. **[Part C2](#part-c2--optionally-disable-public-endpoints-entirely-zero-trust)** — optionally close the public endpoints entirely. Blocks the trusted-services bypass path too. Skip if you plan to redeploy soon (you'll re-add the IP anyway) or if you want to keep the option of testing from your laptop later.
 
-### Path A — Bicep
+> **Private-path deployers** (deployed with `deployerIp=""` / `-var 'deployer_ip='`) can skip C1 — there's no allowlist entry to strip. C2 is still useful for zero-trust posture.
+
+### Part C1 — Strip deployer IP and any extra allowlisted IPs (public path only)
+
+**Before you run this**, know what will break: after the strip, your **laptop-side data-plane calls fail with 403** — `az storage blob upload/download`, `az cosmosdb sql database *`, and Python SDK calls (`ContainerClient`, `CosmosClient`, `SearchClient`) hitting the public FQDN. What keeps working: the agent runtime inside the VNet (private endpoints), `az` CLI reads that hit ARM control plane (`az cognitiveservices account show`, `az storage account show`, Portal blades, `az resource list`), and any tool going through a private endpoint via Azure-integrated DNS. If you still need laptop admin access, skip C1 for now.
+
+**Path A — Bicep.** Setting both `deployerIp=""` **and** `allowedIpsExtra=@()` is required to actually empty the allowlist — the two are `union`'d inside the workload template, so clearing only one leaves the other in place.
+
+```powershell
+Set-Location (git rev-parse --show-toplevel)
+Set-Location environments/ai-foundry/workload/bicep
+
+az deployment group create `
+    -g $RG_WORKLOAD `
+    -n strip-ip-$(Get-Date -Format 'yyyyMMdd-HHmmss') `
+    -f main.bicep `
+    -p main.bicepparam `
+    -p deployerIp="" `
+    -p allowedIpsExtra='[]'
+```
+
+**Path B — Terraform.** Same reasoning — `compact(concat([deployer_ip], allowed_ips_extra))` means both must be cleared:
+
+```powershell
+Set-Location (git rev-parse --show-toplevel)
+Set-Location environments/ai-foundry/workload/terraform
+
+terraform apply `
+    -var 'deployer_ip=' `
+    -var 'allowed_ips_extra=[]'
+```
+
+**Verify the allowlists are empty across all 4 services:**
+
+```powershell
+$foundryAccount = (az cognitiveservices account list -g $RG_WORKLOAD --query "[?kind=='AIServices'].name | [0]" -o tsv)
+az cognitiveservices account show -g $RG_WORKLOAD -n $foundryAccount --query "properties.networkAcls.ipRules" -o json
+az storage account list -g $RG_WORKLOAD --query "[].{Name:name, IpRules:networkRuleSet.ipRules}" -o json
+az cosmosdb list -g $RG_WORKLOAD --query "[].{Name:name, IpRules:ipRules}" -o json
+az search service list -g $RG_WORKLOAD --query "[].{Name:name, IpRules:networkRuleSet.ipRules}" -o json
+```
+
+Expected: `ipRules` (or `IpRules`) is `[]` on every service.
+
+> **To re-add your IP quickly** (without a full 15-min redeploy) for one-off admin work: use `az <service> network-rule add` per-service. This creates drift the next full deploy will reconcile away:
+> ```powershell
+> $DEPLOYER_IP = (Invoke-RestMethod https://api.ipify.org).Trim()
+> az storage account network-rule add       -g $RG_WORKLOAD -n <storageName>  --ip-address $DEPLOYER_IP
+> az cognitiveservices account network-rule add -g $RG_WORKLOAD -n $foundryAccount --ip-address $DEPLOYER_IP
+> az cosmosdb network-rule add              -g $RG_WORKLOAD -n <cosmosName>   --ip-address $DEPLOYER_IP
+> az search service network-rule add        -g $RG_WORKLOAD --service-name <searchName> --ip-address-value $DEPLOYER_IP
+> ```
+> Remove them the same way with `network-rule remove` when you're done.
+
+> **Path B tfstate caveat.** C1 only strips the four **workload** service firewalls. The base stack's tfstate storage account in `$RG_NETWORK` keeps whatever allowlist entries the last base apply set. If your IP changes and you later run `terraform init` for either stack, the state read may 403 — see the tfstate-403 row in [Troubleshooting](#troubleshooting) for the one-line `az storage account network-rule add` recovery.
+
+> **Redeploy will undo C1.** Any subsequent `az deployment group create` (Bicep, [Redeploy](#redeploy) as documented) re-fetches the current IP into `$env:DEPLOYER_IP` and re-adds it to every workload allowlist. Any subsequent `terraform apply` (Terraform) does the same via `data.http.myip`. To keep the strip through a redeploy, pass the same `deployerIp="" allowedIpsExtra=[]` / `-var 'deployer_ip=' -var 'allowed_ips_extra=[]'` overrides on the redeploy command.
+
+### Part C2 — Optionally disable public endpoints entirely (zero-trust)
+
+Run C1 first. C2 closes the public endpoints so the trusted-services bypass path can't be used either — anything reaching the 4 workload services now has to come through a private endpoint. Only run this if you're done with laptop-side administration for the foreseeable future.
+
+**Path A — Bicep:**
 
 ```powershell
 Set-Location (git rev-parse --show-toplevel)
@@ -639,10 +706,23 @@ az deployment group create `
     -f main.bicep `
     -p main.bicepparam `
     -p enablePublicNetworkAccess=false `
-    -p deployerIp=""
+    -p deployerIp="" `
+    -p allowedIpsExtra='[]'
 ```
 
-Verify all 4 services flipped to `Disabled` (all workload services live in `$RG_WORKLOAD`). The Foundry account resource name is `ais-<baseName>-<environment>-<location>` (the `cog-acc-...` string you may see elsewhere is the custom subdomain, not the account name) — discover it dynamically so this works regardless of override:
+**Path B — Terraform:**
+
+```powershell
+Set-Location (git rev-parse --show-toplevel)
+Set-Location environments/ai-foundry/workload/terraform
+
+terraform apply `
+    -var 'enable_public_network_access=false' `
+    -var 'deployer_ip=' `
+    -var 'allowed_ips_extra=[]'
+```
+
+**Verify all 4 services flipped to `Disabled`.** The Foundry account resource name is `ais-<baseName>-<environment>-<location>` (the `cog-acc-...` string you may see elsewhere is the custom subdomain, not the account name) — discover it dynamically so this works regardless of override:
 
 ```powershell
 $foundryAccount = (az cognitiveservices account list -g $RG_WORKLOAD --query "[?kind=='AIServices'].name | [0]" -o tsv)
@@ -654,24 +734,11 @@ az search service list -g $RG_WORKLOAD --query "[].{Name:name, PublicNetwork:pub
 
 Expected: `Disabled` for the Foundry account, the workload Storage account, Cosmos, and Search. The state SA (Path B only, in `$RG_NETWORK`) is intentionally untouched — keep its public endpoint enabled so subsequent Terraform runs can reach the backend.
 
-### Path B — Terraform
-
-```powershell
-Set-Location (git rev-parse --show-toplevel)
-Set-Location environments/ai-foundry/workload/terraform
-
-terraform apply `
-    -var 'enable_public_network_access=false' `
-    -var 'deployer_ip='
-```
-
-Same result. Verify identically to Path A.
-
 ### Un-harden (before your next deploy)
 
-**Path A — Bicep**: rerun Path A Step 3 exactly as written (including the `cd` into `environments/ai-foundry/workload/bicep`) — `$env:DEPLOYER_IP` gets re-read from the current session, and `enablePublicNetworkAccess` falls back to its default (`true`).
+**Path A — Bicep**: rerun Path A Step 3 exactly as written (including the `cd` into `environments/ai-foundry/workload/bicep`) — `$env:DEPLOYER_IP` gets re-read from the current session, `enablePublicNetworkAccess` falls back to its default (`true`), and `allowedIpsExtra` falls back to its default (`[]`) or whatever you pass on the CLI.
 
-**Path B — Terraform**: `cd` into `environments/ai-foundry/workload/terraform` and rerun `terraform apply` with no `-var` flags. `enable_public_network_access` defaults back to `true` and `deployer_ip` re-auto-detects via `data.http.myip`.
+**Path B — Terraform**: `cd` into `environments/ai-foundry/workload/terraform` and rerun `terraform apply` with no `-var` flags. `enable_public_network_access` defaults back to `true`, `deployer_ip` re-auto-detects via `data.http.myip`, and `allowed_ips_extra` falls back to its default (`[]`) or whatever's in your `terraform.tfvars`.
 
 ---
 
