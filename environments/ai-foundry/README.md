@@ -95,16 +95,13 @@ Two supported topologies. Both use the same IaC; only the value you pass for `de
 
 **How the private path works:** the workload service FQDNs resolve through the 11 private DNS zones the base stack VNet-links. When your deployer uses Azure-integrated DNS for those zones — directly (VM in the VNet), via your VPN client's DNS, or via an on-prem forwarder pointed at Azure's virtual server `168.63.129.16` — the FQDNs return the PE's private IP and admin traffic never hits the public endpoint.
 
-**How to verify you're on the private path** — from your deployer machine, resolve one of the service FQDNs and check it comes back private (`10.0.x.x` for this stack's default VNet):
+**Which path am I on?** Use intent, not DNS parsing (client-side DNS checks miss corporate NRPT / split-tunnel VPN configs and give false answers):
 
-```powershell
-# Discover the Foundry account's custom-subdomain FQDN so this works even if you overrode
-# cognitiveCustomSubdomainName / base_name / environment / location:
-$foundryFqdn = (az cognitiveservices account list -g $RG_WORKLOAD --query "[?kind=='AIServices'].properties.endpoint | [0]" -o tsv) -replace 'https://', '' -replace '/$', ''
-Resolve-DnsName $foundryFqdn | Select-Object Name, IPAddress
-```
+1. Deploying from a jumpbox / CI runner **already inside the workload VNet** → **private path**.
+2. Deploying from a laptop on **corporate VPN / ExpressRoute peered to the workload VNet**, AND your platform team has confirmed `privatelink.*` zones are forwarded to Azure DNS → **private path**.
+3. Anything else (home internet, unmanaged network, unsure) → **public path**.
 
-If it returns a public IP, you're on the public path — either set `deployerIp` to your public IP for this deploy, or fix your DNS routing before retrying (add a conditional forwarder / peer the VPN's DNS to Azure DNS).
+When unsure, default to the public path — switching to private later is a one-command redeploy with `deployerIp=""` / `-var 'deployer_ip='`. There is no reliable client-side way to prove your DNS is wired for the private path before your first deploy; the accurate verification only works post-deploy, so it lives under Path A Step 3 and Path B Step 5 as "Verify the private path."
 
 **Once the deploy is complete you don't need `deployerIp` any longer.** The agent runtime always uses the private endpoints from inside the VNet. Any future deploys either need the IP re-added (public path) or need the deployer machine on the private path. See [Part C — Harden](#part-c--harden-remove-deployer-ip-and-close-public-endpoints) for the post-deploy lockdown that strips the IP and (optionally) fully closes the public endpoints.
 
@@ -275,6 +272,13 @@ az resource list -g $RG_WORKLOAD --query "[?type=='Microsoft.CognitiveServices/a
 ```
 
 Expected: 1 Cognitive account + 1 Storage + 1 Cosmos + 1 Search; PE count = **9** (1 Foundry + 6 Storage sub-resources + 1 Cosmos + 1 Search).
+
+**Verify the private path** (only if you chose Option B above). Resolve the Foundry account's FQDN; a `10.x.x.x` address means DNS routed through the base stack's private zones and admin traffic is on the private path. A public IP means the DNS didn't integrate — either allowlist your IP + redeploy (public path), or fix your DNS routing (e.g. add a conditional forwarder / peer the VPN's DNS to Azure DNS) and rerun this verify.
+
+```powershell
+$foundryFqdn = (az cognitiveservices account list -g $RG_WORKLOAD --query "[?kind=='AIServices'].properties.endpoint | [0]" -o tsv) -replace 'https://', '' -replace '/$', ''
+Resolve-DnsName $foundryFqdn | Select-Object Name, IPAddress
+```
 
 Why the IP is on the allowlist by default: the deploy itself is mostly ARM control-plane (the Cognitive Services / Cosmos / Search / Storage RPs do their work internally via the `bypass = AzureServices` trusted-services path), but the allowlist entry means your `az` / Portal / SDK admin operations from this same machine keep working **after** the deploy without further changes. On the private path (see [Deployment topology](#deployment-topology-public-path-vs-private-path)) that admin traffic goes through private endpoints instead, and no allowlist entry is needed.
 
@@ -552,6 +556,13 @@ terraform apply
 
 ```powershell
 terraform apply -var 'deployer_ip='
+```
+
+**Verify the private path** (only if you chose Option B). Resolve the Foundry account's FQDN; a `10.x.x.x` address means DNS routed through the base stack's private zones. A public IP means fix your DNS routing (or drop back to the public path):
+
+```powershell
+$foundryFqdn = (az cognitiveservices account list -g $RG_WORKLOAD --query "[?kind=='AIServices'].properties.endpoint | [0]" -o tsv) -replace 'https://', '' -replace '/$', ''
+Resolve-DnsName $foundryFqdn | Select-Object Name, IPAddress
 ```
 
 ### Step 6. Full inventory (across both RGs)
