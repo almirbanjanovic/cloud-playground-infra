@@ -107,8 +107,6 @@ When unsure, default to the public path — switching to private later is a one-
 
 ---
 
-Both RGs are region-scoped and expected to live in the same region. To collapse into a single-RG topology (dev / lab shortcut), point both stacks' `resource_group_name` (Terraform) / `-g` flag (Bicep) at the same RG name and set the workload's `baseResourceGroupName` / `base_resource_group_name` to match.
-
 > ⚠️ **Every resource in this stack must be in the SAME Azure region** — both RGs, VNet, subnets, DNS zone links, all 9 workload PEs, and the 4 data-plane services. This isn't a lab convention: a private endpoint must co-locate with its target service, and the Foundry account must co-locate with its injected VNet (per [Microsoft's Foundry Agent Service private-networking docs](https://learn.microsoft.com/azure/ai-foundry/agents/how-to/virtual-networks#limitations)). The templates enforce this via a single `location` variable defaulting to `westus3`; if you change the region, change it in **both** stacks or workload PE creation fails with a region-mismatch error. Verify the target region is on Microsoft's [supported-regions list for Foundry Agent Service private networking](https://learn.microsoft.com/azure/ai-foundry/agents/concepts/limits-quotas-regions#supported-regions).
 
 ---
@@ -774,7 +772,7 @@ When you delete an AI Foundry account (`kind=AIServices`) that had Agent Service
 
 The SAL usually releases in 5–45 min but has been observed to take **overnight (~8+ h)** when the platform teardown stalls. If it's still stuck after 45 min, jump to [If the SAL never clears](#if-the-sal-never-clears) below.
 
-> **Naming conventions.** The script uses the same session variables as the rest of the README (`$LOC`, `$RG_NETWORK`, `$RG_WORKLOAD`). The Foundry account lives in `$RG_WORKLOAD`; the VNet + delegated subnet live in `$RG_NETWORK`. For a single-RG deployment, set both to the same value.
+> **Naming conventions.** The script uses the same session variables as the rest of the README (`$LOC`, `$RG_NETWORK`, `$RG_WORKLOAD`). The Foundry account lives in `$RG_WORKLOAD`; the VNet + delegated subnet live in `$RG_NETWORK`.
 
 **Step 1 — set variables + fire the delete.** Paste this whole block once:
 
