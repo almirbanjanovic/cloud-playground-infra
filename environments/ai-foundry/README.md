@@ -17,7 +17,7 @@ Pick one path. Don't mix Path A + Path B against the same RGs — the two paths 
 
 Source: [`assets/architecture.drawio`](assets/architecture.drawio) &nbsp; · &nbsp; PNG: [`assets/architecture.png`](assets/architecture.png)
 
-The diagram shows the runtime architecture that both paths provision. Path B additionally bootstraps a Terraform-state Storage account with a blob Private Endpoint — a Terraform mechanism, not part of the deployed application — described in Path B Step 2 but intentionally omitted from the diagram.
+The diagram shows the runtime architecture both paths provision. Path B additionally bootstraps a Terraform-state Storage account with a blob Private Endpoint (a Terraform mechanism, not part of the deployed app), described in Path B Step 2 but omitted from the diagram.
 
 **Base stack (both paths)** — deploys into the **networking RG** (`rg-ai-foundry-network-dev-westus3` by default):
 - 1 VNet (`10.0.0.0/16`) + 5 subnets: 4 private-endpoint subnets + 1 agent subnet delegated to `Microsoft.App/environments`
@@ -36,7 +36,7 @@ Every private-endpoint-bearing service uses the same posture: local (shared-key/
 
 ### DNS zones + private endpoints
 
-The base stack creates **11 private DNS zones**, all VNet-linked, matching the authoritative Microsoft [private endpoint DNS zone table](https://learn.microsoft.com/azure/private-link/private-endpoint-dns):
+The base stack creates **11 private DNS zones**, all VNet-linked, matching the authoritative Microsoft [private endpoint DNS zone table](https://learn.microsoft.com/azure/private-link/private-endpoint-dns). Base creates and VNet-links the zones **before** the workload's PEs so `privateDnsZoneGroups` auto-register the PE A-records at creation time.
 
 | Service | Subresource / groupId | Zone (Azure public cloud) |
 |---|---|---|
@@ -45,9 +45,9 @@ The base stack creates **11 private DNS zones**, all VNet-linked, matching the a
 | Cosmos DB (`Microsoft.DocumentDB/databaseAccounts`, SQL API) | `Sql` | `privatelink.documents.azure.com` |
 | AI Search (`Microsoft.Search/searchServices`) | `searchService` | `privatelink.search.windows.net` |
 
-Total: 3 + 6 + 1 + 1 = **11 zones**. Base VNet-links them BEFORE the workload's PEs are created so `privateDnsZoneGroups` auto-register the PE A-records at creation time. Bicep derives the storage suffix via `az.environment().suffixes.storage` for cross-cloud portability; the other 3 zone names are hardcoded to commercial-cloud values. **Sovereign-cloud deploys (Azure Gov / China) need to override `cosmosPrivateDnsZoneName`, `searchPrivateDnsZoneName`, and (in Terraform only) `storagePrivateDnsZoneNames` to their cloud-specific values** — see the MS DNS zone table's Government / China sections.
+> ⚠️ **Sovereign-cloud deploys (Azure Gov / China)** must override `cosmosPrivateDnsZoneName`, `searchPrivateDnsZoneName`, and (Terraform only) `storagePrivateDnsZoneNames` to their cloud-specific values — see the MS DNS zone table's Government / China sections. Bicep derives the storage suffix via `az.environment().suffixes.storage`; the other 3 zone names are hardcoded to commercial-cloud values.
 
-**On storage PE breadth:** we create all 6 storage subresource PEs (blob/file/queue/table/dfs/web) for symmetry with Microsoft's general private-endpoint patterns. Foundry Agent Service Standard Setup itself only *uses* `blob` at runtime — the other 5 are ~$35/month of belt-and-braces provisioning that lets you later use File Share, Queue-backed Function tools, ADLS Gen2, or Static Web hosting without changing the network topology. If cost matters and you know you'll only use blob, pass empty arrays for the 5 unused subresources' `*PrivateDnsZoneIds` params on the storage_account module (Bicep) / `*_private_dns_zone_ids` variables (Terraform) — the module skips creating a PE for any subresource with an empty zone list.
+> **On storage PE breadth:** all 6 storage subresource PEs are created for symmetry with Microsoft's general private-endpoint patterns. Foundry Agent Service Standard Setup itself only uses `blob` at runtime — the other 5 (~$35/month total) are belt-and-braces provisioning that lets you later use File Share, Queue-backed Function tools, ADLS Gen2, or Static Web hosting without changing the network topology. To skip the unused 5, pass empty arrays for their `*PrivateDnsZoneIds` params (Bicep) / `*_private_dns_zone_ids` variables (Terraform).
 
 ---
 
@@ -55,7 +55,7 @@ Total: 3 + 6 + 1 + 1 = **11 zones**. Base VNet-links them BEFORE the workload's 
 
 - **Windows PowerShell 7+** — all commands below are pwsh. **Keep one session open for the whole deploy** so shell variables persist. If you close and reopen, re-run Step 1 (both paths) and Step 2 (Path B) before continuing.
 - **Azure CLI** ≥ 2.60 ([install](https://learn.microsoft.com/cli/azure/install-azure-cli)).
-- **`az login` with sufficient permissions.** For a FIRST deploy the caller needs several permission classes across both RGs. **The simplest posture is `Owner` at the subscription** — it covers everything below. For least-privilege deploys, the caller needs all of these at the corresponding scopes:
+- **`az login` with sufficient permissions.** For a first deploy from a fresh subscription, `Owner` at subscription scope is simplest. For least-privilege, the caller needs these at the corresponding scopes — most are standard Contributor, but `Cosmos DB Operator`, `User Access Administrator` / `RBAC Admin`, and `Private DNS Zone Contributor` are special cases:
 
   | Permission | Where | Why |
   |---|---|---|
@@ -93,7 +93,7 @@ Two supported topologies. Both use the same IaC; only the value you pass for `de
 | **Public path** (default) | On the public internet (laptop at home, unmanaged network) | Deployer → public FQDN → firewall allowlist → service | Your public IPv4 (auto-detected in Path B via `api.ipify.org`; read from `$env:DEPLOYER_IP` in Path A) | Personal / lab deploys from an unmanaged network |
 | **Private path** | On a corporate network with VPN / ExpressRoute / Bastion into the workload VNet, or on a jump box / CI runner already in the VNet (see [`iac-modules/terraform/cicd_runner/v1/`](../../iac-modules/terraform/cicd_runner/v1/) for a starter) | Deployer → public FQDN → **resolves to private IP via the base stack's private DNS zones** → PE → service | `""` (empty string) — skips the allowlist entry | Corporate deploys where the laptop already has private DNS + routing, CI runners inside the VNet |
 
-**How the private path works:** the workload services' FQDNs (`<name>.blob.core.windows.net`, `<name>.documents.azure.com`, `<subdomain>.services.ai.azure.com`, etc.) resolve through the 11 private DNS zones the base stack VNet-links. When your deployer machine uses Azure-integrated DNS for those zones — directly (VM in the VNet), through your VPN client's DNS, or via an on-prem DNS forwarder pointed at Azure's virtual server `168.63.129.16` — the FQDNs return the PE's private IP and admin traffic never touches the public endpoint. No allowlist entry is needed.
+**How the private path works:** the workload service FQDNs resolve through the 11 private DNS zones the base stack VNet-links. When your deployer uses Azure-integrated DNS for those zones — directly (VM in the VNet), via your VPN client's DNS, or via an on-prem forwarder pointed at Azure's virtual server `168.63.129.16` — the FQDNs return the PE's private IP and admin traffic never hits the public endpoint.
 
 **How to verify you're on the private path** — from your deployer machine, resolve one of the service FQDNs and check it comes back private (`10.0.x.x` for this stack's default VNet):
 
@@ -112,13 +112,7 @@ If it returns a public IP, you're on the public path — either set `deployerIp`
 
 Both RGs are region-scoped and expected to live in the same region. To collapse into a single-RG topology (dev / lab shortcut), point both stacks' `resource_group_name` (Terraform) / `-g` flag (Bicep) at the same RG name and set the workload's `baseResourceGroupName` / `base_resource_group_name` to match.
 
-> ⚠️ **Every resource in this stack must be in the SAME Azure region.** That means both RGs, the VNet, the 5 subnets, the 11 private DNS zone links, all 9 workload private endpoints, and the 4 data-plane services (Foundry, Storage, Cosmos, AI Search). This is an Azure requirement, not a lab convention:
->
-> - A **private endpoint MUST be in the same region** as the service it targets (`Microsoft.Network/privateEndpoints` fails at deploy time if the PE's subnet and the target service are in different regions).
-> - The **Foundry account MUST be in the same region as its injected VNet** (per [Microsoft's Foundry Agent Service private-networking docs](https://learn.microsoft.com/azure/ai-foundry/agents/how-to/virtual-networks#limitations)).
-> - Storage / Cosmos / AI Search technically *can* be in different regions in general, but since we wire them via private endpoints in the base VNet, they too must match. Cross-region PEs are neither supported nor useful for this topology.
->
-> The templates enforce co-location by using a single `location` variable in both stacks, defaulting to `westus3`. If you change the region, change it in **both** stacks (base's `location` param + workload's `location` param) — otherwise the workload's PE creation fails with a region-mismatch error. Also verify the target region is on Microsoft's [supported-regions list for Foundry Agent Service private networking](https://learn.microsoft.com/azure/ai-foundry/agents/concepts/limits-quotas-regions#supported-regions).
+> ⚠️ **Every resource in this stack must be in the SAME Azure region** — both RGs, VNet, subnets, DNS zone links, all 9 workload PEs, and the 4 data-plane services. This isn't a lab convention: a private endpoint must co-locate with its target service, and the Foundry account must co-locate with its injected VNet (per [Microsoft's Foundry Agent Service private-networking docs](https://learn.microsoft.com/azure/ai-foundry/agents/how-to/virtual-networks#limitations)). The templates enforce this via a single `location` variable defaulting to `westus3`; if you change the region, change it in **both** stacks or workload PE creation fails with a region-mismatch error. Verify the target region is on Microsoft's [supported-regions list for Foundry Agent Service private networking](https://learn.microsoft.com/azure/ai-foundry/agents/concepts/limits-quotas-regions#supported-regions).
 
 ---
 
@@ -711,7 +705,7 @@ terraform state rm 'azurerm_storage_container.tfstate'
 terraform destroy
 ```
 
-Finally, delete both RGs (which cleans up the still-in-Azure, no-longer-in-Terraform tfstate SA + container):
+Finally, delete both RGs. Workload destroy runs first (its resources reference base); base destroy only removes the VNet + DNS zones because we untracked the tfstate SA + container; the final `az group delete` cleans up the still-in-Azure, no-longer-in-Terraform tfstate SA from `$RG_NETWORK`:
 
 ```powershell
 az group delete -n $RG_WORKLOAD --yes --no-wait
@@ -719,8 +713,6 @@ az group delete -n $RG_NETWORK  --yes --no-wait
 az group exists -n $RG_WORKLOAD
 az group exists -n $RG_NETWORK
 ```
-
-Workload destroy runs first (its resources reference base). Base destroy only removes the VNet + DNS zones because we untracked the tfstate SA + container. The final `az group delete` on both RGs cleans up the (still in Azure, no longer in Terraform) tfstate SA and its container from `$RG_NETWORK`, plus anything untracked in `$RG_WORKLOAD`.
 
 ---
 
@@ -737,7 +729,7 @@ The workload's `foundry_project` module grants these to the Foundry project's Sy
 | 5 | Storage Blob Data Contributor | Storage account | Agents read/write files in the auto-created containers (Contributor, not Owner — Owner's ACL / POSIX management bits aren't needed at runtime) |
 | 5 | Cosmos DB Built-in Data Contributor | Cosmos account (SQL role) | Agents read/write threads in `enterprise_memory` |
 
-Terraform waits 60 s via `time_sleep` between assignments and capability-host provisioning — that's a client-side wait, no Azure resources involved. Bicep has no equivalent primitive: we used to insert a `Microsoft.Resources/deploymentScripts` (Azure Container Instance running `sleep 60`) to force a delay, but deploymentScripts requires shared-key auth to its own auto-provisioned Storage account, which is incompatible with tenant policies that enforce `allowSharedKeyAccess = false`. Bicep therefore relies purely on ARM's `dependsOn` chain and accepts that first-apply capability-host creation may occasionally 403 on RBAC propagation lag — recovery is a plain rerun of the same `az deployment group create` (idempotent; everything else is a no-op; the capability host retry succeeds after propagation completes).
+Terraform waits 60 s via `time_sleep` between the assignments and capability-host provisioning — a client-side wait, no Azure resources involved. Bicep has no equivalent primitive: `Microsoft.Resources/deploymentScripts` requires shared-key auth to its own auto-provisioned Storage account, which is incompatible with tenants that enforce `allowSharedKeyAccess = false`. Bicep therefore relies on ARM's `dependsOn` chain and accepts that first-apply capability-host creation may occasionally 403 on RBAC propagation lag — recovery is a plain rerun of the same `az deployment group create` (idempotent; the capability-host retry succeeds after propagation completes).
 
 ---
 
@@ -814,7 +806,7 @@ az network vnet subnet update -g $RG_NETWORK --vnet-name $VNET -n $SUBNET --set 
 az network vnet subnet delete  -g $RG_NETWORK --vnet-name $VNET -n $SUBNET
 ```
 
-> **On PowerShell paste artifacts:** when you paste a multi-line block, pwsh echoes `>>` continuation prompts. Those are not output — they're pwsh mirroring your input while it collects the whole block. Only lines from `Write-Host` (or error output) are real results. Real errors print `Exception:` + a line-pointer + red-highlighted message; a clean `PS>` prompt after the paste means the block ran without throwing.
+> **PowerShell paste artifacts:** pwsh echoes `>>` continuation prompts while collecting a multi-line paste — those aren't output. Only lines from `Write-Host` or errors are real results; a clean `PS>` prompt after the paste means the block ran without throwing (real throws print `Exception:` + red-highlighted text).
 
 #### If the SAL never clears
 
