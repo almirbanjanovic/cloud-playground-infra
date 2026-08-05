@@ -7,7 +7,7 @@ This lab follows the [Cloud Adoption Framework (CAF) landing-zone pattern](https
 Two implementations of the same architecture, side-by-side:
 
 - **Path A — Bicep** in [`base/bicep/`](base/bicep/) + [`workload/bicep/`](workload/bicep/). No state to manage; ARM tracks deployment history natively.
-- **Path B — Terraform** in [`base/terraform/`](base/terraform/) + [`workload/terraform/`](workload/terraform/). Uses a remote `azurerm` backend; the state Storage account itself is bootstrapped with `az`, then imported so Terraform manages it (including adding its Private Endpoint) from there.
+- **Path B — Terraform** in [`base/terraform/`](base/terraform/) + [`workload/terraform/`](workload/terraform/). Uses a remote `azurerm` backend; the state Storage Account itself is bootstrapped with `az`, then imported so Terraform manages it (including adding its Private Endpoint) from there.
 
 Pick one path. Don't mix Path A + Path B against the same RGs — the two paths use identical naming conventions and would fight over resource names.
 
@@ -17,31 +17,31 @@ Pick one path. Don't mix Path A + Path B against the same RGs — the two paths 
 
 Source: [`assets/architecture.drawio`](assets/architecture.drawio) &nbsp; · &nbsp; PNG: [`assets/architecture.png`](assets/architecture.png)
 
-The diagram shows the runtime architecture both paths provision. Path B additionally bootstraps a Terraform-state Storage account with a blob Private Endpoint (a Terraform mechanism, not part of the deployed app), described in Path B Step 2 but omitted from the diagram.
+The diagram shows the runtime architecture both paths provision. Path B additionally bootstraps a Terraform-state Storage Account with a blob Private Endpoint (a Terraform mechanism, not part of the deployed app), described in Path B Step 2 but omitted from the diagram.
 
 **Base stack (both paths)** — deploys into the **networking RG** (`rg-ai-foundry-network-dev-westus3` by default):
 - 1 VNet (`10.0.0.0/16`) + 5 subnets: 4 private-endpoint subnets + 1 agent subnet delegated to `Microsoft.App/environments`
 - 11 private DNS zones (3 Cognitive + 6 Storage + Cosmos + Search) linked to the VNet
 
 **Base stack (Path B only)** additionally bootstraps (into the networking RG):
-- A **Terraform-state Storage account** (`sttfs<hash>`) with a blob Private Endpoint, holding a `tfstate` container that both stacks use as their remote-state backend. Path A doesn't need this — ARM tracks its own deployment history.
+- A **Terraform-state Storage Account** (`sttfs<hash>`) with a blob Private Endpoint, holding a `tfstate` container that both stacks use as their remote-state backend. Path A doesn't need this — ARM tracks its own deployment history.
 
 **Workload stack (both paths)** — deploys into the **workload RG** (`rg-ai-foundry-workload-dev-westus3` by default) and looks up base's VNet + DNS zones cross-RG:
-- Foundry account (`AIServices` kind, project management enabled, agent-subnet network injection) + Private Endpoint
-- BYO Storage account (6 PEs: blob/file/queue/table/dfs/web), Cosmos DB (SQL API + 1 PE), AI Search (standard + 1 PE)
+- Foundry Account (`AIServices` kind, project management enabled, agent-subnet network injection) + Private Endpoint
+- BYO Storage Account (6 PEs: blob/file/queue/table/dfs/web), Cosmos DB (SQL API + 1 PE), AI Search (standard + 1 PE)
 - Foundry project + 3 Entra-ID connections + all Phase-3 / Phase-5 RBAC + account & project capability hosts
 - All 4 data-plane services default to **public network access enabled** with a **default-deny** firewall + deployer-IP allowlist
 
-Every private-endpoint-bearing service uses the same posture: local (shared-key/API-key) auth **disabled**, SystemAssigned MI, private endpoint from the VNet, public endpoint restricted to the deployer's IP (which you can strip in the [hardening step](#part-c--harden-remove-deployer-ip-and-close-public-endpoints)).
+Every private-endpoint-bearing service uses the same posture: local (shared-key/API-key) auth **disabled**, SystemAssigned MI, Private Endpoint from the VNet, public endpoint restricted to the deployer's IP (which you can strip in the [hardening step](#part-c--harden-remove-deployer-ip-and-close-public-endpoints)).
 
-### DNS zones + private endpoints
+### DNS zones + Private Endpoints
 
-The base stack creates **11 private DNS zones**, all VNet-linked, matching the authoritative Microsoft [private endpoint DNS zone table](https://learn.microsoft.com/azure/private-link/private-endpoint-dns). Base creates and VNet-links the zones **before** the workload's PEs so `privateDnsZoneGroups` auto-register the PE A-records at creation time.
+The base stack creates **11 private DNS zones**, all VNet-linked, matching the authoritative Microsoft [Private Endpoint DNS zone table](https://learn.microsoft.com/azure/private-link/private-endpoint-dns). Base creates and VNet-links the zones **before** the workload's PEs so `privateDnsZoneGroups` auto-register the PE A-records at creation time.
 
 | Service | Subresource / groupId | Zone (Azure public cloud) |
 |---|---|---|
-| Foundry account (`Microsoft.CognitiveServices/accounts`, kind=AIServices) | `account` | `privatelink.cognitiveservices.azure.com` + `privatelink.openai.azure.com` + `privatelink.services.ai.azure.com` (all three are required for Foundry Standard Setup) |
-| Storage account (`Microsoft.Storage/storageAccounts`) | `blob` / `file` / `queue` / `table` / `dfs` / `web` | `privatelink.<subresource>.core.windows.net` (6 zones) |
+| Foundry Account (`Microsoft.CognitiveServices/accounts`, kind=AIServices) | `account` | `privatelink.cognitiveservices.azure.com` + `privatelink.openai.azure.com` + `privatelink.services.ai.azure.com` (all three are required for Foundry Standard Setup) |
+| Storage Account (`Microsoft.Storage/storageAccounts`) | `blob` / `file` / `queue` / `table` / `dfs` / `web` | `privatelink.<subresource>.core.windows.net` (6 zones) |
 | Cosmos DB (`Microsoft.DocumentDB/databaseAccounts`, SQL API) | `Sql` | `privatelink.documents.azure.com` |
 | AI Search (`Microsoft.Search/searchServices`) | `searchService` | `privatelink.search.windows.net` |
 
@@ -59,9 +59,9 @@ The base stack creates **11 private DNS zones**, all VNet-linked, matching the a
 
   | Permission | Where | Why |
   |---|---|---|
-  | Resource creation (Contributor covers this) | Both RGs | Create/update the VNet, subnets, DNS zones, Storage, Cosmos, AI Search, Foundry account, project, PEs, connections, capability host |
+  | Resource creation (Contributor covers this) | Both RGs | Create/update the VNet, subnets, DNS zones, Storage, Cosmos, AI Search, Foundry Account, project, PEs, connections, capability host |
   | `Microsoft.Authorization/roleAssignments/write` (**User Access Administrator** or **Role Based Access Control Administrator**) | Workload RG | Create the 5 `Microsoft.Authorization/roleAssignments` the workload grants to the project MI on Storage / Cosmos / AI Search |
-  | `Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments/write` (**Cosmos DB Operator** on the Cosmos account, or Contributor at sub/RG scope) | Workload RG (Cosmos account) | Create the Cosmos SQL data-plane role assignment for the project MI. This is a Cosmos-native RBAC resource, NOT `Microsoft.Authorization/roleAssignments` — **UAA and RBAC Admin do NOT include it.** |
+  | `Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments/write` (**Cosmos DB Operator** on the Cosmos Account, or Contributor at sub/RG scope) | Workload RG (Cosmos Account) | Create the Cosmos SQL data-plane role assignment for the project MI. This is a Cosmos-native RBAC resource, NOT `Microsoft.Authorization/roleAssignments` — **UAA and RBAC Admin do NOT include it.** |
   | `Microsoft.Network/privateDnsZones/join/action` (**Private DNS Zone Contributor** or higher) | The RG that owns the 11 private DNS zones (by default the networking RG; may be a separate central connectivity / hub RG if `dnsResourceGroupName` / `dns_resource_group_name` is overridden) | Link the 9 workload PEs' DNS zone groups to the private DNS zones that live outside the workload RG (per the [CAF split-RG topology](#deployment-topology-public-path-vs-private-path) and the [BYO base networking](#bringing-your-own-base-networking) section). Same-RG deployers skip this. |
 
   RP registration by itself only needs `*/register/action` (Contributor at sub scope is sufficient). Returning deployers with all existing role assignments and DNS zone group links can drop to Contributor for subsequent redeploys.
@@ -76,13 +76,13 @@ Both paths default to region `westus3` and the CAF split-RG layout:
 | Stack | Default RG name | Contents |
 |---|---|---|
 | Base (networking) | `rg-ai-foundry-network-dev-westus3` | VNet, subnets, private DNS zones (+ tfstate SA for Path B) |
-| Workload (data plane) | `rg-ai-foundry-workload-dev-westus3` | Foundry, Storage, Cosmos, AI Search + all workload private endpoints |
+| Workload (data plane) | `rg-ai-foundry-workload-dev-westus3` | Foundry, Storage, Cosmos, AI Search + all workload Private Endpoints |
 
 ---
 
 ## Deployment topology: public path vs private path
 
-The workload data-plane services (Storage, Cosmos, AI Search, Foundry) all sit behind private endpoints, but their **public endpoints stay `Enabled` by default** with a default-deny firewall + explicit allowlist. The allowlist mostly exists for the **post-deploy** admin / SDK operations you're likely to run from the deployer's machine — opening the Foundry portal, listing Cosmos containers with `az cosmosdb sql container list`, uploading a test blob with `az storage blob upload`, running the Python Foundry SDK, etc. All of those go straight to the service's public FQDN and get blocked by the default-deny firewall unless your IP is on the allowlist.
+The workload data-plane services (Storage, Cosmos, AI Search, Foundry) all sit behind Private Endpoints, but their **public endpoints stay `Enabled` by default** with a default-deny firewall + explicit allowlist. The allowlist mostly exists for the **post-deploy** admin / SDK operations you're likely to run from the deployer's machine — opening the Foundry portal, listing Cosmos containers with `az cosmosdb sql container list`, uploading a test blob with `az storage blob upload`, running the Python Foundry SDK, etc. All of those go straight to the service's public FQDN and get blocked by the default-deny firewall unless your IP is on the allowlist.
 
 During the deploy itself, the picture is subtler: the workload's IaC provisions resources like `Microsoft.CognitiveServices/accounts/connections`, `Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments`, and `Microsoft.CognitiveServices/accounts/projects/capabilityHosts`. These are **ARM control-plane** operations — the deployer's `az` session calls `management.azure.com`, and Azure's own RPs then talk to the target services internally (via the `bypass = AzureServices` trusted-services path that all four workload modules set). So the deploy usually succeeds even without an allowlist entry for the deployer. The IP allowlist matters most for what you'll do with the deployment afterward.
 
@@ -103,11 +103,11 @@ Two supported topologies. Both use the same IaC; only the value you pass for `de
 
 When unsure, default to the public path — switching to private later is a one-command redeploy with `deployerIp=""` / `-var 'deployer_ip='`. There is no reliable client-side way to prove your DNS is wired for the private path before your first deploy; the accurate verification only works post-deploy, so it lives under Path A Step 3 and Path B Step 5 as "Verify the private path."
 
-**Once the deploy is complete you don't need `deployerIp` any longer.** The agent runtime always uses the private endpoints from inside the VNet. Any future deploys either need the IP re-added (public path) or need the deployer machine on the private path. See [Part C — Harden](#part-c--harden-remove-deployer-ip-and-close-public-endpoints) for the post-deploy lockdown that strips the IP and (optionally) fully closes the public endpoints.
+**Once the deploy is complete you don't need `deployerIp` any longer.** The agent runtime always uses the Private Endpoints from inside the VNet. Any future deploys either need the IP re-added (public path) or need the deployer machine on the private path. See [Part C — Harden](#part-c--harden-remove-deployer-ip-and-close-public-endpoints) for the post-deploy lockdown that strips the IP and (optionally) fully closes the public endpoints.
 
 ---
 
-> ⚠️ **Every resource in this stack must be in the SAME Azure region** — both RGs, VNet, subnets, DNS zone links, all 9 workload PEs, and the 4 data-plane services. This isn't a lab convention: a private endpoint must co-locate with its target service, and the Foundry account must co-locate with its injected VNet (per [Microsoft's Foundry Agent Service private-networking docs](https://learn.microsoft.com/azure/ai-foundry/agents/how-to/virtual-networks#limitations)). The templates enforce this via a single `location` variable defaulting to `westus3`; if you change the region, change it in **both** stacks or workload PE creation fails with a region-mismatch error. Verify the target region is on Microsoft's [supported-regions list for Foundry Agent Service private networking](https://learn.microsoft.com/azure/ai-foundry/agents/concepts/limits-quotas-regions#supported-regions).
+> ⚠️ **Every resource in this stack must be in the SAME Azure region** — both RGs, VNet, subnets, DNS zone links, all 9 workload PEs, and the 4 data-plane services. This isn't a lab convention: a Private Endpoint must co-locate with its target service, and the Foundry Account must co-locate with its injected VNet (per [Microsoft's Foundry Agent Service private-networking docs](https://learn.microsoft.com/azure/ai-foundry/agents/how-to/virtual-networks#limitations)). The templates enforce this via a single `location` variable defaulting to `westus3`; if you change the region, change it in **both** stacks or workload PE creation fails with a region-mismatch error. Verify the target region is on Microsoft's [supported-regions list for Foundry Agent Service private networking](https://learn.microsoft.com/azure/ai-foundry/agents/concepts/limits-quotas-regions#supported-regions).
 
 ---
 
@@ -138,7 +138,7 @@ Two starting-point files bundle these overrides as commented examples:
 
 Constraints that DON'T bend:
 - The 5 subnets must exist on the VNet you point at, with the standard sizes (`/24` is fine) and the agent subnet delegated to `Microsoft.App/environments`.
-- The 11 privatelink DNS zones must be VNet-linked to your VNet BEFORE the workload's private endpoints are created, so their A-records auto-register. If your platform team owns the zones, ask them to VNet-link to the target VNet first.
+- The 11 privatelink DNS zones must be VNet-linked to your VNet BEFORE the workload's Private Endpoints are created, so their A-records auto-register. If your platform team owns the zones, ask them to VNet-link to the target VNet first.
 - Every resource stays in the same Azure region (see the region warning above).
 - If the DNS zones live in a different RG than the VNet, your `az`/Terraform principal needs `Microsoft.Network/privateDnsZones/join/action` (Private DNS Zone Contributor) on THAT RG — see the least-privilege table under [Prerequisites](#prerequisites).
 
@@ -369,17 +369,17 @@ Verify the 4 data-plane services and the 9 workload PEs (all in `$RG_WORKLOAD`).
 az resource list -g $RG_WORKLOAD --query "[?type=='Microsoft.CognitiveServices/accounts' || type=='Microsoft.Storage/storageAccounts' || type=='Microsoft.DocumentDB/databaseAccounts' || type=='Microsoft.Search/searchServices'].{Name:name, Type:type}" -o table
 ```
 
-Count the private endpoints:
+Count the Private Endpoints:
 
 ```powershell
 (az resource list -g $RG_WORKLOAD --resource-type Microsoft.Network/privateEndpoints -o json | ConvertFrom-Json).Count
 ```
 
-Expected: 1 Cognitive account + 1 Storage + 1 Cosmos + 1 Search; PE count = **9** (1 Foundry + 6 Storage sub-resources + 1 Cosmos + 1 Search).
+Expected: 1 Foundry Account + 1 Storage + 1 Cosmos + 1 Search; PE count = **9** (1 Foundry + 6 Storage subresources + 1 Cosmos + 1 Search).
 
 → **Public-path deploys should now run [Part C1](#part-c1--strip-deployer-ip-and-any-extra-allowlisted-ips-public-path-only)** to strip the deployer IP + `allowedIpsExtra` off every workload firewall so those IPs don't linger. [Part C2](#part-c2--optionally-disable-public-endpoints-entirely-zero-trust) then optionally closes the public endpoints entirely.
 
-**Verify the private path** (only if you chose Option B above). Resolve the Foundry account's FQDN; a `10.x.x.x` address means DNS routed through the base stack's private zones and admin traffic is on the private path. A public IP means the DNS didn't integrate — either allowlist your IP + redeploy (public path), or fix your DNS routing (e.g. add a conditional forwarder / peer the VPN's DNS to Azure DNS) and rerun this verify.
+**Verify the private path** (only if you chose Option B above). Resolve the Foundry Account's FQDN; a `10.x.x.x` address means DNS routed through the base stack's private zones and admin traffic is on the private path. A public IP means the DNS didn't integrate — either allowlist your IP + redeploy (public path), or fix your DNS routing (e.g. add a conditional forwarder / peer the VPN's DNS to Azure DNS) and rerun this verify.
 
 Grab the Foundry FQDN:
 
@@ -393,7 +393,7 @@ Resolve it:
 Resolve-DnsName $foundryFqdn | Select-Object Name, IPAddress
 ```
 
-Why the IP is on the allowlist by default: the deploy itself is mostly ARM control-plane (the Cognitive Services / Cosmos / Search / Storage RPs do their work internally via the `bypass = AzureServices` trusted-services path), but the allowlist entry means your `az` / Portal / SDK admin operations from this same machine keep working **after** the deploy without further changes. On the private path (see [Deployment topology](#deployment-topology-public-path-vs-private-path)) that admin traffic goes through private endpoints instead, and no allowlist entry is needed.
+Why the IP is on the allowlist by default: the deploy itself is mostly ARM control-plane (the Cognitive Services / Cosmos / Search / Storage RPs do their work internally via the `bypass = AzureServices` trusted-services path), but the allowlist entry means your `az` / Portal / SDK admin operations from this same machine keep working **after** the deploy without further changes. On the private path (see [Deployment topology](#deployment-topology-public-path-vs-private-path)) that admin traffic goes through Private Endpoints instead, and no allowlist entry is needed.
 
 ### Step 4. Full inventory (across both RGs)
 
@@ -411,13 +411,13 @@ az resource list -g $RG_WORKLOAD --query "sort_by([], &type)[].{Name:name, Type:
 
 Expected:
 - `$RG_NETWORK`: 1 VNet, 5 subnets, 11 privateDnsZones
-- `$RG_WORKLOAD`: 9 privateEndpoints, 1 Cognitive account + 1 project, 1 Storage, 1 Cosmos, 1 Search
+- `$RG_WORKLOAD`: 9 privateEndpoints, 1 Foundry Account + 1 project, 1 Storage, 1 Cosmos, 1 Search
 
 ---
 
 ## Path B — Terraform
 
-Terraform can't atomically create its own backing store, so the flow has one extra step at the top: **bootstrap the state storage account with `az`**, then `terraform import` it and let Terraform manage it (including adding its Private Endpoint) from there.
+Terraform can't atomically create its own backing store, so the flow has one extra step at the top: **bootstrap the state Storage Account with `az`**, then `terraform import` it and let Terraform manage it (including adding its Private Endpoint) from there.
 
 ### Step 1. Sign in, create the RG, register Resource Providers, grant blob data access (~3 min)
 
@@ -538,7 +538,7 @@ az role assignment list --assignee $ME --scope "/subscriptions/$SUB/resourceGrou
 
 Expected: one row with `Storage Blob Data Contributor` at the `$RG_NETWORK` scope.
 
-### Step 2. Bootstrap the Terraform-state Storage account (~2 min)
+### Step 2. Bootstrap the Terraform-state Storage Account (~2 min)
 
 The tfstate SA lives in the **networking RG** (`$RG_NETWORK`) — it's part of the base / platform stack's lifecycle. Detect your IP and derive the state SA name (`sttfs<md5(RG + base_name + environment + location)>` truncated to 12 hex chars — must match what base's `main.tf` will compute).
 
@@ -574,7 +574,7 @@ Get-Variable DEPLOYER_IP, STATE_SA | Format-Table -AutoSize Name, Value
 
 Expected: `DEPLOYER_IP` is a public IPv4; `STATE_SA` is 17 chars starting with `sttfs`.
 
-Create the storage account in `$RG_NETWORK`:
+Create the Storage Account in `$RG_NETWORK`:
 
 ```powershell
 az storage account create `
@@ -645,7 +645,7 @@ terraform init `
 
 Expected: `Terraform has been successfully initialized!`
 
-Import the storage account so Terraform manages it going forward:
+Import the Storage Account so Terraform manages it going forward:
 
 ```powershell
 terraform import `
@@ -783,7 +783,7 @@ terraform apply
 terraform apply -var 'deployer_ip='
 ```
 
-**Verify the private path** (only if you chose Option B). Resolve the Foundry account's FQDN; a `10.x.x.x` address means DNS routed through the base stack's private zones. A public IP means fix your DNS routing (or drop back to the public path).
+**Verify the private path** (only if you chose Option B). Resolve the Foundry Account's FQDN; a `10.x.x.x` address means DNS routed through the base stack's private zones. A public IP means fix your DNS routing (or drop back to the public path).
 
 Grab the Foundry FQDN:
 
@@ -814,8 +814,8 @@ az resource list -g $RG_WORKLOAD --query "sort_by([], &type)[].{Name:name, Type:
 ```
 
 Expected:
-- `$RG_NETWORK`: 1 VNet, 5 subnets, 11 privateDnsZones, 1 privateEndpoint (on the state SA), 1 Storage account (the state SA itself)
-- `$RG_WORKLOAD`: 9 privateEndpoints, 1 Cognitive account + 1 project, 1 Storage, 1 Cosmos, 1 Search
+- `$RG_NETWORK`: 1 VNet, 5 subnets, 11 privateDnsZones, 1 privateEndpoint (on the state SA), 1 Storage Account (the state SA itself)
+- `$RG_WORKLOAD`: 9 privateEndpoints, 1 Foundry Account + 1 project, 1 Storage, 1 Cosmos, 1 Search
 
 ---
 
@@ -885,14 +885,14 @@ The ad-hoc network-rule stays as drift on the state SA until the next `base` app
 
 Once the deploy is verified, lock the workload data planes down. Two sub-parts — do them in order:
 
-1. **[Part C1](#part-c1--strip-deployer-ip-and-any-extra-allowlisted-ips-public-path-only)** — strip **every** whitelisted IP off the 4 workload firewalls (deployer IP + `allowedIpsExtra`). Recommended immediately after every public-path deploy so your IP doesn't linger. Public endpoints stay enabled with a default-deny firewall + empty allowlist; the agent runtime keeps working over private endpoints, and Azure trusted services keep working over the `bypass = AzureServices` path.
+1. **[Part C1](#part-c1--strip-deployer-ip-and-any-extra-allowlisted-ips-public-path-only)** — strip **every** allowlisted IP off the 4 workload firewalls (deployer IP + `allowedIpsExtra`). Recommended immediately after every public-path deploy so your IP doesn't linger. Public endpoints stay enabled with a default-deny firewall + empty allowlist; the agent runtime keeps working over Private Endpoints, and Azure trusted services keep working over the `bypass = AzureServices` path.
 2. **[Part C2](#part-c2--optionally-disable-public-endpoints-entirely-zero-trust)** — optionally close the public endpoints entirely. Blocks the trusted-services bypass path too. Skip if you plan to redeploy soon (you'll re-add the IP anyway) or if you want to keep the option of testing from your laptop later.
 
 > **Private-path deployers** (deployed with `deployerIp=""` / `-var 'deployer_ip='`) can skip C1 — there's no allowlist entry to strip. C2 is still useful for zero-trust posture.
 
 ### Part C1 — Strip deployer IP and any extra allowlisted IPs (public path only)
 
-**Before you run this**, know what will break: after the strip, your **laptop-side data-plane calls fail with 403** — `az storage blob upload/download`, `az cosmosdb sql database *`, and Python SDK calls (`ContainerClient`, `CosmosClient`, `SearchClient`) hitting the public FQDN. What keeps working: the agent runtime inside the VNet (private endpoints), `az` CLI reads that hit ARM control plane (`az cognitiveservices account show`, `az storage account show`, Portal blades, `az resource list`), and any tool going through a private endpoint via Azure-integrated DNS. If you still need laptop admin access, skip C1 for now.
+**Before you run this**, know what will break: after the strip, your **laptop-side data-plane calls fail with 403** — `az storage blob upload/download`, `az cosmosdb sql database *`, and Python SDK calls (`ContainerClient`, `CosmosClient`, `SearchClient`) hitting the public FQDN. What keeps working: the agent runtime inside the VNet (Private Endpoints), `az` CLI reads that hit ARM control plane (`az cognitiveservices account show`, `az storage account show`, Portal blades, `az resource list`), and any tool going through a Private Endpoint via Azure-integrated DNS. If you still need laptop admin access, skip C1 for now.
 
 **Path A — Bicep.** Setting both `deployerIp=""` **and** `allowedIpsExtra=@()` is required to actually empty the allowlist — the two are `union`'d inside the workload template, so clearing only one leaves the other in place.
 
@@ -932,31 +932,31 @@ terraform apply `
 
 **Verify the allowlists are empty across all 4 services.**
 
-Grab the Foundry account name:
+Grab the Foundry Account name:
 
 ```powershell
 $foundryAccount = (az cognitiveservices account list -g $RG_WORKLOAD --query "[?kind=='AIServices'].name | [0]" -o tsv)
 ```
 
-Check the Foundry account's IP rules (requires `$foundryAccount` from the block above):
+Check the Foundry Account's IP rules (requires `$foundryAccount` from the block above):
 
 ```powershell
 az cognitiveservices account show -g $RG_WORKLOAD -n $foundryAccount --query "properties.networkAcls.ipRules" -o json
 ```
 
-Check the Storage account's IP rules:
+Check the Storage Account's IP rules:
 
 ```powershell
 az storage account list -g $RG_WORKLOAD --query "[].{Name:name, IpRules:networkRuleSet.ipRules}" -o json
 ```
 
-Check the Cosmos account's IP rules:
+Check the Cosmos Account's IP rules:
 
 ```powershell
 az cosmosdb list -g $RG_WORKLOAD --query "[].{Name:name, IpRules:ipRules}" -o json
 ```
 
-Check the AI Search service's IP rules:
+Check the AI Search Service's IP rules:
 
 ```powershell
 az search service list -g $RG_WORKLOAD --query "[].{Name:name, IpRules:networkRuleSet.ipRules}" -o json
@@ -976,7 +976,7 @@ Expected: `ipRules` (or `IpRules`) is `[]` on every service.
 > az storage account network-rule add -g $RG_WORKLOAD -n <storageName> --ip-address $DEPLOYER_IP
 > ```
 >
-> Re-add on the Foundry account:
+> Re-add on the Foundry Account:
 > ```powershell
 > az cognitiveservices account network-rule add -g $RG_WORKLOAD -n <foundryAccountName> --ip-address $DEPLOYER_IP
 > ```
@@ -993,13 +993,13 @@ Expected: `ipRules` (or `IpRules`) is `[]` on every service.
 >
 > Remove them the same way with `network-rule remove` when you're done.
 
-> **Path B tfstate caveat.** C1 only strips the four **workload** service firewalls. The base stack's tfstate storage account in `$RG_NETWORK` keeps whatever allowlist entries the last base apply set. If your IP changes and you later run `terraform init` for either stack, the state read may 403 — see the tfstate-403 row in [Troubleshooting](#troubleshooting) for the one-line `az storage account network-rule add` recovery.
+> **Path B tfstate caveat.** C1 only strips the four **workload** service firewalls. The base stack's tfstate Storage Account in `$RG_NETWORK` keeps whatever allowlist entries the last base apply set. If your IP changes and you later run `terraform init` for either stack, the state read may 403 — see the tfstate-403 row in [Troubleshooting](#troubleshooting) for the one-line `az storage account network-rule add` recovery.
 
 > **Redeploy will undo C1.** Any subsequent `az deployment group create` (Bicep, [Redeploy](#redeploy) as documented) re-fetches the current IP into `$env:DEPLOYER_IP` and re-adds it to every workload allowlist. Any subsequent `terraform apply` (Terraform) does the same via `data.http.myip`. To keep the strip through a redeploy, pass the same `deployerIp="" allowedIpsExtra=[]` / `-var 'deployer_ip=' -var 'allowed_ips_extra=[]'` overrides on the redeploy command.
 
 ### Part C2 — Optionally disable public endpoints entirely (zero-trust)
 
-Run C1 first. C2 closes the public endpoints so the trusted-services bypass path can't be used either — anything reaching the 4 workload services now has to come through a private endpoint. Only run this if you're done with laptop-side administration for the foreseeable future.
+Run C1 first. C2 closes the public endpoints so the trusted-services bypass path can't be used either — anything reaching the 4 workload services now has to come through a Private Endpoint. Only run this if you're done with laptop-side administration for the foreseeable future.
 
 **Path A — Bicep.** `cd` into the workload Bicep directory:
 
@@ -1035,21 +1035,21 @@ terraform apply `
     -var 'allowed_ips_extra=[]'
 ```
 
-**Verify all 4 services flipped to `Disabled`.** The Foundry account resource name is `ais-<baseName>-<environment>-<location>` (the `cog-acc-...` string you may see elsewhere is the custom subdomain, not the account name) — discover it dynamically so this works regardless of override.
+**Verify all 4 services flipped to `Disabled`.** The Foundry Account resource name is `ais-<baseName>-<environment>-<location>` (the `cog-acc-...` string you may see elsewhere is the custom subdomain, not the account name) — discover it dynamically so this works regardless of override.
 
-Grab the Foundry account name:
+Grab the Foundry Account name:
 
 ```powershell
 $foundryAccount = (az cognitiveservices account list -g $RG_WORKLOAD --query "[?kind=='AIServices'].name | [0]" -o tsv)
 ```
 
-Check the Foundry account (requires `$foundryAccount` from the block above):
+Check the Foundry Account (requires `$foundryAccount` from the block above):
 
 ```powershell
 az cognitiveservices account show -g $RG_WORKLOAD -n $foundryAccount --query "properties.publicNetworkAccess" -o tsv
 ```
 
-Check the Storage account:
+Check the Storage Account:
 
 ```powershell
 az storage account list -g $RG_WORKLOAD --query "[].{Name:name, PublicNetwork:publicNetworkAccess}" -o table
@@ -1067,7 +1067,7 @@ Check AI Search:
 az search service list -g $RG_WORKLOAD --query "[].{Name:name, PublicNetwork:publicNetworkAccess}" -o table
 ```
 
-Expected: `Disabled` for the Foundry account, the workload Storage account, Cosmos, and Search. The state SA (Path B only, in `$RG_NETWORK`) is intentionally untouched — keep its public endpoint enabled so subsequent Terraform runs can reach the backend.
+Expected: `Disabled` for the Foundry Account, the workload Storage Account, Cosmos, and Search. The state SA (Path B only, in `$RG_NETWORK`) is intentionally untouched — keep its public endpoint enabled so subsequent Terraform runs can reach the backend.
 
 ### Un-harden (before your next deploy)
 
@@ -1131,7 +1131,7 @@ Then switch to base:
 Set-Location (Join-Path (git rev-parse --show-toplevel) 'environments/ai-foundry/base/terraform')
 ```
 
-Untrack the tfstate storage account (so `terraform destroy` won't touch it):
+Untrack the tfstate Storage Account (so `terraform destroy` won't touch it):
 
 ```powershell
 terraform state rm 'module.tfstate_storage.azurerm_storage_account.this'
@@ -1183,14 +1183,14 @@ The workload's `foundry_project` module grants these to the Foundry project's Sy
 
 | Phase | Role | Scope | Why |
 |---|---|---|---|
-| 3 | Cosmos DB Operator | Cosmos account | Foundry creates `enterprise_memory` DB + containers |
-| 3 | Storage Account Contributor | Storage account | Foundry creates agent blob containers |
+| 3 | Cosmos DB Operator | Cosmos Account | Foundry creates `enterprise_memory` DB + containers |
+| 3 | Storage Account Contributor | Storage Account | Foundry creates agent blob containers |
 | 5 | Search Index Data Contributor | AI Search | Agents read/write vector indexes |
 | 5 | Search Service Contributor | AI Search | Agents create indexes on demand |
-| 5 | Storage Blob Data Contributor | Storage account | Agents read/write files in the auto-created containers (Contributor, not Owner — Owner's ACL / POSIX management bits aren't needed at runtime) |
-| 5 | Cosmos DB Built-in Data Contributor | Cosmos account (SQL role) | Agents read/write threads in `enterprise_memory` |
+| 5 | Storage Blob Data Contributor | Storage Account | Agents read/write files in the auto-created containers (Contributor, not Owner — Owner's ACL / POSIX management bits aren't needed at runtime) |
+| 5 | Cosmos DB Built-in Data Contributor | Cosmos Account (SQL role) | Agents read/write threads in `enterprise_memory` |
 
-Terraform waits 60 s via `time_sleep` between the assignments and capability-host provisioning — a client-side wait, no Azure resources involved. Bicep has no equivalent primitive: `Microsoft.Resources/deploymentScripts` requires shared-key auth to its own auto-provisioned Storage account, which is incompatible with tenants that enforce `allowSharedKeyAccess = false`. Bicep therefore relies on ARM's `dependsOn` chain and accepts that first-apply capability-host creation may occasionally 403 on RBAC propagation lag — recovery is a plain rerun of the same `az deployment group create` (idempotent; the capability-host retry succeeds after propagation completes).
+Terraform waits 60 s via `time_sleep` between the assignments and capability-host provisioning — a client-side wait, no Azure resources involved. Bicep has no equivalent primitive: `Microsoft.Resources/deploymentScripts` requires shared-key auth to its own auto-provisioned Storage Account, which is incompatible with tenants that enforce `allowSharedKeyAccess = false`. Bicep therefore relies on ARM's `dependsOn` chain and accepts that first-apply capability-host creation may occasionally 403 on RBAC propagation lag — recovery is a plain rerun of the same `az deployment group create` (idempotent; the capability-host retry succeeds after propagation completes).
 
 ---
 
@@ -1202,14 +1202,14 @@ Terraform waits 60 s via `time_sleep` between the assignments and capability-hos
 | `az storage account create` in Path B Step 2 returns `StorageAccountAlreadyTaken` | Your derived `sttfs<hash>` name collides globally with someone else's account | See the collision note **inside Path B Step 2** — pick a unique name for `$STATE_SA` and re-run Step 2 with it; carry the same value through `terraform init` and the `-var 'tfstate_storage_account_name=...'` in Step 4 |
 | Bicep or Terraform deploy fails on `Microsoft.CognitiveServices/accounts/capabilityHosts` with 403 | RBAC propagation lag (Entra ID replication) between the workload's role assignments and the data-plane call to create the capability host | **Bicep**: rerun `az deployment group create` — the whole deploy is idempotent and everything else is a no-op; the capability host retry succeeds once propagation completes (typically < 60 s). **Terraform**: `time_sleep` will NOT re-fire if already in state — if the retry still 403s, force the sleep to re-run from `environments/ai-foundry/workload/terraform`: `terraform apply -replace='module.foundry_project.time_sleep.wait_for_rbac_propagation'` |
 | First `terraform apply` for base in Path B Step 4 wants to *create* the state SA instead of updating it | You skipped the `terraform import` commands in Path B Step 3 | Cancel the apply, run the two `terraform import` commands from Step 3, then rerun `terraform apply` |
-| Workload deployed OK but hitting a workload endpoint (e.g. `Invoke-RestMethod` to the Foundry account) returns 403 | Your public IP isn't currently allowlisted, or you ran the [hardening step](#part-c--harden-remove-deployer-ip-and-close-public-endpoints) | Rerun the workload deploy from the current network to reconcile the allowlist; if hardened, follow the [un-harden step](#un-harden-before-your-next-deploy) |
+| Workload deployed OK but hitting a workload endpoint (e.g. `Invoke-RestMethod` to the Foundry Account) returns 403 | Your public IP isn't currently allowlisted, or you ran the [hardening step](#part-c--harden-remove-deployer-ip-and-close-public-endpoints) | Rerun the workload deploy from the current network to reconcile the allowlist; if hardened, follow the [un-harden step](#un-harden-before-your-next-deploy) |
 | `az storage container create --auth-mode login` returns 403 | RBAC propagation lag on the `Storage Blob Data Contributor` assignment | Wait 30-60 s and retry (Path B Step 1 already includes a `Start-Sleep 60`) |
 | Bicep base deploy fails on one or more subnets with `RetryableError` / `A retryable error occurred` (rerun succeeds) | Parallel subnet creates on the same VNet race on the VNet's per-request write lock. Bicep's default loop batchSize is 10, so all 5 subnets fire concurrently and one occasionally loses the race | Serialised in [iac-modules/bicep/vnet/v1/vnet.bicep](iac-modules/bicep/vnet/v1/vnet.bicep) via `@batchSize(1)` on the subnet `[for]` loop. If a rerun still flakes on a different resource, it's likely the same class of race on a different shared parent (see next row) |
-| Workload deploy fails on one or more storage private endpoints with `RetryableError` / `AnotherOperationInProgress` / `409` (rerun succeeds) | Parallel PE creation on the shared storage-PE subnet AND on the shared Storage account — same class of race as subnets. All 6 subresource PEs (blob/file/queue/table/dfs/web) target the same subnet + same account, so their NIC writes contend on the subnet's IP-configuration write lock and their `privateLinkServiceConnections` writes contend on the Storage account write lock | Serialised via chained `dependsOn` (Bicep [iac-modules/bicep/storage_account/v1/storage_account.bicep](iac-modules/bicep/storage_account/v1/storage_account.bicep)) and chained `depends_on` (Terraform [iac-modules/terraform/storage_account/v1/main.tf](iac-modules/terraform/storage_account/v1/main.tf)). No action needed; just documented so you know why the storage step takes ~30 s instead of ~10 s |
+| Workload deploy fails on one or more storage Private Endpoints with `RetryableError` / `AnotherOperationInProgress` / `409` (rerun succeeds) | Parallel PE creation on the shared storage-PE subnet AND on the shared Storage Account — same class of race as subnets. All 6 subresource PEs (blob/file/queue/table/dfs/web) target the same subnet + same account, so their NIC writes contend on the subnet's IP-configuration write lock and their `privateLinkServiceConnections` writes contend on the Storage Account write lock | Serialised via chained `dependsOn` (Bicep [iac-modules/bicep/storage_account/v1/storage_account.bicep](iac-modules/bicep/storage_account/v1/storage_account.bicep)) and chained `depends_on` (Terraform [iac-modules/terraform/storage_account/v1/main.tf](iac-modules/terraform/storage_account/v1/main.tf)). No action needed; just documented so you know why the storage step takes ~30 s instead of ~10 s |
 
 ### Deleting an AI Foundry subnet blocked by `legionservicelink`
 
-When you delete an AI Foundry account (`kind=AIServices`) that had Agent Service network injection, the underlying Container Apps managed environment (in a Microsoft-owned `hobov3_*` subscription) can be orphaned. It leaves a `legionservicelink` service association link (SAL) pinning your subnet — the account delete completes, but the SAL survives and the subnet won't delete.
+When you delete a Foundry Account (`kind=AIServices`) that had Agent Service network injection, the underlying Container Apps managed environment (in a Microsoft-owned `hobov3_*` subscription) can be orphaned. It leaves a `legionservicelink` service association link (SAL) pinning your subnet — the account delete completes, but the SAL survives and the subnet won't delete.
 
 **The only working recovery is: delete the account, wait for the SAL to release, then clean up.** Every "shortcut" is rejected by the platform:
 
@@ -1224,7 +1224,7 @@ When you delete an AI Foundry account (`kind=AIServices`) that had Agent Service
 
 The SAL usually releases in 5–45 min but has been observed to take **overnight (~8+ h)** when the platform teardown stalls. If it's still stuck after 45 min, jump to [If the SAL never clears](#if-the-sal-never-clears) below.
 
-> **Naming conventions.** The script uses the same session variables as the rest of the README (`$LOC`, `$RG_NETWORK`, `$RG_WORKLOAD`). The Foundry account lives in `$RG_WORKLOAD`; the VNet + delegated subnet live in `$RG_NETWORK`.
+> **Naming conventions.** The script uses the same session variables as the rest of the README (`$LOC`, `$RG_NETWORK`, `$RG_WORKLOAD`). The Foundry Account lives in `$RG_WORKLOAD`; the VNet + delegated subnet live in `$RG_NETWORK`.
 
 **Step 1 — set variables + fire the delete.** Set the six naming variables first, then run the recovery script.
 
@@ -1240,13 +1240,13 @@ Set the networking RG (VNet + subnet live here):
 $RG_NETWORK = "rg-ai-foundry-network-dev-$LOC"
 ```
 
-Set the workload RG (Foundry account lives here):
+Set the workload RG (Foundry Account lives here):
 
 ```powershell
 $RG_WORKLOAD = "rg-ai-foundry-workload-dev-$LOC"
 ```
 
-Set the Foundry account name:
+Set the Foundry Account name:
 
 ```powershell
 $ACCT = "ais-ai-foundry-dev-$LOC"
@@ -1264,7 +1264,7 @@ Set the stuck subnet name:
 $SUBNET = "snet-agent-ai-foundry-dev"
 ```
 
-Fire the delete. This is an intentional single-paste recovery script (`az show` + `if/else` around `az delete` + `$LASTEXITCODE` reset), not a single command — kept as one block because the pieces only make sense together:
+Fire the delete. This is an intentional single-paste recovery script (an `az cognitiveservices account show` probe, an `if/else` around `az cognitiveservices account delete`, and a `$LASTEXITCODE` reset), not a single command — kept as one block because the pieces only make sense together:
 
 ```powershell
 az cognitiveservices account show -g $RG_WORKLOAD -n $ACCT --query id -o tsv 2>$null | Out-Null
@@ -1291,7 +1291,7 @@ if ($SAL) { Write-Host "SAL still stuck after 45 min. See 'If the SAL never clea
 
 **Step 3 — clean up.** Only run this after Step 2 prints `SAL cleared`.
 
-Purge the soft-deleted Foundry account (`2>$null` swallows the noise if it was hard-deleted already — the next command resets `$LASTEXITCODE` for the same reason):
+Purge the soft-deleted Foundry Account (`2>$null` swallows the noise if it was hard-deleted already — the next command resets `$LASTEXITCODE` for the same reason):
 
 ```powershell
 az cognitiveservices account purge --location $LOC --name $ACCT --resource-group $RG_WORKLOAD 2>$null
@@ -1329,9 +1329,9 @@ Step 2 timed out. Every user-side workaround from the table above has been ruled
 > Region: `<$LOC>`
 > Subnet ARM ID: `/subscriptions/<sub>/resourceGroups/<$RG_NETWORK>/providers/Microsoft.Network/virtualNetworks/<$VNET>/subnets/<$SUBNET>`
 > SAL ARM ID: `<subnet ARM ID>/serviceAssociationLinks/legionservicelink`
-> Soft-deleted Foundry account: `<$ACCT>` in RG `<$RG_WORKLOAD>` (`$LOC`)
+> Soft-deleted Foundry Account: `<$ACCT>` in RG `<$RG_WORKLOAD>` (`$LOC`)
 >
-> The AIServices account was deleted cleanly, but the platform-provisioned Container Apps managed environment in the `hobov3_*` subscription did not tear down — `legionservicelink` is orphaned on our subnet. Direct SAL DELETE returns `UnauthorizedClientApplication`, purge on the soft-deleted account returns `RequestConflict: provisioning state is not terminal`, and every PATCH to `networkInjections` is rejected because the property is immutable post-creation. Please force-terminate the orphaned managed environment and release the SAL.
+> The Foundry Account was deleted cleanly, but the platform-provisioned Container Apps managed environment in the `hobov3_*` subscription did not tear down — `legionservicelink` is orphaned on our subnet. Direct SAL DELETE returns `UnauthorizedClientApplication`, purge on the soft-deleted account returns `RequestConflict: provisioning state is not terminal`, and every PATCH to `networkInjections` is rejected because the property is immutable post-creation. Please force-terminate the orphaned managed environment and release the SAL.
 
 **B. Wait it out.** The platform teardown has been observed to eventually complete after 8+ hours — sometimes overnight — without a ticket. Poll every hour or so; if nothing moves after 24 h, file A anyway.
 
