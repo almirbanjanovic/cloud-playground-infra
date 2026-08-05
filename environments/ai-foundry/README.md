@@ -1407,24 +1407,22 @@ Terraform waits 60 s via `time_sleep` between the assignments and capability-hos
 
 ### Deleting an AI Foundry subnet blocked by `legionservicelink`
 
-When you delete a Foundry Account (`kind=AIServices`) that had Agent Service network injection, the underlying Container Apps managed environment (in a Microsoft-owned `hobov3_*` subscription) can be orphaned. It leaves a `legionservicelink` service association link (SAL) pinning your subnet — the account delete completes, but the SAL survives and the subnet won't delete.
+When you delete a Foundry Account (`kind=AIServices`) that had Agent Service network injection, the underlying Container Apps managed environment (in a Microsoft-owned `hobov3_*` subscription) can be orphaned. It leaves a `legionservicelink` service association link (SAL) pinning your subnet — the account transitions to soft-deleted but the SAL survives and the subnet won't delete.
 
-**The only working recovery is: delete the account, wait for the SAL to release, then clean up.** Every "shortcut" is rejected by the platform:
+**Recovery, validated end-to-end (~5 min): if the account is soft-deleted, `recover` it back to `Succeeded` (terminal) first, then fire a fresh delete.** A fresh delete on a terminal account triggers the platform teardown cleanly and the SAL releases in ~1–3 min. Waiting on the original stuck delete instead has been observed to take **overnight (~8+ h)**; the recover-then-delete pattern short-circuits that. Every direct "shortcut" is still rejected by the platform:
 
 | Attempted shortcut | RP response |
 |---|---|
 | PATCH `networkInjections: []` | `InvalidResourceProperties: Invalid/Empty NetworkInjection object` |
 | PATCH `useMicrosoftManagedNetwork: true` | `NetworkInjectionUpdateNotAllowed: Removing NetworkInjections is not allowed once it has been set.` |
 | `az rest --method delete` on the SAL directly | `UnauthorizedClientApplication` (only the `Microsoft.App/environments` RP in the `hobov3_*` sub can release it) |
-| `az cognitiveservices account purge` while SAL still present | `RequestConflict: provisioning state is not terminal` |
+| `az cognitiveservices account purge` while account is mid-teardown | `RequestConflict: provisioning state is not terminal` — transient; clears within a few minutes of the SAL release |
 | `az network vnet subnet update --set delegations=[]` while SAL still present | `SubnetMissingRequiredDelegation` |
 | Deleting the parent VNet or RG | Same SAL check, same failure |
 
-The SAL usually releases in 5–45 min but has been observed to take **overnight (~8+ h)** when the platform teardown stalls. If it's still stuck after 45 min, jump to [If the SAL never clears](#if-the-sal-never-clears) below.
-
 > **Naming conventions.** The script uses the same session variables as the rest of the README (`$LOC`, `$RG_NETWORK`, `$RG_WORKLOAD`). The Foundry Account lives in `$RG_WORKLOAD`; the VNet + delegated subnet live in `$RG_NETWORK`.
 
-**Step 1 — set variables + fire the delete.** Set the six naming variables first, then run the recovery script.
+**Step 1 — set variables + trigger a clean delete.** Set the six naming variables first, then run the recovery script. The block auto-detects whether the account is live, soft-deleted, or fully gone and does the right thing for each case.
 
 Set the region:
 
@@ -1462,42 +1460,46 @@ Set the stuck subnet name:
 $SUBNET = "snet-agent-ai-foundry-dev"
 ```
 
-Fire the delete. This is an intentional single-paste recovery script (an `az cognitiveservices account show` probe, an `if/else` around `az cognitiveservices account delete`, and a `$LASTEXITCODE` reset), not a single command — kept as one block because the pieces only make sense together:
+Trigger a clean delete. This is an intentional single-paste recovery script (a live-account probe, a soft-deleted probe + `recover`, a fresh `delete`, and a `$LASTEXITCODE` reset), not a single command — kept as one block because the pieces only make sense together:
 
 ```powershell
 az cognitiveservices account show -g $RG_WORKLOAD -n $ACCT --query id -o tsv 2>$null | Out-Null
 if ($LASTEXITCODE -eq 0) {
-    Write-Host "Firing account delete..."
+    Write-Host "Account live -- firing delete..."
+    az cognitiveservices account delete -g $RG_WORKLOAD -n $ACCT
+} elseif ((az cognitiveservices account list-deleted --query "[?name=='$ACCT'].name" -o tsv)) {
+    Write-Host "Account soft-deleted -- recovering to Succeeded, then re-deleting..."
+    az cognitiveservices account recover --location $LOC --resource-group $RG_WORKLOAD --name $ACCT
     az cognitiveservices account delete -g $RG_WORKLOAD -n $ACCT
 } else {
-    Write-Host "Account already gone or soft-deleted -- skipping delete."
+    Write-Host "Account fully gone -- nothing to delete."
 }
 $LASTEXITCODE = 0
 ```
 
-**Step 2 — poll for the SAL to release.** This is a scripted paste-once recovery block — a small polling script (a `for` loop + a final status `if`), not a single command. Intentionally kept as one block. It caps at 45 min. When it prints `SAL cleared` the poll is done; when it prints `SAL still stuck` after 45 min, go to the [If the SAL never clears](#if-the-sal-never-clears) section.
+**Step 2 — poll for the SAL to release.** Small polling script — a `for` loop + a final status `if`, not a single command. Kept as one paste-once block. Caps at 10 min; in practice the SAL releases in 1–3 min after a fresh delete on a terminal account. When it prints `SAL cleared` the poll is done; if it still prints `SAL still stuck` after 10 min, go to the [If the SAL never clears](#if-the-sal-never-clears) section.
 
 ```powershell
-for ($i = 0; $i -lt 90; $i++) {
+for ($i = 0; $i -lt 20; $i++) {
     Start-Sleep -Seconds 30
     $SAL = az network vnet subnet show -g $RG_NETWORK --vnet-name $VNET -n $SUBNET --query "serviceAssociationLinks[].name" -o tsv
     Write-Host ("[{0:mm\:ss}] SAL='{1}'" -f (New-TimeSpan -Seconds (($i + 1) * 30)), $SAL)
     if (-not $SAL) { break }
 }
-if ($SAL) { Write-Host "SAL still stuck after 45 min. See 'If the SAL never clears'." } else { Write-Host "SAL cleared." }
+if ($SAL) { Write-Host "SAL still stuck after 10 min. See 'If the SAL never clears'." } else { Write-Host "SAL cleared." }
 ```
 
 **Step 3 — clean up.** Only run this after Step 2 prints `SAL cleared`.
 
-Purge the soft-deleted Foundry Account (`2>$null` swallows the noise if it was hard-deleted already — the next command resets `$LASTEXITCODE` for the same reason):
+Purge the soft-deleted Foundry Account. Even after the SAL clears the account can stay non-terminal for a couple of minutes while its own teardown finishes — retry-loop caps at 5 min:
 
 ```powershell
-az cognitiveservices account purge --location $LOC --name $ACCT --resource-group $RG_WORKLOAD 2>$null
-```
-
-Reset the exit code (purge may return non-zero if the account was already hard-deleted):
-
-```powershell
+for ($i = 0; $i -lt 10; $i++) {
+    az cognitiveservices account purge --location $LOC --name $ACCT --resource-group $RG_WORKLOAD 2>$null | Out-Null
+    if ($LASTEXITCODE -eq 0) { Write-Host "Purged."; break }
+    Start-Sleep -Seconds 30
+    Write-Host ("[{0:mm\:ss}] Purge non-terminal, retrying..." -f (New-TimeSpan -Seconds (($i + 1) * 30)))
+}
 $LASTEXITCODE = 0
 ```
 
@@ -1517,7 +1519,7 @@ az network vnet subnet delete -g $RG_NETWORK --vnet-name $VNET -n $SUBNET
 
 #### If the SAL never clears
 
-Step 2 timed out. Every user-side workaround from the table above has been ruled out — only Microsoft's Foundry team can force-release the SAL. Pick one:
+Step 2 timed out even after the recover-then-delete pattern in Step 1 — the platform teardown didn't fire this time either. Every user-side workaround from the table above has been ruled out — only Microsoft's Foundry team can force-release the SAL. Pick one:
 
 **A. Support ticket (recommended).** Portal → Help + support → Technical → *Azure OpenAI or Azure AI Foundry*. Use this template — fill in the placeholders from your `$LOC / $RG_NETWORK / $VNET / $SUBNET / $ACCT / $RG_WORKLOAD` values:
 
@@ -1540,7 +1542,7 @@ Step 2 timed out. Every user-side workaround from the table above has been ruled
 `networkInjections` is immutable post-creation, so there is no in-place fix. Two safe teardown patterns:
 
 1. **Whole-environment teardown:** `az group delete --resource-group $RG_WORKLOAD --yes` (workload RG first, then network RG). See [Tear down](#tear-down). ARM orders the deletes correctly and the SAL usually releases naturally; if it doesn't, this same recovery still applies.
-2. **Account-only teardown while keeping the VNet:** the walkthrough above. Budget 5–45 min for the SAL to release; be prepared to file A if not.
+2. **Account-only teardown while keeping the VNet:** the walkthrough above. Budget ~5 min end-to-end with the recover-then-delete pattern; be prepared to file A if the SAL still doesn't clear.
 
 ---
 
