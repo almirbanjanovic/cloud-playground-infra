@@ -1456,7 +1456,7 @@ When you delete a Foundry Account (`kind=AIServices`) that had Agent Service net
 
 > **Naming conventions.** The script uses the same session variables as the rest of the README (`$LOC`, `$RG_NETWORK`, `$RG_WORKLOAD`). The Foundry Account lives in `$RG_WORKLOAD`; the VNet + delegated subnet live in `$RG_NETWORK`.
 
-**Step 1 — set variables + trigger a clean delete.** Set the six naming variables first, then run the recovery script. The block auto-detects whether the account is live, soft-deleted, or fully gone and does the right thing for each case.
+**Step 1 — set variables + recover (if soft-deleted) + fire delete.** Set the six naming variables first, then run the recovery script. The block auto-detects the account state and does the right thing: **live** → fire delete; **soft-deleted** → `recover` back to `Succeeded`, then re-delete; **fully gone** → skip. The recover-then-delete branch is the fix — a fresh delete from a terminal `Succeeded` account is what triggers the platform teardown that releases the SAL.
 
 Set the region:
 
