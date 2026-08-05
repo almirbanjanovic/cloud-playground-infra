@@ -11,6 +11,40 @@ Two implementations of the same architecture, side-by-side:
 
 Pick one path. Don't mix Path A + Path B against the same RGs — the two paths use identical naming conventions and would fight over resource names.
 
+## Table of contents
+
+- [Architecture](#architecture)
+  - [DNS zones + Private Endpoints](#dns-zones--private-endpoints)
+- [Prerequisites](#prerequisites)
+- [Deployment topology: public path vs private path](#deployment-topology-public-path-vs-private-path)
+- [Bringing your own base networking](#bringing-your-own-base-networking)
+- [Path A — Bicep](#path-a--bicep)
+  - [Step 1. Sign in, create the RG, register Resource Providers](#step-1-sign-in-create-the-rg-register-resource-providers-3-min)
+  - [Step 2. Deploy the base stack](#step-2-deploy-the-base-stack-4-min)
+  - [Step 3. Deploy the workload stack](#step-3-deploy-the-workload-stack-1520-min)
+  - [Step 4. Full inventory](#step-4-full-inventory-across-both-rgs)
+- [Path B — Terraform](#path-b--terraform)
+  - [Step 1. Sign in, create the RG, register Resource Providers, grant blob data access](#step-1-sign-in-create-the-rg-register-resource-providers-grant-blob-data-access-3-min)
+  - [Step 2. Bootstrap the Terraform-state Storage Account](#step-2-bootstrap-the-terraform-state-storage-account-2-min)
+  - [Step 3. Init base with the remote backend + import the bootstrapped SA](#step-3-init-base-with-the-remote-backend--import-the-bootstrapped-sa-2-min)
+  - [Step 4. Apply base](#step-4-apply-base-5-min)
+  - [Step 5. Init workload with remote backend + apply](#step-5-init-workload-with-remote-backend--apply-1520-min)
+  - [Step 6. Full inventory](#step-6-full-inventory-across-both-rgs)
+- [Redeploy](#redeploy)
+  - [Path A — Bicep](#path-a--bicep-1)
+  - [Path B — Terraform](#path-b--terraform-1)
+- [Part C — Harden: remove deployer IP and close public endpoints](#part-c--harden-remove-deployer-ip-and-close-public-endpoints)
+  - [Part C1 — Strip deployer IP and any extra allowlisted IPs](#part-c1--strip-deployer-ip-and-any-extra-allowlisted-ips-public-path-only)
+  - [Part C2 — Optionally disable public endpoints entirely](#part-c2--optionally-disable-public-endpoints-entirely-zero-trust)
+  - [Un-harden (before your next deploy)](#un-harden-before-your-next-deploy)
+- [Tear down](#tear-down)
+  - [Path A — Bicep](#path-a--bicep-2)
+  - [Path B — Terraform](#path-b--terraform-2)
+- [RBAC roster (workload)](#rbac-roster-workload)
+- [Troubleshooting](#troubleshooting)
+  - [Deleting an AI Foundry subnet blocked by `legionservicelink`](#deleting-an-ai-foundry-subnet-blocked-by-legionservicelink)
+- [References](#references)
+
 ## Architecture
 
 ![AI Foundry BYO stateful stack — architecture & deployment](assets/architecture.png)
