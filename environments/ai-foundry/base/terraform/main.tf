@@ -133,6 +133,24 @@ module "subnets" {
   }
 }
 
+# Remove resources retained in state from the former runner/jumpbox design.
+# Both historical modules created NSGs; neither is part of this lab anymore.
+removed {
+  from = module.cicd_runner
+
+  lifecycle {
+    destroy = true
+  }
+}
+
+removed {
+  from = module.jumpbox
+
+  lifecycle {
+    destroy = true
+  }
+}
+
 #----------------------------------------------------------------
 # 3. Private DNS zones — VNet-linked so any resource in this VNet
 #    (agent runtime, workload private endpoints) resolves privatelink

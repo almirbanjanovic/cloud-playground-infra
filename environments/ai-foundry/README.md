@@ -22,6 +22,7 @@ The diagram shows the runtime architecture both paths provision. Path B addition
 **Base stack (both paths)** — deploys into the **networking RG** (`rg-ai-foundry-network-dev-westus3` by default):
 - 1 VNet (`10.0.0.0/16`) + 5 subnets: 4 private-endpoint subnets + 1 agent subnet delegated to `Microsoft.App/environments`
 - 11 private DNS zones (3 Cognitive + 6 Storage + Cosmos + Search) linked to the VNet
+- No Network Security Groups (NSGs), VMs, jumpboxes, CI runners, or NAT gateways
 
 **Base stack (Path B only)** additionally bootstraps (into the networking RG):
 - A **Terraform-state Storage Account** (`sttfs<hash>`) with a blob Private Endpoint, holding a `tfstate` container that both stacks use as their remote-state backend. Path A doesn't need this — ARM tracks its own deployment history.
@@ -91,7 +92,7 @@ Two supported topologies. Both use the same IaC; only the value you pass for `de
 | Topology | Deployer machine is… | Post-deploy admin traffic | `deployerIp` value | Typical use |
 |---|---|---|---|---|
 | **Public path** (default) | On the public internet (laptop at home, unmanaged network) | Deployer → public FQDN → firewall allowlist → service | Your public IPv4 (auto-detected in Path B via `api.ipify.org`; read from `$env:DEPLOYER_IP` in Path A) | Personal / lab deploys from an unmanaged network |
-| **Private path** | On a corporate network with VPN / ExpressRoute / Bastion into the workload VNet, or on a jump box / CI runner already in the VNet (see [`iac-modules/terraform/cicd_runner/v1/`](../../iac-modules/terraform/cicd_runner/v1/) for a starter) | Deployer → public FQDN → **resolves to private IP via the base stack's private DNS zones** → PE → service | `""` (empty string) — skips the allowlist entry | Corporate deploys where the laptop already has private DNS + routing, CI runners inside the VNet |
+| **Private path** | On a corporate network with VPN / ExpressRoute / Bastion into the workload VNet, or on an existing jump box / CI runner already in the VNet | Deployer → public FQDN → **resolves to private IP via the base stack's private DNS zones** → PE → service | `""` (empty string) — skips the allowlist entry | Corporate deploys where the laptop already has private DNS + routing, CI runners inside the VNet |
 
 **How the private path works:** the workload service FQDNs resolve through the 11 private DNS zones the base stack VNet-links. When your deployer uses Azure-integrated DNS for those zones — directly (VM in the VNet), via your VPN client's DNS, or via an on-prem forwarder pointed at Azure's virtual server `168.63.129.16` — the FQDNs return the PE's private IP and admin traffic never hits the public endpoint.
 
@@ -305,9 +306,11 @@ Verify:
 
 ```powershell
 az resource list -g $RG_NETWORK --query "[?type=='Microsoft.Network/virtualNetworks' || type=='Microsoft.Network/privateDnsZones'].{Name:name, Type:type}" -o table
+az network nsg list -g $RG_NETWORK --query "[].name" -o tsv
+az network nsg list -g $RG_WORKLOAD --query "[].name" -o tsv
 ```
 
-Expected: 1 VNet (`vnet-ai-foundry-dev-westus3`) + 11 privateDnsZones — all in `$RG_NETWORK`.
+Expected: 1 VNet (`vnet-ai-foundry-dev-westus3`) + 11 privateDnsZones, followed by no NSG output from either RG.
 
 ### Step 3. Deploy the workload stack (~15–20 min)
 
@@ -790,13 +793,17 @@ terraform apply `
 
 Terraform reconciles the imported state SA (adds its blob PE, applies blob-service properties: 30-day soft delete + versioning + last-access tracking), then creates the VNet + 5 subnets + 11 DNS zones with VNet links — all in `$RG_NETWORK`.
 
+> **Upgrading an older AI Foundry deployment:** early versions also created jumpbox and CI-runner modules with NSGs. The current configuration explicitly removes both historical modules; review the destroy actions in the plan and apply them to clean those resources from Azure and Terraform state.
+
 Verify:
 
 ```powershell
 az resource list -g $RG_NETWORK --query "[?type=='Microsoft.Network/virtualNetworks' || type=='Microsoft.Network/privateDnsZones' || type=='Microsoft.Network/privateEndpoints'].{Name:name, Type:type}" -o table
+az network nsg list -g $RG_NETWORK --query "[].name" -o tsv
+az network nsg list -g $RG_WORKLOAD --query "[].name" -o tsv
 ```
 
-Expected: 1 VNet, 11 privateDnsZones, **1 privateEndpoint** (on the state SA), all in `$RG_NETWORK`.
+Expected: 1 VNet, 11 privateDnsZones, **1 privateEndpoint** (on the state SA), followed by no NSG output from either RG.
 
 ### Step 5. Init workload with remote backend + apply (~15–20 min)
 
