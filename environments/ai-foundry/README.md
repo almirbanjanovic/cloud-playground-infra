@@ -11,40 +11,6 @@ Two implementations of the same architecture, side-by-side:
 
 Pick one path. Don't mix Path A + Path B against the same RGs — the two paths use identical naming conventions and would fight over resource names.
 
-## Table of contents
-
-- [Architecture](#architecture)
-  - [DNS zones + Private Endpoints](#dns-zones--private-endpoints)
-- [Prerequisites](#prerequisites)
-- [Deployment topology: public path vs private path](#deployment-topology-public-path-vs-private-path)
-- [Bringing your own base networking](#bringing-your-own-base-networking)
-- [Path A — Bicep](#path-a--bicep)
-  - [Step 1. Sign in, create the RG, register Resource Providers](#step-1-sign-in-create-the-rg-register-resource-providers-3-min)
-  - [Step 2. Deploy the base stack](#step-2-deploy-the-base-stack-4-min)
-  - [Step 3. Deploy the workload stack](#step-3-deploy-the-workload-stack-1520-min)
-  - [Step 4. Full inventory](#step-4-full-inventory-across-both-rgs)
-- [Path B — Terraform](#path-b--terraform)
-  - [Step 1. Sign in, create the RG, register Resource Providers, grant blob data access](#step-1-sign-in-create-the-rg-register-resource-providers-grant-blob-data-access-3-min)
-  - [Step 2. Bootstrap the Terraform-state Storage Account](#step-2-bootstrap-the-terraform-state-storage-account-2-min)
-  - [Step 3. Init base with the remote backend + import the bootstrapped SA](#step-3-init-base-with-the-remote-backend--import-the-bootstrapped-sa-2-min)
-  - [Step 4. Apply base](#step-4-apply-base-5-min)
-  - [Step 5. Init workload with remote backend + apply](#step-5-init-workload-with-remote-backend--apply-1520-min)
-  - [Step 6. Full inventory](#step-6-full-inventory-across-both-rgs)
-- [Redeploy](#redeploy)
-  - [Path A — Bicep](#path-a--bicep-1)
-  - [Path B — Terraform](#path-b--terraform-1)
-- [Part C — Harden: remove deployer IP and close public endpoints](#part-c--harden-remove-deployer-ip-and-close-public-endpoints)
-  - [Part C1 — Strip deployer IP and any extra allowlisted IPs](#part-c1--strip-deployer-ip-and-any-extra-allowlisted-ips-public-path-only)
-  - [Part C2 — Optionally disable public endpoints entirely](#part-c2--optionally-disable-public-endpoints-entirely-zero-trust)
-  - [Un-harden (before your next deploy)](#un-harden-before-your-next-deploy)
-- [Tear down](#tear-down)
-  - [Path A — Bicep](#path-a--bicep-2)
-  - [Path B — Terraform](#path-b--terraform-2)
-- [RBAC roster (workload)](#rbac-roster-workload)
-- [Troubleshooting](#troubleshooting)
-  - [Deleting an AI Foundry subnet blocked by `legionservicelink`](#deleting-an-ai-foundry-subnet-blocked-by-legionservicelink)
-- [References](#references)
-
 ## Architecture
 
 ![AI Foundry BYO stateful stack — architecture & deployment](assets/architecture.png)
@@ -56,7 +22,7 @@ The diagram shows the runtime architecture both paths provision. Path B addition
 **Base stack (both paths)** — deploys into the **networking RG** (`rg-ai-foundry-network-dev-westus3` by default):
 - 1 VNet (`10.0.0.0/16`) + 5 subnets: 4 private-endpoint subnets + 1 agent subnet delegated to `Microsoft.App/environments`
 - 11 private DNS zones (3 Cognitive + 6 Storage + Cosmos + Search) linked to the VNet
-- No Network Security Groups (NSGs), VMs, jumpboxes, CI runners, or NAT gateways
+- No VMs, jumpboxes, CI runners, or NAT gateways
 
 **Base stack (Path B only)** additionally bootstraps (into the networking RG):
 - A **Terraform-state Storage Account** (`sttfs<hash>`) with a blob Private Endpoint, holding a `tfstate` container that both stacks use as their remote-state backend. Path A doesn't need this — ARM tracks its own deployment history.
@@ -340,11 +306,9 @@ Verify:
 
 ```powershell
 az resource list -g $RG_NETWORK --query "[?type=='Microsoft.Network/virtualNetworks' || type=='Microsoft.Network/privateDnsZones'].{Name:name, Type:type}" -o table
-az network nsg list -g $RG_NETWORK --query "[].name" -o tsv
-az network nsg list -g $RG_WORKLOAD --query "[].name" -o tsv
 ```
 
-Expected: 1 VNet (`vnet-ai-foundry-dev-westus3`) + 11 privateDnsZones, followed by no NSG output from either RG.
+Expected: 1 VNet (`vnet-ai-foundry-dev-westus3`) + 11 privateDnsZones.
 
 ### Step 3. Deploy the workload stack (~15–20 min)
 
@@ -411,12 +375,10 @@ The workload deploys **into `$RG_WORKLOAD`** and by default looks up base's VNet
 > Then list the subnets on the VNet you found:
 >
 > ```powershell
-> az network vnet subnet list -g $RG_NETWORK --vnet-name <your-vnet-name> --query "[].name" -o tsv
+> az network vnet subnet list -g $RG_NETWORK --vnet-name $VNET_NAME --query "[].name" -o tsv
 > ```
 >
-> Then either:
-> - **Edit** [`main.bicepparam`](workload/bicep/main.bicepparam) directly — it has commented examples for every override EXCEPT the 6 CLI-pinned names (`baseName`, `environment`, `location`, `baseResourceGroupName`, `dnsResourceGroupName`, DNS zone names, `cognitiveCustomSubdomainName`, etc.). VNet + subnet names must be changed via the 6 session vars (`$VNET_NAME`, `$SUBNET_*`) in Step 1 above; editing those in `main.bicepparam` is silently ignored because Step 3's deploy passes CLI `-p` flags for them.
-> - **Pass overrides on the CLI** via `-p` flags on the `az deployment group create` below — e.g. `-p baseResourceGroupName=<rg-name>`, `-p baseName=<value>`. VNet + subnet names should go through the 6 session vars, NOT an ad-hoc `-p vnetName=<name>` (the deploy command already carries `-p "vnetName=$VNET_NAME"`).
+> Then override on the CLI: append `-p key=value` flags to the `az deployment group create` command below — e.g. `-p baseResourceGroupName=<rg-name> -p baseName=<value>`. VNet + subnet names are the exception: change the 6 session vars (`$VNET_NAME`, `$SUBNET_*`) from Step 1, NOT `-p vnetName=…` (the deploy command already carries `-p "vnetName=$VNET_NAME"` etc.). Everything below is CLI-only — no `main.bicepparam` edits required.
 >
 > The most common overrides:
 > - `-p baseResourceGroupName=<rg>` — if base lives in an RG that doesn't match the default `rg-ai-foundry-network-dev-<loc>`
@@ -827,17 +789,15 @@ terraform apply `
 
 Terraform reconciles the imported state SA (adds its blob PE, applies blob-service properties: 30-day soft delete + versioning + last-access tracking), then creates the VNet + 5 subnets + 11 DNS zones with VNet links — all in `$RG_NETWORK`.
 
-> **Upgrading an older AI Foundry deployment:** early versions also created jumpbox and CI-runner modules with NSGs. The current configuration explicitly removes both historical modules; review the destroy actions in the plan and apply them to clean those resources from Azure and Terraform state.
+> **Upgrading an older AI Foundry deployment:** early versions also created jumpbox and CI-runner modules. The current configuration explicitly removes both historical modules; review the destroy actions in the plan and apply them to clean those resources from Azure and Terraform state.
 
 Verify:
 
 ```powershell
 az resource list -g $RG_NETWORK --query "[?type=='Microsoft.Network/virtualNetworks' || type=='Microsoft.Network/privateDnsZones' || type=='Microsoft.Network/privateEndpoints'].{Name:name, Type:type}" -o table
-az network nsg list -g $RG_NETWORK --query "[].name" -o tsv
-az network nsg list -g $RG_WORKLOAD --query "[].name" -o tsv
 ```
 
-Expected: 1 VNet, 11 privateDnsZones, **1 privateEndpoint** (on the state SA), followed by no NSG output from either RG.
+Expected: 1 VNet, 11 privateDnsZones, **1 privateEndpoint** (on the state SA).
 
 ### Step 5. Init workload with remote backend + apply (~15–20 min)
 
@@ -913,18 +873,14 @@ The workload deploys **into `$RG_WORKLOAD`** and by default looks up base's VNet
 > az resource list -g $RG_NETWORK --query "[?type=='Microsoft.Network/virtualNetworks' || type=='Microsoft.Network/privateDnsZones'].{Name:name, Type:type}" -o table
 > ```
 >
-> Then copy [`terraform.tfvars.example`](workload/terraform/terraform.tfvars.example) to `terraform.tfvars` (git-ignored) inside `environments/ai-foundry/workload/terraform/` and uncomment the overrides you need. This one-liner works from any cwd:
->
-> ```powershell
-> Copy-Item (Join-Path (git rev-parse --show-toplevel) 'environments/ai-foundry/workload/terraform/terraform.tfvars.example') (Join-Path (git rev-parse --show-toplevel) 'environments/ai-foundry/workload/terraform/terraform.tfvars')
-> ```
+> Then override on the CLI: append `-var 'key=value'` flags to the `terraform plan` / `terraform apply` commands below — e.g. `-var 'base_resource_group_name=<rg-name>' -var 'base_name=<value>'`. VNet + subnet names are the exception: change the 6 session vars (`$VNET_NAME`, `$SUBNET_*`) from Step 1, NOT `-var 'vnet_name=…'` (the apply command already carries `-var "vnet_name=$VNET_NAME"` etc.). Everything below is CLI-only — no `terraform.tfvars` file required.
 >
 > The most common overrides:
-> - `resource_group_name` — workload RG (if not `rg-ai-foundry-workload-dev-<loc>`)
-> - `base_resource_group_name` — where base's VNet + subnets live (if not `rg-ai-foundry-network-dev-<loc>`)
-> - `dns_resource_group_name` — where the 11 private DNS zones live (if separate from the VNet's RG, i.e. classic CAF: zones consolidated in a central connectivity / hub RG). Leave null to reuse `base_resource_group_name`.
-> - **VNet + subnet names** — change the 6 session vars (`$VNET_NAME`, `$SUBNET_COGNITIVE_PEP`, `$SUBNET_STORAGE_PEP`, `$SUBNET_COSMOS_PEP`, `$SUBNET_SEARCH_PEP`, `$SUBNET_AGENT`) in Step 1, NOT the corresponding `terraform.tfvars` entries. The Step 5 apply always passes them as `-var` flags, so CLI overrides win over `terraform.tfvars` — file edits to these 6 names are silently ignored.
-> - `base_name` / `environment` / `location` — shifts derived names for the Foundry Account subdomain (`cog-acc-<base_name>-<environment>-<location>`) and the account resource itself. It does NOT re-derive the VNet + subnet names, because those come from the 6 session vars — update the session vars separately if you're changing `base_name` / `environment` / `location`.
+> - `-var 'resource_group_name=<rg>'` — workload RG (if not `rg-ai-foundry-workload-dev-<loc>`)
+> - `-var 'base_resource_group_name=<rg>'` — where base's VNet + subnets live (if not `rg-ai-foundry-network-dev-<loc>`)
+> - `-var 'dns_resource_group_name=<rg>'` — where the 11 private DNS zones live (if separate from the VNet's RG, i.e. classic CAF: zones consolidated in a central connectivity / hub RG). Omit to reuse `base_resource_group_name`.
+> - **VNet + subnet names** — change the 6 session vars (`$VNET_NAME`, `$SUBNET_COGNITIVE_PEP`, `$SUBNET_STORAGE_PEP`, `$SUBNET_COSMOS_PEP`, `$SUBNET_SEARCH_PEP`, `$SUBNET_AGENT`) in Step 1, NOT ad-hoc `-var 'vnet_name=…'` flags. The Step 5 apply always passes them as `-var` flags, so CLI overrides win over `terraform.tfvars` — file edits to these 6 names are silently ignored.
+> - `-var 'base_name=<v>' -var 'environment=<v>' -var 'location=<v>'` — shifts derived names for the Foundry Account subdomain (`cog-acc-<base_name>-<environment>-<location>`) and the account resource itself. It does NOT re-derive the VNet + subnet names, because those come from the 6 session vars — update the session vars separately if you're changing `base_name` / `environment` / `location`.
 
 `cd` into the workload Terraform directory:
 
@@ -1441,22 +1397,24 @@ Terraform waits 60 s via `time_sleep` between the assignments and capability-hos
 
 ### Deleting an AI Foundry subnet blocked by `legionservicelink`
 
-When you delete a Foundry Account (`kind=AIServices`) that had Agent Service network injection, the underlying Container Apps managed environment (in a Microsoft-owned `hobov3_*` subscription) can be orphaned. It leaves a `legionservicelink` service association link (SAL) pinning your subnet — the account transitions to soft-deleted but the SAL survives and the subnet won't delete.
+When you delete a Foundry Account (`kind=AIServices`) that had Agent Service network injection, the underlying Container Apps managed environment (in a Microsoft-owned `hobov3_*` subscription) can be orphaned. It leaves a `legionservicelink` service association link (SAL) pinning your subnet — the account delete completes, but the SAL survives and the subnet won't delete.
 
-**Recovery, validated end-to-end (~5 min): if the account is soft-deleted, `recover` it back to `Succeeded` (terminal) first, then fire a fresh delete.** A fresh delete on a terminal account triggers the platform teardown cleanly and the SAL releases in ~1–3 min. Waiting on the original stuck delete instead has been observed to take **overnight (~8+ h)**; the recover-then-delete pattern short-circuits that. Every direct "shortcut" is still rejected by the platform:
+**The only working recovery is: delete the account, wait for the SAL to release, then clean up.** Every "shortcut" is rejected by the platform:
 
 | Attempted shortcut | RP response |
 |---|---|
 | PATCH `networkInjections: []` | `InvalidResourceProperties: Invalid/Empty NetworkInjection object` |
 | PATCH `useMicrosoftManagedNetwork: true` | `NetworkInjectionUpdateNotAllowed: Removing NetworkInjections is not allowed once it has been set.` |
 | `az rest --method delete` on the SAL directly | `UnauthorizedClientApplication` (only the `Microsoft.App/environments` RP in the `hobov3_*` sub can release it) |
-| `az cognitiveservices account purge` while account is mid-teardown | `RequestConflict: provisioning state is not terminal` — transient; clears within a few minutes of the SAL release |
+| `az cognitiveservices account purge` while SAL still present | `RequestConflict: provisioning state is not terminal` |
 | `az network vnet subnet update --set delegations=[]` while SAL still present | `SubnetMissingRequiredDelegation` |
 | Deleting the parent VNet or RG | Same SAL check, same failure |
 
-> **Naming conventions.** The commands use the same session variables as the rest of the README (`$LOC`, `$RG_NETWORK`, `$RG_WORKLOAD`). The Foundry Account lives in `$RG_WORKLOAD`; the VNet + delegated subnet live in `$RG_NETWORK`.
+The SAL usually releases in 5–45 min but has been observed to take **overnight (~8+ h)** when the platform teardown stalls. If it's still stuck after 45 min, jump to [If the SAL never clears](#if-the-sal-never-clears) below.
 
-**Step 1 — set variables.** Run each of these once.
+> **Naming conventions.** The script uses the same session variables as the rest of the README (`$LOC`, `$RG_NETWORK`, `$RG_WORKLOAD`). The Foundry Account lives in `$RG_WORKLOAD`; the VNet + delegated subnet live in `$RG_NETWORK`.
+
+**Step 1 — set variables + fire the delete.** Set the six naming variables first, then run the recovery script.
 
 Set the region:
 
@@ -1494,51 +1452,62 @@ Set the stuck subnet name:
 $SUBNET = "snet-agent-ai-foundry-dev"
 ```
 
-**Step 2 — recover the soft-deleted account.** Skip this if the account is still live (i.e. never got deleted yet — go straight to Step 3).
+Fire the delete. This is an intentional single-paste recovery script (an `az cognitiveservices account show` probe, an `if/else` around `az cognitiveservices account delete`, and a `$LASTEXITCODE` reset), not a single command — kept as one block because the pieces only make sense together:
 
 ```powershell
-az cognitiveservices account recover --location $LOC --resource-group $RG_WORKLOAD --name $ACCT
+az cognitiveservices account show -g $RG_WORKLOAD -n $ACCT --query id -o tsv 2>$null | Out-Null
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "Firing account delete..."
+    az cognitiveservices account delete -g $RG_WORKLOAD -n $ACCT
+} else {
+    Write-Host "Account already gone or soft-deleted -- skipping delete."
+}
+$LASTEXITCODE = 0
 ```
 
-**Step 3 — delete the account fresh.** This is what triggers the platform teardown that releases the SAL. The account goes back into soft-deleted state.
+**Step 2 — poll for the SAL to release.** This is a scripted paste-once recovery block — a small polling script (a `for` loop + a final status `if`), not a single command. Intentionally kept as one block. It caps at 45 min. When it prints `SAL cleared` the poll is done; when it prints `SAL still stuck` after 45 min, go to the [If the SAL never clears](#if-the-sal-never-clears) section.
 
 ```powershell
-az cognitiveservices account delete --resource-group $RG_WORKLOAD --name $ACCT
-```
-
-**Step 4 — poll the subnet until the SAL clears.** Caps at 10 min; in practice releases in 1–3 min. When it prints `SAL cleared` continue to Step 5. If it prints `SAL still stuck` after 10 min, go to the [If the SAL never clears](#if-the-sal-never-clears) section.
-
-```powershell
-for ($i = 0; $i -lt 20; $i++) {
+for ($i = 0; $i -lt 90; $i++) {
     Start-Sleep -Seconds 30
     $SAL = az network vnet subnet show -g $RG_NETWORK --vnet-name $VNET -n $SUBNET --query "serviceAssociationLinks[].name" -o tsv
     Write-Host ("[{0:mm\:ss}] SAL='{1}'" -f (New-TimeSpan -Seconds (($i + 1) * 30)), $SAL)
     if (-not $SAL) { break }
 }
-if ($SAL) { Write-Host "SAL still stuck after 10 min. See 'If the SAL never clears'." } else { Write-Host "SAL cleared." }
+if ($SAL) { Write-Host "SAL still stuck after 45 min. See 'If the SAL never clears'." } else { Write-Host "SAL cleared." }
 ```
 
-**Step 5 — purge the soft-deleted account.** After the SAL clears the account itself can stay non-terminal for a couple of minutes. If this command returns `RequestConflict: provisioning state is not terminal`, wait 30–60 s and rerun the same command until it succeeds (typically clears within ~3 min).
+**Step 3 — clean up.** Only run this after Step 2 prints `SAL cleared`.
+
+Purge the soft-deleted Foundry Account (`2>$null` swallows the noise if it was hard-deleted already — the next command resets `$LASTEXITCODE` for the same reason):
 
 ```powershell
-az cognitiveservices account purge --location $LOC --resource-group $RG_WORKLOAD --name $ACCT
+az cognitiveservices account purge --location $LOC --name $ACCT --resource-group $RG_WORKLOAD 2>$null
 ```
 
-**Step 6 — strip the `Microsoft.App/environments` delegation off the subnet.**
+Reset the exit code (purge may return non-zero if the account was already hard-deleted):
 
 ```powershell
-az network vnet subnet update --resource-group $RG_NETWORK --vnet-name $VNET --name $SUBNET --set 'delegations=[]'
+$LASTEXITCODE = 0
 ```
 
-**Step 7 — delete the subnet.**
+Strip the `Microsoft.App/environments` delegation off the subnet:
 
 ```powershell
-az network vnet subnet delete --resource-group $RG_NETWORK --vnet-name $VNET --name $SUBNET
+az network vnet subnet update -g $RG_NETWORK --vnet-name $VNET -n $SUBNET --set 'delegations=[]'
 ```
+
+Delete the subnet:
+
+```powershell
+az network vnet subnet delete -g $RG_NETWORK --vnet-name $VNET -n $SUBNET
+```
+
+> **PowerShell paste artifacts:** pwsh echoes `>>` continuation prompts while collecting a multi-line paste — those aren't output. Only lines from `Write-Host` or errors are real results; a clean `PS>` prompt after the paste means the block ran without throwing (real throws print `Exception:` + red-highlighted text).
 
 #### If the SAL never clears
 
-Step 4 timed out even after the recover-then-delete pattern in Steps 2–3 — the platform teardown didn't fire this time either. Every user-side workaround from the table above has been ruled out — only Microsoft's Foundry team can force-release the SAL. Pick one:
+Step 2 timed out. Every user-side workaround from the table above has been ruled out — only Microsoft's Foundry team can force-release the SAL. Pick one:
 
 **A. Support ticket (recommended).** Portal → Help + support → Technical → *Azure OpenAI or Azure AI Foundry*. Use this template — fill in the placeholders from your `$LOC / $RG_NETWORK / $VNET / $SUBNET / $ACCT / $RG_WORKLOAD` values:
 
@@ -1561,7 +1530,7 @@ Step 4 timed out even after the recover-then-delete pattern in Steps 2–3 — t
 `networkInjections` is immutable post-creation, so there is no in-place fix. Two safe teardown patterns:
 
 1. **Whole-environment teardown:** `az group delete --resource-group $RG_WORKLOAD --yes` (workload RG first, then network RG). See [Tear down](#tear-down). ARM orders the deletes correctly and the SAL usually releases naturally; if it doesn't, this same recovery still applies.
-2. **Account-only teardown while keeping the VNet:** the walkthrough above. Budget ~5 min end-to-end with the recover-then-delete pattern; be prepared to file A if the SAL still doesn't clear.
+2. **Account-only teardown while keeping the VNet:** the walkthrough above. Budget 5–45 min for the SAL to release; be prepared to file A if not.
 
 ---
 
