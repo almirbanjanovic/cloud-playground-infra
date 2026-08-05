@@ -372,7 +372,13 @@ The workload deploys **into `$RG_WORKLOAD`** and by default looks up base's VNet
 > az resource list -g $RG_NETWORK --query "[?type=='Microsoft.Network/virtualNetworks' || type=='Microsoft.Network/privateDnsZones'].{Name:name, Type:type}" -o table
 > ```
 >
-> Then list the subnets on the VNet you found:
+> Set `$VNET_NAME` to the VNet name shown in the output above:
+>
+> ```powershell
+> $VNET_NAME = Read-Host "Enter the VNet name shown above"
+> ```
+>
+> Then list its subnets:
 >
 > ```powershell
 > az network vnet subnet list -g $RG_NETWORK --vnet-name $VNET_NAME --query "[].name" -o tsv
@@ -871,6 +877,18 @@ The workload deploys **into `$RG_WORKLOAD`** and by default looks up base's VNet
 >
 > ```powershell
 > az resource list -g $RG_NETWORK --query "[?type=='Microsoft.Network/virtualNetworks' || type=='Microsoft.Network/privateDnsZones'].{Name:name, Type:type}" -o table
+> ```
+>
+> Set `$VNET_NAME` to the VNet name shown in the output above:
+>
+> ```powershell
+> $VNET_NAME = Read-Host "Enter the VNet name shown above"
+> ```
+>
+> Then list its subnets:
+>
+> ```powershell
+> az network vnet subnet list -g $RG_NETWORK --vnet-name $VNET_NAME --query "[].name" -o tsv
 > ```
 >
 > Then override on the CLI: append `-var 'key=value'` flags to the `terraform plan` / `terraform apply` commands below — e.g. `-var 'base_resource_group_name=<rg-name>' -var 'base_name=<value>'`. VNet + subnet names are the exception: change the 6 session vars (`$VNET_NAME`, `$SUBNET_*`) from Step 1, NOT `-var 'vnet_name=…'` (the apply command already carries `-var "vnet_name=$VNET_NAME"` etc.). Everything below is CLI-only — no `terraform.tfvars` file required.
