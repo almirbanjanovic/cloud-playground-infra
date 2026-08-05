@@ -168,12 +168,22 @@ Confirm the active subscription / tenant:
 az account show --query "{Subscription:name, Id:id, Tenant:tenantId}" -o table
 ```
 
-Set naming variables for the two CAF-pattern RGs (this block primes your session — paste the whole thing at once):
+Set the target region (default `westus3`):
 
 ```powershell
-$LOC          = "westus3"
-$RG_NETWORK   = "rg-ai-foundry-network-dev-$LOC"    # base stack lives here
-$RG_WORKLOAD  = "rg-ai-foundry-workload-dev-$LOC"   # workload stack lives here
+$LOC = "westus3"
+```
+
+Set the base stack's RG name:
+
+```powershell
+$RG_NETWORK = "rg-ai-foundry-network-dev-$LOC"
+```
+
+Set the workload stack's RG name:
+
+```powershell
+$RG_WORKLOAD = "rg-ai-foundry-workload-dev-$LOC"
 ```
 
 Echo them back to verify:
@@ -263,12 +273,24 @@ Expected: 1 VNet (`vnet-ai-foundry-dev-westus3`) + 11 privateDnsZones — all in
 
 The workload deploys **into `$RG_WORKLOAD`** and by default looks up base's VNet + subnets + 11 private DNS zones cross-RG in `$RG_NETWORK` (the `baseResourceGroupName` param in `main.bicep` defaults to `rg-ai-foundry-network-dev-westus3`). If the DNS zones live in a separate central connectivity / hub RG, override `dnsResourceGroupName` too — see [Bringing your own base networking](#bringing-your-own-base-networking).
 
-> **Resuming from an existing base deploy?** If you're in a new terminal session (variables gone) or the base was deployed by someone else / a prior CI run, you need at minimum these three session variables before running the deploy:
+> **Resuming from an existing base deploy?** If you're in a new terminal session (variables gone) or the base was deployed by someone else / a prior CI run, you need at minimum these three session variables before running the deploy.
+>
+> Set the region (the region the base stack was deployed in):
 >
 > ```powershell
-> $LOC          = "westus3"                              # region the base stack was deployed in
-> $RG_NETWORK   = "rg-ai-foundry-network-dev-$LOC"       # RG the base stack lives in
-> $RG_WORKLOAD  = "rg-ai-foundry-workload-dev-$LOC"      # RG the workload deploys into (create it below if missing)
+> $LOC = "westus3"
+> ```
+>
+> Set the RG the base stack lives in:
+>
+> ```powershell
+> $RG_NETWORK = "rg-ai-foundry-network-dev-$LOC"
+> ```
+>
+> Set the RG the workload deploys into (create it below if missing):
+>
+> ```powershell
+> $RG_WORKLOAD = "rg-ai-foundry-workload-dev-$LOC"
 > ```
 >
 > Make sure `$RG_WORKLOAD` exists (Path A Step 1 creates it — skip if you already ran it):
@@ -413,14 +435,34 @@ Pin the subscription:
 az account set --subscription <YOUR_SUBSCRIPTION_ID>
 ```
 
-Set naming variables + capture your subscription and object IDs (this block primes your session — paste the whole thing at once):
+Set the target region (default `westus3`):
 
 ```powershell
-$LOC          = "westus3"
-$RG_NETWORK   = "rg-ai-foundry-network-dev-$LOC"    # base stack + tfstate SA live here
-$RG_WORKLOAD  = "rg-ai-foundry-workload-dev-$LOC"   # workload stack lives here
-$SUB          = (az account show --query id -o tsv)
-$ME           = (az ad signed-in-user show --query id -o tsv)
+$LOC = "westus3"
+```
+
+Set the networking RG name (base stack + tfstate SA live here):
+
+```powershell
+$RG_NETWORK = "rg-ai-foundry-network-dev-$LOC"
+```
+
+Set the workload RG name:
+
+```powershell
+$RG_WORKLOAD = "rg-ai-foundry-workload-dev-$LOC"
+```
+
+Capture the current subscription ID:
+
+```powershell
+$SUB = (az account show --query id -o tsv)
+```
+
+Capture your Entra object ID:
+
+```powershell
+$ME = (az ad signed-in-user show --query id -o tsv)
 ```
 
 Echo them back to verify:
@@ -498,18 +540,30 @@ Expected: one row with `Storage Blob Data Contributor` at the `$RG_NETWORK` scop
 
 ### Step 2. Bootstrap the Terraform-state Storage account (~2 min)
 
-The tfstate SA lives in the **networking RG** (`$RG_NETWORK`) — it's part of the base / platform stack's lifecycle. Detect your IP and derive the state SA name (`sttfs<md5(RG + base_name + environment + location)>` truncated to 12 hex chars — must match what base's `main.tf` will compute). This block primes your session; paste it whole:
+The tfstate SA lives in the **networking RG** (`$RG_NETWORK`) — it's part of the base / platform stack's lifecycle. Detect your IP and derive the state SA name (`sttfs<md5(RG + base_name + environment + location)>` truncated to 12 hex chars — must match what base's `main.tf` will compute).
+
+Grab your public IP:
 
 ```powershell
 $DEPLOYER_IP = (Invoke-RestMethod https://api.ipify.org).Trim()
-$BASE_NAME   = "ai-foundry"        # must match base_name default in variables.tf
-$ENVIRONMENT = "dev"               # must match environment default in variables.tf
+```
 
-$hashInput = "${RG_NETWORK}${BASE_NAME}${ENVIRONMENT}${LOC}"
-$md5       = [System.Security.Cryptography.MD5]::Create()
-$hashBytes = $md5.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($hashInput))
-$HASH      = -join ($hashBytes | ForEach-Object { $_.ToString('x2') })
-$STATE_SA  = "sttfs" + $HASH.Substring(0, 12)
+Set `$BASE_NAME` (must match `base_name` default in `variables.tf`):
+
+```powershell
+$BASE_NAME = "ai-foundry"
+```
+
+Set `$ENVIRONMENT` (must match `environment` default in `variables.tf`):
+
+```powershell
+$ENVIRONMENT = "dev"
+```
+
+Compute the state SA name (this one-liner mirrors the `md5(RG + base_name + environment + location)` hash base's `main.tf` computes, so both stacks agree on the name):
+
+```powershell
+$STATE_SA = "sttfs" + ([BitConverter]::ToString([System.Security.Cryptography.MD5]::Create().ComputeHash([System.Text.Encoding]::UTF8.GetBytes("${RG_NETWORK}${BASE_NAME}${ENVIRONMENT}${LOC}"))).Replace('-','').ToLower().Substring(0,12))
 ```
 
 Echo to verify:
@@ -638,18 +692,35 @@ Expected: 1 VNet, 11 privateDnsZones, **1 privateEndpoint** (on the state SA), a
 
 The workload deploys **into `$RG_WORKLOAD`** and by default looks up base's VNet + subnets + 11 private DNS zones cross-RG in `$RG_NETWORK` (`variables.tf`'s `resource_group_name` defaults to `rg-ai-foundry-workload-dev-westus3` and `base_resource_group_name` defaults to `rg-ai-foundry-network-dev-westus3`). If the DNS zones live in a separate central connectivity / hub RG, override `dns_resource_group_name` too — see [Bringing your own base networking](#bringing-your-own-base-networking).
 
-> **Resuming from an existing base deploy?** If you're in a new terminal session (variables gone) or the base was deployed by someone else / a prior CI run, you need at minimum these session variables before running init + apply:
+> **Resuming from an existing base deploy?** If you're in a new terminal session (variables gone) or the base was deployed by someone else / a prior CI run, you need at minimum these session variables before running init + apply.
+>
+> Set the region (the region the base stack was deployed in):
 >
 > ```powershell
-> $LOC          = "westus3"                              # region the base stack was deployed in
-> $RG_NETWORK   = "rg-ai-foundry-network-dev-$LOC"       # RG the base stack + tfstate SA live in
-> $RG_WORKLOAD  = "rg-ai-foundry-workload-dev-$LOC"      # RG the workload deploys into (create it below if missing)
+> $LOC = "westus3"
+> ```
+>
+> Set the RG the base stack + tfstate SA live in:
+>
+> ```powershell
+> $RG_NETWORK = "rg-ai-foundry-network-dev-$LOC"
+> ```
+>
+> Set the RG the workload deploys into (create it below if missing):
+>
+> ```powershell
+> $RG_WORKLOAD = "rg-ai-foundry-workload-dev-$LOC"
 > ```
 >
 > The tfstate SA name lives in `$RG_NETWORK`. If you don't remember it, discover it directly (safer than recomputing the hash):
 >
 > ```powershell
 > $STATE_SA = (az storage account list -g $RG_NETWORK --query "[?starts_with(name, 'sttfs')].name | [0]" -o tsv)
+> ```
+>
+> Echo to verify:
+>
+> ```powershell
 > Write-Host "STATE_SA = $STATE_SA"
 > ```
 >
@@ -1155,16 +1226,47 @@ The SAL usually releases in 5–45 min but has been observed to take **overnight
 
 > **Naming conventions.** The script uses the same session variables as the rest of the README (`$LOC`, `$RG_NETWORK`, `$RG_WORKLOAD`). The Foundry account lives in `$RG_WORKLOAD`; the VNet + delegated subnet live in `$RG_NETWORK`.
 
-**Step 1 — set variables + fire the delete.** This is a scripted paste-once recovery block — it's a small script (variable setup + conditional show/delete), not a single command. Intentionally kept as one block; paste the whole thing at once:
+**Step 1 — set variables + fire the delete.** Set the six naming variables first, then run the recovery script.
+
+Set the region:
 
 ```powershell
-$LOC          = "westus3"
-$RG_NETWORK   = "rg-ai-foundry-network-dev-$LOC"
-$RG_WORKLOAD  = "rg-ai-foundry-workload-dev-$LOC"
-$ACCT         = "ais-ai-foundry-dev-$LOC"
-$VNET         = "vnet-ai-foundry-dev-$LOC"
-$SUBNET       = "snet-agent-ai-foundry-dev"
+$LOC = "westus3"
+```
 
+Set the networking RG (VNet + subnet live here):
+
+```powershell
+$RG_NETWORK = "rg-ai-foundry-network-dev-$LOC"
+```
+
+Set the workload RG (Foundry account lives here):
+
+```powershell
+$RG_WORKLOAD = "rg-ai-foundry-workload-dev-$LOC"
+```
+
+Set the Foundry account name:
+
+```powershell
+$ACCT = "ais-ai-foundry-dev-$LOC"
+```
+
+Set the VNet name:
+
+```powershell
+$VNET = "vnet-ai-foundry-dev-$LOC"
+```
+
+Set the stuck subnet name:
+
+```powershell
+$SUBNET = "snet-agent-ai-foundry-dev"
+```
+
+Fire the delete. This is an intentional single-paste recovery script (`az show` + `if/else` around `az delete` + `$LASTEXITCODE` reset), not a single command — kept as one block because the pieces only make sense together:
+
+```powershell
 az cognitiveservices account show -g $RG_WORKLOAD -n $ACCT --query id -o tsv 2>$null | Out-Null
 if ($LASTEXITCODE -eq 0) {
     Write-Host "Firing account delete..."
