@@ -72,6 +72,19 @@ locals {
   # single-RG topology.
   base_resource_group_name = coalesce(var.base_resource_group_name, var.resource_group_name)
 
+  # RG where the private DNS zones actually live. Defaults to
+  # `base_resource_group_name` (base owns the zones alongside the VNet, our
+  # default topology). Override `var.dns_resource_group_name` when the zones
+  # live in a separate central connectivity / hub RG — a common enterprise
+  # CAF pattern where a platform team owns DNS zones centrally, distinct
+  # from each spoke's VNet RG. Applies uniformly to all 11 zones.
+  #
+  # Terraform's `coalesce()` skips BOTH null AND empty strings, so passing
+  # `dns_resource_group_name = ""` on the CLI or in a tfvars file falls back
+  # to `base_resource_group_name` the same way as leaving it null — matching
+  # the Bicep counterpart's `empty()` semantics.
+  dns_resource_group_name = coalesce(var.dns_resource_group_name, local.base_resource_group_name)
+
   vnet_name                       = coalesce(var.vnet_name, "vnet-${local.base_name}-${local.environment}-${local.location}")
   cognitive_custom_subdomain_name = coalesce(var.cognitive_custom_subdomain_name, "cog-acc-${local.base_name}-${local.environment}-${local.location}")
 
@@ -151,10 +164,13 @@ data "http" "myip" {
 #----------------------------------------------------------------
 # 2. Data sources — everything the base stack created.
 #
-# All lookups are by NAME in `local.base_resource_group_name` (defaults
-# to `var.resource_group_name` when `var.base_resource_group_name` is
-# null — same-RG topology). Override `base_resource_group_name` to look
-# base resources up in a separate networking / platform RG (CAF pattern).
+# VNet + subnet lookups are by NAME in `local.base_resource_group_name`
+# (defaults to `var.resource_group_name` when `var.base_resource_group_name`
+# is null — same-RG topology). Private DNS zone lookups are by NAME in
+# `local.dns_resource_group_name`, which defaults to
+# `local.base_resource_group_name` but can be split off via
+# `var.dns_resource_group_name` when zones live in a separate central
+# connectivity / hub RG (enterprise CAF pattern).
 # No `terraform_remote_state` and no reads of base's Terraform outputs,
 # so the two stacks aren't coupled through state files.
 #----------------------------------------------------------------
@@ -197,7 +213,7 @@ data "azurerm_subnet" "agent" {
 data "azurerm_private_dns_zone" "cognitive" {
   for_each            = toset(local.cognitive_private_dns_zones)
   name                = each.value
-  resource_group_name = local.base_resource_group_name
+  resource_group_name = local.dns_resource_group_name
 }
 
 data "azurerm_private_dns_zone" "storage" {
@@ -215,17 +231,17 @@ data "azurerm_private_dns_zone" "storage" {
     web   = local.storage_private_dns_zones[5]
   }
   name                = each.value
-  resource_group_name = local.base_resource_group_name
+  resource_group_name = local.dns_resource_group_name
 }
 
 data "azurerm_private_dns_zone" "cosmos" {
   name                = local.cosmos_private_dns_zone
-  resource_group_name = local.base_resource_group_name
+  resource_group_name = local.dns_resource_group_name
 }
 
 data "azurerm_private_dns_zone" "search" {
   name                = local.search_private_dns_zone
-  resource_group_name = local.base_resource_group_name
+  resource_group_name = local.dns_resource_group_name
 }
 
 #----------------------------------------------------------------
@@ -375,7 +391,7 @@ module "foundry_project" {
 
   cognitive_account_id = module.cognitive_account.id
 
-  storage_account_id    = module.storage.id
+  storage_account_id = module.storage.id
   # Use the module's ARM-computed blob endpoint output rather than string-
   # interpolating `.blob.core.windows.net` -- the suffix differs in sovereign
   # clouds (`.core.chinacloudapi.cn`, `.core.usgovcloudapi.net`, etc.).

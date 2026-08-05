@@ -5,9 +5,15 @@ variable "resource_group_name" {
 }
 
 variable "base_resource_group_name" {
-  description = "Resource group where the BASE stack lives (VNet + subnets + private DNS zones). Defaults to `rg-ai-foundry-network-dev-westus3` per the CAF landing-zone pattern. Set to the same value as `resource_group_name` to collapse into a single-RG topology; override to any other name to point at a base stack owned by a different central team."
+  description = "Resource group where the BASE stack's VNet + subnets live. Defaults to `rg-ai-foundry-network-dev-westus3` per the CAF landing-zone pattern. Set to the same value as `resource_group_name` to collapse into a single-RG topology; override to any other name to point at a base stack owned by a different central team. Also acts as the default RG for the private DNS zone lookups unless `dns_resource_group_name` is set."
   type        = string
   default     = "rg-ai-foundry-network-dev-westus3"
+}
+
+variable "dns_resource_group_name" {
+  description = "Resource group where the private DNS zones live. Leave null (default) to reuse `base_resource_group_name` — the case when base owns both the VNet and the DNS zones. Override when your zones are consolidated in a separate central connectivity / hub RG (a common enterprise CAF pattern where a platform team owns DNS zones centrally and each spoke owns its own VNet). Applies uniformly to all 11 zones (cognitive/storage/cosmos/search)."
+  type        = string
+  default     = null
 }
 
 # -----------------------------------------------------------------------------

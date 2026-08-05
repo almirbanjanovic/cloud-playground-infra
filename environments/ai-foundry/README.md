@@ -62,7 +62,7 @@ The base stack creates **11 private DNS zones**, all VNet-linked, matching the a
   | Resource creation (Contributor covers this) | Both RGs | Create/update the VNet, subnets, DNS zones, Storage, Cosmos, AI Search, Foundry account, project, PEs, connections, capability host |
   | `Microsoft.Authorization/roleAssignments/write` (**User Access Administrator** or **Role Based Access Control Administrator**) | Workload RG | Create the 5 `Microsoft.Authorization/roleAssignments` the workload grants to the project MI on Storage / Cosmos / AI Search |
   | `Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments/write` (**Cosmos DB Operator** on the Cosmos account, or Contributor at sub/RG scope) | Workload RG (Cosmos account) | Create the Cosmos SQL data-plane role assignment for the project MI. This is a Cosmos-native RBAC resource, NOT `Microsoft.Authorization/roleAssignments` — **UAA and RBAC Admin do NOT include it.** |
-  | `Microsoft.Network/privateDnsZones/join/action` (**Private DNS Zone Contributor** or higher) | Networking RG (private DNS zones) | Link the 9 workload PEs' DNS zone groups to the private DNS zones that live in the networking RG (per the [CAF split-RG topology](#deployment-topology-public-path-vs-private-path)). Same-RG deployers skip this. |
+  | `Microsoft.Network/privateDnsZones/join/action` (**Private DNS Zone Contributor** or higher) | The RG that owns the 11 private DNS zones (by default the networking RG; may be a separate central connectivity / hub RG if `dnsResourceGroupName` / `dns_resource_group_name` is overridden) | Link the 9 workload PEs' DNS zone groups to the private DNS zones that live outside the workload RG (per the [CAF split-RG topology](#deployment-topology-public-path-vs-private-path) and the [BYO base networking](#bringing-your-own-base-networking) section). Same-RG deployers skip this. |
 
   RP registration by itself only needs `*/register/action` (Contributor at sub scope is sufficient). Returning deployers with all existing role assignments and DNS zone group links can drop to Contributor for subsequent redeploys.
 - **Terraform** ≥ 1.7.5 ([install](https://developer.hashicorp.com/terraform/install)) — Path B only.
@@ -108,6 +108,39 @@ When unsure, default to the public path — switching to private later is a one-
 ---
 
 > ⚠️ **Every resource in this stack must be in the SAME Azure region** — both RGs, VNet, subnets, DNS zone links, all 9 workload PEs, and the 4 data-plane services. This isn't a lab convention: a private endpoint must co-locate with its target service, and the Foundry account must co-locate with its injected VNet (per [Microsoft's Foundry Agent Service private-networking docs](https://learn.microsoft.com/azure/ai-foundry/agents/how-to/virtual-networks#limitations)). The templates enforce this via a single `location` variable defaulting to `westus3`; if you change the region, change it in **both** stacks or workload PE creation fails with a region-mismatch error. Verify the target region is on Microsoft's [supported-regions list for Foundry Agent Service private networking](https://learn.microsoft.com/azure/ai-foundry/agents/concepts/limits-quotas-regions#supported-regions).
+
+---
+
+## Bringing your own base networking
+
+The workload stack looks base resources up **by NAME** (Bicep `existing`, Terraform `data`) — it does NOT read the base stack's outputs or state. That means you can point the workload at ANY pre-existing VNet + subnets + private DNS zones (a shared platform VNet, an ALZ spoke, a run of `base/` with custom names, or a hand-built lab) by overriding the matching parameter / variable. Every override is optional; unset values fall back to the base stack's naming convention. Mix and match as needed.
+
+| What you want to override | Bicep param | Terraform variable | Default |
+|---|---|---|---|
+| RG that owns the VNet + subnets | `baseResourceGroupName` | `base_resource_group_name` | `rg-ai-foundry-network-dev-westus3` |
+| RG that owns the 11 private DNS zones (if separate from the VNet's RG — classic CAF connectivity / hub RG) | `dnsResourceGroupName` | `dns_resource_group_name` | reuses `baseResourceGroupName` |
+| VNet name | `vnetName` | `vnet_name` | `vnet-<baseName>-<environment>-<location>` |
+| Cognitive-PE subnet name | `subnetNameCognitivePep` | `subnet_name_cognitive_pep` | `snet-cognitive-<baseName>-<environment>` |
+| Storage-PE subnet name | `subnetNameStoragePep` | `subnet_name_storage_pep` | `snet-storage-<baseName>-<environment>` |
+| Cosmos-PE subnet name | `subnetNameCosmosPep` | `subnet_name_cosmos_pep` | `snet-cosmos-<baseName>-<environment>` |
+| Search-PE subnet name | `subnetNameSearchPep` | `subnet_name_search_pep` | `snet-search-<baseName>-<environment>` |
+| Agent (delegated) subnet name | `subnetNameAgent` | `subnet_name_agent` | `snet-agent-<baseName>-<environment>` |
+| Foundry custom subdomain (privatelink hostname prefix) | `cognitiveCustomSubdomainName` | `cognitive_custom_subdomain_name` | `cog-acc-<baseName>-<environment>-<location>` |
+| 3 Cognitive privatelink DNS zone names | `cognitivePrivateDnsZoneNames` (must be length 3) | `cognitive_private_dns_zone_names` (must be length 3) | `privatelink.{cognitiveservices,openai,services.ai}.azure.com` |
+| 6 Storage privatelink DNS zone names | `storagePrivateDnsZoneNames` (must be length 6) | `storage_private_dns_zone_names` (must be length 6) | `privatelink.{blob,file,queue,table,dfs,web}.core.windows.net` |
+| Cosmos privatelink DNS zone name | `cosmosPrivateDnsZoneName` | `cosmos_private_dns_zone_name` | `privatelink.documents.azure.com` |
+| AI Search privatelink DNS zone name | `searchPrivateDnsZoneName` | `search_private_dns_zone_name` | `privatelink.search.windows.net` |
+| Shift the whole derived-name set at once | `baseName` / `environment` / `location` | `base_name` / `environment` / `location` | `ai-foundry` / `dev` / `westus3` |
+
+Two starting-point files bundle these overrides as commented examples:
+- **Bicep:** [`workload/bicep/main.bicepparam`](workload/bicep/main.bicepparam) has a "BRING YOUR OWN BASE NETWORKING" block with every option pre-written for you to uncomment.
+- **Terraform:** [`workload/terraform/terraform.tfvars.example`](workload/terraform/terraform.tfvars.example) has the same block. Copy it to `terraform.tfvars` (git-ignored) and uncomment what you need.
+
+Constraints that DON'T bend:
+- The 5 subnets must exist on the VNet you point at, with the standard sizes (`/24` is fine) and the agent subnet delegated to `Microsoft.App/environments`.
+- The 11 privatelink DNS zones must be VNet-linked to your VNet BEFORE the workload's private endpoints are created, so their A-records auto-register. If your platform team owns the zones, ask them to VNet-link to the target VNet first.
+- Every resource stays in the same Azure region (see the region warning above).
+- If the DNS zones live in a different RG than the VNet, your `az`/Terraform principal needs `Microsoft.Network/privateDnsZones/join/action` (Private DNS Zone Contributor) on THAT RG — see the least-privilege table under [Prerequisites](#prerequisites).
 
 ---
 
@@ -197,7 +230,7 @@ Expected: 1 VNet (`vnet-ai-foundry-dev-westus3`) + 11 privateDnsZones — all in
 
 ### Step 3. Deploy the workload stack (~15–20 min)
 
-The workload deploys **into `$RG_WORKLOAD`** and looks up base's VNet + DNS zones cross-RG in `$RG_NETWORK` (the `baseResourceGroupName` param in `main.bicep` defaults to `rg-ai-foundry-network-dev-westus3`).
+The workload deploys **into `$RG_WORKLOAD`** and by default looks up base's VNet + subnets + 11 private DNS zones cross-RG in `$RG_NETWORK` (the `baseResourceGroupName` param in `main.bicep` defaults to `rg-ai-foundry-network-dev-westus3`). If the DNS zones live in a separate central connectivity / hub RG, override `dnsResourceGroupName` too — see [Bringing your own base networking](#bringing-your-own-base-networking).
 
 > **Resuming from an existing base deploy?** If you're in a new terminal session (variables gone) or the base was deployed by someone else / a prior CI run, you need at minimum these three session variables before running the deploy:
 >
@@ -226,6 +259,7 @@ The workload deploys **into `$RG_WORKLOAD`** and looks up base's VNet + DNS zone
 >
 > The three most common overrides:
 > - `-p baseResourceGroupName=<rg>` — if base lives in an RG that doesn't match the default `rg-ai-foundry-network-dev-<loc>`
+> - `-p dnsResourceGroupName=<rg>` — if the 11 private DNS zones live in a different RG from the VNet (classic CAF: DNS zones consolidated in a central connectivity / hub RG). Blank = reuse `baseResourceGroupName`.
 > - `-p baseName=<v> -p environment=<v> -p location=<v>` — shifts the whole derived-name set (VNet, subnet, and Cognitive subdomain names all follow `<baseName>-<environment>-<location>`)
 > - `-p vnetName=<n>` / `-p subnetName*=<n>` — override individual names if base's resources don't follow the convention (e.g. a shared platform VNet)
 
@@ -487,7 +521,7 @@ Expected: 1 VNet, 11 privateDnsZones, **1 privateEndpoint** (on the state SA), a
 
 ### Step 5. Init workload with remote backend + apply (~15–20 min)
 
-The workload deploys **into `$RG_WORKLOAD`** and looks up base's VNet + DNS zones cross-RG in `$RG_NETWORK` (`variables.tf`'s `resource_group_name` defaults to `rg-ai-foundry-workload-dev-westus3` and `base_resource_group_name` defaults to `rg-ai-foundry-network-dev-westus3`).
+The workload deploys **into `$RG_WORKLOAD`** and by default looks up base's VNet + subnets + 11 private DNS zones cross-RG in `$RG_NETWORK` (`variables.tf`'s `resource_group_name` defaults to `rg-ai-foundry-workload-dev-westus3` and `base_resource_group_name` defaults to `rg-ai-foundry-network-dev-westus3`). If the DNS zones live in a separate central connectivity / hub RG, override `dns_resource_group_name` too — see [Bringing your own base networking](#bringing-your-own-base-networking).
 
 > **Resuming from an existing base deploy?** If you're in a new terminal session (variables gone) or the base was deployed by someone else / a prior CI run, you need at minimum these session variables before running init + apply:
 >
@@ -524,7 +558,8 @@ The workload deploys **into `$RG_WORKLOAD`** and looks up base's VNet + DNS zone
 >
 > The most common overrides:
 > - `resource_group_name` — workload RG (if not `rg-ai-foundry-workload-dev-<loc>`)
-> - `base_resource_group_name` — where base lives (if not `rg-ai-foundry-network-dev-<loc>`)
+> - `base_resource_group_name` — where base's VNet + subnets live (if not `rg-ai-foundry-network-dev-<loc>`)
+> - `dns_resource_group_name` — where the 11 private DNS zones live (if separate from the VNet's RG, i.e. classic CAF: zones consolidated in a central connectivity / hub RG). Leave null to reuse `base_resource_group_name`.
 > - `base_name` / `environment` / `location` — shifts the whole derived-name set (VNet, subnet, and Cognitive subdomain names all follow `<base_name>-<environment>-<location>`)
 > - Individual name overrides (`vnet_name`, `subnet_name_*`, DNS zone names, `cognitive_custom_subdomain_name`) — for a shared platform VNet whose resources don't follow the convention
 

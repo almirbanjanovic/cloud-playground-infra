@@ -10,33 +10,62 @@
 # --- Optional: override the workload RG ---
 # resource_group_name = "rg-ai-foundry-workload-dev-westus3"
 
-# --- Optional: cross-RG lookup for base (CAF landing-zone pattern) ---
-# Defaults to `rg-ai-foundry-network-dev-westus3` — the separate networking RG
+# =============================================================================
+# BRING YOUR OWN BASE NETWORKING
+#
+# The workload stack looks base resources up by NAME (via `data` sources) --
+# it does NOT read base's Terraform outputs. That means you can point it at
+# ANY pre-existing VNet + subnets + private DNS zones (e.g. provisioned by
+# a central platform team, an ALZ deployment, or a previous run with custom
+# names) by uncommenting the matching overrides below.
+#
+# Every override is optional; unset values fall back to the base stack's
+# naming convention. Mix and match as needed.
+# =============================================================================
+
+# --- 1. Cross-RG lookup (CAF landing-zone pattern) ---
+# Defaults to `rg-ai-foundry-network-dev-westus3` -- the separate networking RG
 # owned by base. Set to the same value as `resource_group_name` to collapse
 # both stacks into a single RG, or override to point at a base stack owned by
 # a different central team.
 # base_resource_group_name = "rg-ai-foundry-network-dev-westus3"
 
-# --- Optional: naming ---
-# All name variables default to null, and null triggers the built-in
-# convention that matches the base stack. Only set these if you want to
-# either (a) shift the whole naming scheme, or (b) point this stack at
-# pre-existing resources named differently.
-#
+# --- 2. Separate DNS zones RG (enterprise CAF pattern) ---
+# In classic CAF the private DNS zones for privatelink FQDNs live in a
+# central connectivity / hub RG owned by a platform team, DISTINCT from the
+# spoke VNet's RG. Set this when your 11 privatelink zones are consolidated
+# there. Leave null to reuse `base_resource_group_name` (default: base owns
+# both the VNet and the DNS zones together). Applies uniformly to all zones.
+# dns_resource_group_name = "rg-connectivity-hub-dns"
+
+# --- 3. Shift the whole derived-name set ---
+# The three variables below get concatenated into every derived resource name
+# (VNet, subnet, Cognitive subdomain). Changing them shifts the entire naming
+# convention in lockstep -- match whatever the base stack was deployed with.
 # base_name   = "ai-foundry"
 # environment = "dev"
 # location    = "westus3"     # see variables.tf for the list of supported Foundry regions
-#
-# Override individual data-source names:
-# vnet_name                 = "vnet-mycompany-shared-westus3"
-# subnet_name_cognitive_pep = "snet-mycompany-cognitive-pe"
-# subnet_name_storage_pep   = "snet-mycompany-storage-pe"
-# subnet_name_cosmos_pep    = "snet-mycompany-cosmos-pe"
-# subnet_name_search_pep    = "snet-mycompany-search-pe"
-# subnet_name_agent         = "snet-mycompany-foundry-agent"
+
+# --- 4. Individual data-source name overrides ---
+# Use these when base's resources don't follow the `<base_name>-<environment>-
+# <location>` convention (e.g. a shared platform VNet, a pre-existing ALZ
+# spoke, a hand-created lab). Set the ones you need; leave the rest null.
+# vnet_name                       = "vnet-mycompany-shared-westus3"
+# subnet_name_cognitive_pep       = "snet-mycompany-cognitive-pe"
+# subnet_name_storage_pep         = "snet-mycompany-storage-pe"
+# subnet_name_cosmos_pep          = "snet-mycompany-cosmos-pe"
+# subnet_name_search_pep          = "snet-mycompany-search-pe"
+# subnet_name_agent               = "snet-mycompany-foundry-agent"
 # cognitive_custom_subdomain_name = "cog-acc-mycompany-shared"
+
+# --- 5. Private DNS zone name overrides ---
+# Defaults are the required Standard Setup set for Azure public cloud. Override
+# only for sovereign clouds (Gov / China) or when a platform team runs custom
+# privatelink zone names.
 #
-# Override private DNS zone names (defaults match Azure public cloud):
+# The cognitive list MUST be exactly 3 zones (cognitiveservices, openai,
+# services.ai) and the storage list MUST be exactly 6 (blob/file/queue/table/
+# dfs/web) -- variable validators enforce this.
 # cognitive_private_dns_zone_names = [
 #   "privatelink.cognitiveservices.azure.com",
 #   "privatelink.openai.azure.com",

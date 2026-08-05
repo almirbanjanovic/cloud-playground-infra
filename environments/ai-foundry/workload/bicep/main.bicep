@@ -44,8 +44,11 @@ param location string = 'westus3'
 
 // --- Base-stack lookup RG (defaults to the CAF-pattern networking RG) ---
 
-@description('Resource group where the BASE stack lives (VNet + subnets + private DNS zones). Defaults to `rg-ai-foundry-network-dev-westus3` per the CAF landing-zone pattern: base networking in a dedicated platform RG, workload data-plane services in a separate per-workload RG. Set to the same value as the workload RG (passed via `-g`) for the single-RG topology; override to any other name to point at a base stack owned by a different central team.')
+@description('Resource group where the BASE stack\'s VNet + subnets live. Defaults to `rg-ai-foundry-network-dev-westus3` per the CAF landing-zone pattern: base networking in a dedicated platform RG, workload data-plane services in a separate per-workload RG. Set to the same value as the workload RG (passed via `-g`) for the single-RG topology; override to any other name to point at a base stack owned by a different central team. Also acts as the default RG for the private DNS zone lookups unless `dnsResourceGroupName` is set.')
 param baseResourceGroupName string = 'rg-ai-foundry-network-dev-westus3'
+
+@description('Resource group where the private DNS zones live. Blank = reuse `baseResourceGroupName` (base owns the VNet and the DNS zones together, our default topology). Override when your zones are consolidated in a separate central connectivity / hub RG (a common enterprise CAF pattern where a platform team owns DNS zones centrally and each spoke owns its own VNet). Applies uniformly to all 11 zones (cognitive/storage/cosmos/search).')
+param dnsResourceGroupName string = ''
 
 // --- Name overrides (blank = derive from baseName/environment/location) ---
 
@@ -138,6 +141,13 @@ var effectiveCognitiveSubdomain  = empty(cognitiveCustomSubdomainName) ? 'cog-ac
 // without having to know the workload RG name.
 var effectiveBaseRg = empty(baseResourceGroupName) ? resourceGroup().name : baseResourceGroupName
 
+// DNS-zone RG for `existing` lookups below. Blank = reuse `effectiveBaseRg`
+// (base owns the VNet and the DNS zones together, our default). Override
+// `dnsResourceGroupName` when zones live in a separate central connectivity
+// / hub RG (enterprise CAF pattern) so a platform team can consolidate the
+// 11 privatelink zones outside the spoke's VNet RG.
+var effectiveDnsRg = empty(dnsResourceGroupName) ? effectiveBaseRg : dnsResourceGroupName
+
 // DNS zone params default to the full required set, and length is locked to
 // exactly 3/6 by @minLength/@maxLength decorators, so we can use the param
 // values directly without an "empty -> defaults" fallback.
@@ -184,19 +194,19 @@ resource snetAgent 'Microsoft.Network/virtualNetworks/subnets@2024-05-01' existi
 
 resource cognitiveZones 'Microsoft.Network/privateDnsZones@2024-06-01' existing = [for zone in cognitivePrivateDnsZoneNames: {
   name: zone
-  scope: resourceGroup(effectiveBaseRg)
+  scope: resourceGroup(effectiveDnsRg)
 }]
 resource storageZones 'Microsoft.Network/privateDnsZones@2024-06-01' existing = [for zone in storagePrivateDnsZoneNames: {
   name: zone
-  scope: resourceGroup(effectiveBaseRg)
+  scope: resourceGroup(effectiveDnsRg)
 }]
 resource cosmosZone 'Microsoft.Network/privateDnsZones@2024-06-01' existing = {
   name: cosmosPrivateDnsZoneName
-  scope: resourceGroup(effectiveBaseRg)
+  scope: resourceGroup(effectiveDnsRg)
 }
 resource searchZone 'Microsoft.Network/privateDnsZones@2024-06-01' existing = {
   name: searchPrivateDnsZoneName
-  scope: resourceGroup(effectiveBaseRg)
+  scope: resourceGroup(effectiveDnsRg)
 }
 
 // ----------------------------------------------------------------------------

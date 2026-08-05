@@ -24,14 +24,36 @@ param deployerIp = readEnvironmentVariable('DEPLOYER_IP', '')
 //   '203.0.113.99'
 // ]
 
-// Cross-RG lookup: point at a base stack that lives in a DIFFERENT RG than the
-// one you deploy this workload into. Default in main.bicep is the CAF landing-
-// zone networking RG (`rg-ai-foundry-network-dev-westus3`). Override this to
-// the workload RG to collapse into a single-RG topology, or to another RG name
-// entirely (e.g. a shared platform RG owned by a central team).
+// ============================================================================
+// BRING YOUR OWN BASE NETWORKING
+//
+// This workload template looks base resources up by NAME via `existing`
+// references -- it does NOT read base's ARM outputs. That means you can point
+// it at ANY pre-existing VNet + subnets + private DNS zones (a central platform
+// VNet, an ALZ spoke, a prior run with custom names) by uncommenting the
+// matching overrides below. All are optional; unset values fall back to the
+// base stack's naming convention. Mix and match as needed.
+// ============================================================================
+
+// --- 1. Cross-RG lookup (CAF landing-zone pattern) ---
+// Point at a base stack in a DIFFERENT RG than the one you deploy this workload
+// into. Default in main.bicep is the CAF landing-zone networking RG
+// (`rg-ai-foundry-network-dev-westus3`). Override to the workload RG to collapse
+// into a single-RG topology, or to another RG name (e.g. a shared platform RG
+// owned by a central team).
 // param baseResourceGroupName = 'rg-shared-networking-westus3'
 
-// Individual name overrides (blank = derive from baseName/environment/location):
+// --- 2. Separate DNS zones RG (enterprise CAF pattern) ---
+// In classic CAF the private DNS zones for privatelink FQDNs live in a central
+// connectivity / hub RG owned by a platform team, DISTINCT from the spoke
+// VNet's RG. Set this when your 11 privatelink zones are consolidated there.
+// Leave blank ('') to reuse `baseResourceGroupName` (default: base owns both
+// the VNet and the DNS zones together). Applies uniformly to all 11 zones.
+// param dnsResourceGroupName = 'rg-connectivity-hub-dns'
+
+// --- 3. Individual name overrides (blank = derive from baseName/environment/location) ---
+// Use these when base's resources don't follow the `<baseName>-<environment>-
+// <location>` convention (e.g. a shared platform VNet).
 // param vnetName                     = 'vnet-mycompany-shared-westus3'
 // param subnetNameCognitivePep       = 'snet-mycompany-cognitive-pe'
 // param subnetNameStoragePep         = 'snet-mycompany-storage-pe'
@@ -40,9 +62,12 @@ param deployerIp = readEnvironmentVariable('DEPLOYER_IP', '')
 // param subnetNameAgent              = 'snet-mycompany-foundry-agent'
 // param cognitiveCustomSubdomainName = 'cog-acc-mycompany-shared'
 
-// Private DNS zone overrides -- MUST supply exactly 3 (cognitive) and 6 (storage)
-// entries in the documented order; @minLength/@maxLength decorators enforce this
-// at deploy time. Defaults are the required Standard Setup set.
+// --- 4. Private DNS zone name overrides ---
+// MUST supply exactly 3 (cognitive) and 6 (storage) entries in the documented
+// order; @minLength/@maxLength decorators enforce this at deploy time. Defaults
+// are the required Standard Setup set for Azure public cloud -- override only
+// for sovereign clouds (Gov / China) or when a platform team runs custom
+// privatelink zone names.
 // param cognitivePrivateDnsZoneNames = [
 //   'privatelink.cognitiveservices.azure.com'
 //   'privatelink.openai.azure.com'
