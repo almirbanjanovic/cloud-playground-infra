@@ -1,6 +1,6 @@
 <mxfile host="65bd71144e">
     <diagram name="AI Foundry — Architecture &amp; Deployment" id="ai-foundry-arch">
-        <mxGraphModel dx="2161" dy="1053" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1620" pageHeight="1440" math="0" shadow="0">
+        <mxGraphModel dx="2115" dy="708" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1620" pageHeight="1440" background="#ffffff" math="0" shadow="0">
             <root>
                 <mxCell id="0"/>
                 <mxCell id="1" parent="0"/>
@@ -117,7 +117,7 @@
                 <mxCell id="azure_arm_note" value="IaC reaches ARM control plane over the public endpoint · workload data planes are dual-access: private endpoint for VNet-injected agent runtime, public endpoint with IP allowlist for the deployer" style="text;html=1;strokeColor=none;fillColor=none;align=right;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontStyle=2;fontColor=#57606A;" parent="azure_sub" vertex="1">
                     <mxGeometry x="-30" y="38" width="1130" height="22" as="geometry"/>
                 </mxCell>
-                <mxCell id="16" value="Resource Groups: rg-ai-foundry-workload-dev-westus3 (workload)" style="shape=swimlane;html=1;whiteSpace=wrap;startSize=30;fillColor=#FFFFFF;strokeColor=#0078D4;strokeWidth=1;dashed=1;fontSize=13;fontStyle=1;align=left;verticalAlign=middle;spacingLeft=38;fontColor=#0078D4;rounded=1;" vertex="1" parent="azure_sub">
+                <mxCell id="16" value="Resource Groups: rg-ai-foundry-workload-dev-westus3 (workload)" style="shape=swimlane;html=1;whiteSpace=wrap;startSize=30;fillColor=#FFFFFF;strokeColor=#0078D4;strokeWidth=1;dashed=1;fontSize=13;fontStyle=1;align=left;verticalAlign=middle;spacingLeft=38;fontColor=#0078D4;rounded=1;" parent="azure_sub" vertex="1">
                     <mxGeometry x="640" y="75" width="555" height="540" as="geometry"/>
                 </mxCell>
                 <mxCell id="edge_agent_foundry" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=none;strokeColor=#B85450;strokeWidth=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;startArrow=classic;startFill=1;endFill=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="snet_agent_box" target="workload_foundry_icon" edge="1">

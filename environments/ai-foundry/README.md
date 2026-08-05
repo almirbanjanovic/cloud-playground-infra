@@ -150,50 +150,77 @@ Constraints that DON'T bend:
 
 These are all `az` commands — no working-directory dependency. Run them from anywhere.
 
-Sign in and pin the subscription:
+Sign in:
 
 ```powershell
 az login
+```
+
+Pin the subscription:
+
+```powershell
 az account set --subscription <YOUR_SUBSCRIPTION_ID>
+```
+
+Confirm the active subscription / tenant:
+
+```powershell
 az account show --query "{Subscription:name, Id:id, Tenant:tenantId}" -o table
 ```
 
-Set naming variables for the two CAF-pattern RGs and echo:
+Set naming variables for the two CAF-pattern RGs (this block primes your session — paste the whole thing at once):
 
 ```powershell
 $LOC          = "westus3"
 $RG_NETWORK   = "rg-ai-foundry-network-dev-$LOC"    # base stack lives here
 $RG_WORKLOAD  = "rg-ai-foundry-workload-dev-$LOC"   # workload stack lives here
-Write-Host "LOC          = $LOC"
-Write-Host "RG_NETWORK   = $RG_NETWORK"
-Write-Host "RG_WORKLOAD  = $RG_WORKLOAD"
 ```
 
-Create both RGs:
+Echo them back to verify:
+
+```powershell
+Get-Variable LOC, RG_NETWORK, RG_WORKLOAD | Format-Table -AutoSize Name, Value
+```
+
+Create the networking RG:
 
 ```powershell
 az group create -n $RG_NETWORK  -l $LOC --tags environment=dev workload=ai-foundry stack=network
+```
+
+Create the workload RG:
+
+```powershell
 az group create -n $RG_WORKLOAD -l $LOC --tags environment=dev workload=ai-foundry stack=workload
+```
+
+Verify both RGs are `Succeeded`:
+
+```powershell
 az group list --query "[?name=='$RG_NETWORK' || name=='$RG_WORKLOAD'].{Name:name, Location:location, State:properties.provisioningState}" -o table
 ```
 
 Expected: both rows show `Succeeded` in the `State` column.
 
-Register Resource Providers, then show the state for all of them in one query:
+Register the 6 Resource Providers this stack needs (this block is one command — the `foreach` loop):
 
 ```powershell
-$rps = @(
+foreach ($rp in @(
+    # NOTE: if you add/remove an RP here, also update the verify query below AND the mirror
+    # list in Path B Step 1's register block + verify query -- 4 places total.
     'Microsoft.App',                # required by the agent subnet's Microsoft.App/environments delegation (Foundry Agent Service runtime)
     'Microsoft.CognitiveServices',  # Foundry account + project + connections + capability hosts
     'Microsoft.DocumentDB',         # Cosmos DB
     'Microsoft.Network',            # VNet, subnets, private DNS zones, private endpoints
     'Microsoft.Search',             # AI Search
     'Microsoft.Storage'             # Storage account
-)
-foreach ($rp in $rps) { az provider register --namespace $rp --wait }
+)) { az provider register --namespace $rp --wait }
+```
 
-$rpList = "'" + ($rps -join "','") + "'"
-az provider list --query "[?contains([$rpList], namespace)].{Namespace:namespace, State:registrationState}" -o table
+Verify every RP shows `Registered` (keep this list in sync with the registration block above):
+
+```powershell
+az provider list --query "[?contains(['Microsoft.App','Microsoft.CognitiveServices','Microsoft.DocumentDB','Microsoft.Network','Microsoft.Search','Microsoft.Storage'], namespace)].{Namespace:namespace, State:registrationState}" -o table
 ```
 
 Expected: every row shows `Registered`.
@@ -205,8 +232,12 @@ Base creates the VNet + 5 subnets + 11 private DNS zones with VNet links, **into
 `cd` into the base Bicep directory:
 
 ```powershell
-Set-Location (git rev-parse --show-toplevel)
-Set-Location environments/ai-foundry/base/bicep
+Set-Location (Join-Path (git rev-parse --show-toplevel) 'environments/ai-foundry/base/bicep')
+```
+
+Verify:
+
+```powershell
 Get-Location   # expect: ...\environments\ai-foundry\base\bicep
 ```
 
@@ -246,10 +277,15 @@ The workload deploys **into `$RG_WORKLOAD`** and by default looks up base's VNet
 > az group create -n $RG_WORKLOAD -l $LOC --tags environment=dev workload=ai-foundry stack=workload
 > ```
 >
-> **If the base stack was deployed with non-default names / values**, first discover what's actually in `$RG_NETWORK`:
+> **If the base stack was deployed with non-default names / values**, first discover what's actually in `$RG_NETWORK`. List the VNet and DNS zones:
 >
 > ```powershell
 > az resource list -g $RG_NETWORK --query "[?type=='Microsoft.Network/virtualNetworks' || type=='Microsoft.Network/privateDnsZones'].{Name:name, Type:type}" -o table
+> ```
+>
+> Then list the subnets on the VNet you found:
+>
+> ```powershell
 > az network vnet subnet list -g $RG_NETWORK --vnet-name <your-vnet-name> --query "[].name" -o tsv
 > ```
 >
@@ -266,8 +302,12 @@ The workload deploys **into `$RG_WORKLOAD`** and by default looks up base's VNet
 `cd` into the workload Bicep directory:
 
 ```powershell
-Set-Location (git rev-parse --show-toplevel)
-Set-Location environments/ai-foundry/workload/bicep
+Set-Location (Join-Path (git rev-parse --show-toplevel) 'environments/ai-foundry/workload/bicep')
+```
+
+Verify:
+
+```powershell
 Get-Location   # expect: ...\environments\ai-foundry\workload\bicep
 ```
 
@@ -277,6 +317,11 @@ Set your public IP as an environment variable (Bicep's `main.bicepparam` reads i
 
 ```powershell
 $env:DEPLOYER_IP = (Invoke-RestMethod https://api.ipify.org).Trim()
+```
+
+Echo to verify:
+
+```powershell
 Write-Host "DEPLOYER_IP = $env:DEPLOYER_IP"
 ```
 
@@ -296,10 +341,15 @@ az deployment group create `
     -p main.bicepparam
 ```
 
-Verify the 4 data-plane services and the 9 workload PEs (all in `$RG_WORKLOAD`):
+Verify the 4 data-plane services and the 9 workload PEs (all in `$RG_WORKLOAD`). List the four data-plane services:
 
 ```powershell
 az resource list -g $RG_WORKLOAD --query "[?type=='Microsoft.CognitiveServices/accounts' || type=='Microsoft.Storage/storageAccounts' || type=='Microsoft.DocumentDB/databaseAccounts' || type=='Microsoft.Search/searchServices'].{Name:name, Type:type}" -o table
+```
+
+Count the private endpoints:
+
+```powershell
 (az resource list -g $RG_WORKLOAD --resource-type Microsoft.Network/privateEndpoints -o json | ConvertFrom-Json).Count
 ```
 
@@ -309,8 +359,15 @@ Expected: 1 Cognitive account + 1 Storage + 1 Cosmos + 1 Search; PE count = **9*
 
 **Verify the private path** (only if you chose Option B above). Resolve the Foundry account's FQDN; a `10.x.x.x` address means DNS routed through the base stack's private zones and admin traffic is on the private path. A public IP means the DNS didn't integrate — either allowlist your IP + redeploy (public path), or fix your DNS routing (e.g. add a conditional forwarder / peer the VPN's DNS to Azure DNS) and rerun this verify.
 
+Grab the Foundry FQDN:
+
 ```powershell
 $foundryFqdn = (az cognitiveservices account list -g $RG_WORKLOAD --query "[?kind=='AIServices'].properties.endpoint | [0]" -o tsv) -replace 'https://', '' -replace '/$', ''
+```
+
+Resolve it:
+
+```powershell
 Resolve-DnsName $foundryFqdn | Select-Object Name, IPAddress
 ```
 
@@ -318,10 +375,15 @@ Why the IP is on the allowlist by default: the deploy itself is mostly ARM contr
 
 ### Step 4. Full inventory (across both RGs)
 
+List everything in the networking RG:
+
 ```powershell
-Write-Host "--- $RG_NETWORK ---"
 az resource list -g $RG_NETWORK  --query "sort_by([], &type)[].{Name:name, Type:type}" -o table
-Write-Host "--- $RG_WORKLOAD ---"
+```
+
+List everything in the workload RG:
+
+```powershell
 az resource list -g $RG_WORKLOAD --query "sort_by([], &type)[].{Name:name, Type:type}" -o table
 ```
 
@@ -339,50 +401,73 @@ Terraform can't atomically create its own backing store, so the flow has one ext
 
 These are all `az` commands — no working-directory dependency. Run them from anywhere.
 
-Sign in and set variables:
+Sign in:
 
 ```powershell
 az login
-az account set --subscription <YOUR_SUBSCRIPTION_ID>
+```
 
+Pin the subscription:
+
+```powershell
+az account set --subscription <YOUR_SUBSCRIPTION_ID>
+```
+
+Set naming variables + capture your subscription and object IDs (this block primes your session — paste the whole thing at once):
+
+```powershell
 $LOC          = "westus3"
 $RG_NETWORK   = "rg-ai-foundry-network-dev-$LOC"    # base stack + tfstate SA live here
 $RG_WORKLOAD  = "rg-ai-foundry-workload-dev-$LOC"   # workload stack lives here
 $SUB          = (az account show --query id -o tsv)
 $ME           = (az ad signed-in-user show --query id -o tsv)
-
-Write-Host "LOC          = $LOC"
-Write-Host "RG_NETWORK   = $RG_NETWORK"
-Write-Host "RG_WORKLOAD  = $RG_WORKLOAD"
-Write-Host "SUB          = $SUB"
-Write-Host "ME           = $ME"
 ```
 
-Expected: all six echoes non-empty; `SUB` looks like a GUID, `ME` looks like a GUID.
+Echo them back to verify:
 
-Create both RGs:
+```powershell
+Get-Variable LOC, RG_NETWORK, RG_WORKLOAD, SUB, ME | Format-Table -AutoSize Name, Value
+```
+
+Expected: all five values non-empty; `SUB` looks like a GUID, `ME` looks like a GUID.
+
+Create the networking RG:
 
 ```powershell
 az group create -n $RG_NETWORK  -l $LOC --tags environment=dev workload=ai-foundry stack=network
+```
+
+Create the workload RG:
+
+```powershell
 az group create -n $RG_WORKLOAD -l $LOC --tags environment=dev workload=ai-foundry stack=workload
+```
+
+Verify both RGs are `Succeeded`:
+
+```powershell
 az group list --query "[?name=='$RG_NETWORK' || name=='$RG_WORKLOAD'].{Name:name, Location:location, State:properties.provisioningState}" -o table
 ```
 
-Register Resource Providers (Terraform's `resource_provider_registrations = "none"` means Terraform will NOT auto-register, so this is required):
+Register the 6 Resource Providers (Terraform's `resource_provider_registrations = "none"` means Terraform will NOT auto-register, so this is required):
 
 ```powershell
-$rps = @(
+foreach ($rp in @(
+    # NOTE: if you add/remove an RP here, also update the verify query below AND the mirror
+    # list in Path A Step 1's register block + verify query -- 4 places total.
     'Microsoft.App',                # required by the agent subnet's Microsoft.App/environments delegation (Foundry Agent Service runtime)
     'Microsoft.CognitiveServices',  # Foundry account + project + connections + capability hosts
     'Microsoft.DocumentDB',         # Cosmos DB
     'Microsoft.Network',            # VNet, subnets, private DNS zones, private endpoints
     'Microsoft.Search',             # AI Search
     'Microsoft.Storage'             # Storage account (also backs the tfstate SA bootstrapped in Step 2)
-)
-foreach ($rp in $rps) { az provider register --namespace $rp --wait }
+)) { az provider register --namespace $rp --wait }
+```
 
-$rpList = "'" + ($rps -join "','") + "'"
-az provider list --query "[?contains([$rpList], namespace)].{Namespace:namespace, State:registrationState}" -o table
+Verify every RP shows `Registered` (keep this list in sync with the registration block above):
+
+```powershell
+az provider list --query "[?contains(['Microsoft.App','Microsoft.CognitiveServices','Microsoft.DocumentDB','Microsoft.Network','Microsoft.Search','Microsoft.Storage'], namespace)].{Namespace:namespace, State:registrationState}" -o table
 ```
 
 Expected: every row shows `Registered`.
@@ -395,10 +480,17 @@ az role assignment create `
     --assignee-principal-type User `
     --role "Storage Blob Data Contributor" `
     --scope "/subscriptions/$SUB/resourceGroups/$RG_NETWORK"
+```
 
-# Wait for the role assignment to propagate before using it.
+Wait for the role assignment to propagate before using it:
+
+```powershell
 Start-Sleep -Seconds 60
+```
 
+Verify the assignment:
+
+```powershell
 az role assignment list --assignee $ME --scope "/subscriptions/$SUB/resourceGroups/$RG_NETWORK" --query "[?roleDefinitionName=='Storage Blob Data Contributor'].{Role:roleDefinitionName, Scope:scope}" -o table
 ```
 
@@ -406,7 +498,7 @@ Expected: one row with `Storage Blob Data Contributor` at the `$RG_NETWORK` scop
 
 ### Step 2. Bootstrap the Terraform-state Storage account (~2 min)
 
-The tfstate SA lives in the **networking RG** (`$RG_NETWORK`) — it's part of the base / platform stack's lifecycle. Detect your IP and derive the state SA name (`sttfs<md5(RG + base_name + environment + location)>` truncated to 12 hex chars — must match what base's `main.tf` will compute):
+The tfstate SA lives in the **networking RG** (`$RG_NETWORK`) — it's part of the base / platform stack's lifecycle. Detect your IP and derive the state SA name (`sttfs<md5(RG + base_name + environment + location)>` truncated to 12 hex chars — must match what base's `main.tf` will compute). This block primes your session; paste it whole:
 
 ```powershell
 $DEPLOYER_IP = (Invoke-RestMethod https://api.ipify.org).Trim()
@@ -418,9 +510,12 @@ $md5       = [System.Security.Cryptography.MD5]::Create()
 $hashBytes = $md5.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($hashInput))
 $HASH      = -join ($hashBytes | ForEach-Object { $_.ToString('x2') })
 $STATE_SA  = "sttfs" + $HASH.Substring(0, 12)
+```
 
-Write-Host "DEPLOYER_IP = $DEPLOYER_IP"
-Write-Host "STATE_SA    = $STATE_SA"
+Echo to verify:
+
+```powershell
+Get-Variable DEPLOYER_IP, STATE_SA | Format-Table -AutoSize Name, Value
 ```
 
 Expected: `DEPLOYER_IP` is a public IPv4; `STATE_SA` is 17 chars starting with `sttfs`.
@@ -440,7 +535,11 @@ az storage account create `
     --public-network-access Enabled `
     --bypass AzureServices `
     --ip-address $DEPLOYER_IP
+```
 
+Verify it landed with the expected properties:
+
+```powershell
 az storage account show -g $RG_NETWORK -n $STATE_SA --query "{Name:name, SKU:sku.name, PublicNetwork:publicNetworkAccess, TLS:minimumTlsVersion, SharedKey:allowSharedKeyAccess}" -o table
 ```
 
@@ -458,7 +557,11 @@ az storage container create `
     --auth-mode login `
     --account-name $STATE_SA `
     -n tfstate
+```
 
+Verify:
+
+```powershell
 az storage container list --auth-mode login --account-name $STATE_SA --query "[].{Name:name, PublicAccess:publicAccess}" -o table
 ```
 
@@ -469,8 +572,12 @@ Expected: `tfstate` container present with `PublicAccess = None`.
 `cd` into the base Terraform directory — everything in Steps 3 and 4 runs from here:
 
 ```powershell
-Set-Location (git rev-parse --show-toplevel)
-Set-Location environments/ai-foundry/base/terraform
+Set-Location (Join-Path (git rev-parse --show-toplevel) 'environments/ai-foundry/base/terraform')
+```
+
+Verify:
+
+```powershell
 Get-Location   # expect: ...\environments\ai-foundry\base\terraform
 ```
 
@@ -484,17 +591,25 @@ terraform init `
 
 Expected: `Terraform has been successfully initialized!`
 
-Import the storage account and its container so Terraform manages them going forward:
+Import the storage account so Terraform manages it going forward:
 
 ```powershell
 terraform import `
     "module.tfstate_storage.azurerm_storage_account.this" `
     "/subscriptions/$SUB/resourceGroups/$RG_NETWORK/providers/Microsoft.Storage/storageAccounts/$STATE_SA"
+```
 
+Import the tfstate container:
+
+```powershell
 terraform import `
     "azurerm_storage_container.tfstate" `
     "/subscriptions/$SUB/resourceGroups/$RG_NETWORK/providers/Microsoft.Storage/storageAccounts/$STATE_SA/blobServices/default/containers/tfstate"
+```
 
+Verify both imports landed in state:
+
+```powershell
 terraform state list
 ```
 
@@ -550,10 +665,10 @@ The workload deploys **into `$RG_WORKLOAD`** and by default looks up base's VNet
 > az resource list -g $RG_NETWORK --query "[?type=='Microsoft.Network/virtualNetworks' || type=='Microsoft.Network/privateDnsZones'].{Name:name, Type:type}" -o table
 > ```
 >
-> Then copy [`terraform.tfvars.example`](workload/terraform/terraform.tfvars.example) to `terraform.tfvars` (git-ignored) inside `environments/ai-foundry/workload/terraform/` and uncomment the overrides you need:
+> Then copy [`terraform.tfvars.example`](workload/terraform/terraform.tfvars.example) to `terraform.tfvars` (git-ignored) inside `environments/ai-foundry/workload/terraform/` and uncomment the overrides you need. This one-liner works from any cwd:
 >
 > ```powershell
-> Copy-Item environments/ai-foundry/workload/terraform/terraform.tfvars.example environments/ai-foundry/workload/terraform/terraform.tfvars
+> Copy-Item (Join-Path (git rev-parse --show-toplevel) 'environments/ai-foundry/workload/terraform/terraform.tfvars.example') (Join-Path (git rev-parse --show-toplevel) 'environments/ai-foundry/workload/terraform/terraform.tfvars')
 > ```
 >
 > The most common overrides:
@@ -566,8 +681,12 @@ The workload deploys **into `$RG_WORKLOAD`** and by default looks up base's VNet
 `cd` into the workload Terraform directory:
 
 ```powershell
-Set-Location (git rev-parse --show-toplevel)
-Set-Location environments/ai-foundry/workload/terraform
+Set-Location (Join-Path (git rev-parse --show-toplevel) 'environments/ai-foundry/workload/terraform')
+```
+
+Verify:
+
+```powershell
 Get-Location   # expect: ...\environments\ai-foundry\workload\terraform
 ```
 
@@ -593,10 +712,17 @@ terraform apply
 terraform apply -var 'deployer_ip='
 ```
 
-**Verify the private path** (only if you chose Option B). Resolve the Foundry account's FQDN; a `10.x.x.x` address means DNS routed through the base stack's private zones. A public IP means fix your DNS routing (or drop back to the public path):
+**Verify the private path** (only if you chose Option B). Resolve the Foundry account's FQDN; a `10.x.x.x` address means DNS routed through the base stack's private zones. A public IP means fix your DNS routing (or drop back to the public path).
+
+Grab the Foundry FQDN:
 
 ```powershell
 $foundryFqdn = (az cognitiveservices account list -g $RG_WORKLOAD --query "[?kind=='AIServices'].properties.endpoint | [0]" -o tsv) -replace 'https://', '' -replace '/$', ''
+```
+
+Resolve it:
+
+```powershell
 Resolve-DnsName $foundryFqdn | Select-Object Name, IPAddress
 ```
 
@@ -604,10 +730,15 @@ Resolve-DnsName $foundryFqdn | Select-Object Name, IPAddress
 
 ### Step 6. Full inventory (across both RGs)
 
+List everything in the networking RG:
+
 ```powershell
-Write-Host "--- $RG_NETWORK ---"
 az resource list -g $RG_NETWORK  --query "sort_by([], &type)[].{Name:name, Type:type}" -o table
-Write-Host "--- $RG_WORKLOAD ---"
+```
+
+List everything in the workload RG:
+
+```powershell
 az resource list -g $RG_WORKLOAD --query "sort_by([], &type)[].{Name:name, Type:type}" -o table
 ```
 
@@ -625,12 +756,21 @@ Both paths are idempotent — rerun the deploy commands to pick up any change (c
 
 ### Path A — Bicep
 
+`cd` into the workload Bicep directory:
+
 ```powershell
-Set-Location (git rev-parse --show-toplevel)
-Set-Location environments/ai-foundry/workload/bicep
+Set-Location (Join-Path (git rev-parse --show-toplevel) 'environments/ai-foundry/workload/bicep')
+```
 
+Refresh your public IP into `$env:DEPLOYER_IP`:
+
+```powershell
 $env:DEPLOYER_IP = (Invoke-RestMethod https://api.ipify.org).Trim()
+```
 
+Deploy:
+
+```powershell
 az deployment group create `
     -g $RG_WORKLOAD `
     -n workload-$(Get-Date -Format 'yyyyMMdd-HHmmss') `
@@ -640,19 +780,29 @@ az deployment group create `
 
 ### Path B — Terraform
 
-If your IP changed since the last apply, refresh the state SA's firewall allowlist first (Storage's control plane is always reachable regardless of the data-plane firewall — that's how this ad-hoc rule gets added). The state SA lives in `$RG_NETWORK`:
+If your IP changed since the last apply, refresh the state SA's firewall allowlist first (Storage's control plane is always reachable regardless of the data-plane firewall — that's how this ad-hoc rule gets added). The state SA lives in `$RG_NETWORK`.
+
+Refresh your public IP:
 
 ```powershell
 $DEPLOYER_IP = (Invoke-RestMethod https://api.ipify.org).Trim()
+```
+
+Add it to the state SA firewall:
+
+```powershell
 az storage account network-rule add -g $RG_NETWORK -n $STATE_SA --ip-address $DEPLOYER_IP
 ```
 
-Then apply workload:
+`cd` into the workload Terraform directory:
 
 ```powershell
-Set-Location (git rev-parse --show-toplevel)
-Set-Location environments/ai-foundry/workload/terraform
+Set-Location (Join-Path (git rev-parse --show-toplevel) 'environments/ai-foundry/workload/terraform')
+```
 
+Apply:
+
+```powershell
 terraform apply
 ```
 
@@ -675,10 +825,15 @@ Once the deploy is verified, lock the workload data planes down. Two sub-parts �
 
 **Path A — Bicep.** Setting both `deployerIp=""` **and** `allowedIpsExtra=@()` is required to actually empty the allowlist — the two are `union`'d inside the workload template, so clearing only one leaves the other in place.
 
-```powershell
-Set-Location (git rev-parse --show-toplevel)
-Set-Location environments/ai-foundry/workload/bicep
+`cd` into the workload Bicep directory:
 
+```powershell
+Set-Location (Join-Path (git rev-parse --show-toplevel) 'environments/ai-foundry/workload/bicep')
+```
+
+Deploy with cleared allowlists:
+
+```powershell
 az deployment group create `
     -g $RG_WORKLOAD `
     -n strip-ip-$(Get-Date -Format 'yyyyMMdd-HHmmss') `
@@ -688,37 +843,83 @@ az deployment group create `
     -p allowedIpsExtra='[]'
 ```
 
-**Path B — Terraform.** Same reasoning — `compact(concat([deployer_ip], allowed_ips_extra))` means both must be cleared:
+**Path B — Terraform.** Same reasoning — `compact(concat([deployer_ip], allowed_ips_extra))` means both must be cleared.
+
+`cd` into the workload Terraform directory:
 
 ```powershell
-Set-Location (git rev-parse --show-toplevel)
-Set-Location environments/ai-foundry/workload/terraform
+Set-Location (Join-Path (git rev-parse --show-toplevel) 'environments/ai-foundry/workload/terraform')
+```
 
+Apply with cleared allowlists:
+
+```powershell
 terraform apply `
     -var 'deployer_ip=' `
     -var 'allowed_ips_extra=[]'
 ```
 
-**Verify the allowlists are empty across all 4 services:**
+**Verify the allowlists are empty across all 4 services.**
+
+Grab the Foundry account name:
 
 ```powershell
 $foundryAccount = (az cognitiveservices account list -g $RG_WORKLOAD --query "[?kind=='AIServices'].name | [0]" -o tsv)
+```
+
+Check the Foundry account's IP rules (requires `$foundryAccount` from the block above):
+
+```powershell
 az cognitiveservices account show -g $RG_WORKLOAD -n $foundryAccount --query "properties.networkAcls.ipRules" -o json
+```
+
+Check the Storage account's IP rules:
+
+```powershell
 az storage account list -g $RG_WORKLOAD --query "[].{Name:name, IpRules:networkRuleSet.ipRules}" -o json
+```
+
+Check the Cosmos account's IP rules:
+
+```powershell
 az cosmosdb list -g $RG_WORKLOAD --query "[].{Name:name, IpRules:ipRules}" -o json
+```
+
+Check the AI Search service's IP rules:
+
+```powershell
 az search service list -g $RG_WORKLOAD --query "[].{Name:name, IpRules:networkRuleSet.ipRules}" -o json
 ```
 
 Expected: `ipRules` (or `IpRules`) is `[]` on every service.
 
-> **To re-add your IP quickly** (without a full 15-min redeploy) for one-off admin work: use `az <service> network-rule add` per-service. This creates drift the next full deploy will reconcile away:
+> **To re-add your IP quickly** (without a full 15-min redeploy) for one-off admin work: use `az <service> network-rule add` per-service. This creates drift the next full deploy will reconcile away.
+>
+> Refresh your IP:
 > ```powershell
 > $DEPLOYER_IP = (Invoke-RestMethod https://api.ipify.org).Trim()
-> az storage account network-rule add       -g $RG_WORKLOAD -n <storageName>  --ip-address $DEPLOYER_IP
-> az cognitiveservices account network-rule add -g $RG_WORKLOAD -n $foundryAccount --ip-address $DEPLOYER_IP
-> az cosmosdb network-rule add              -g $RG_WORKLOAD -n <cosmosName>   --ip-address $DEPLOYER_IP
-> az search service network-rule add        -g $RG_WORKLOAD --service-name <searchName> --ip-address-value $DEPLOYER_IP
 > ```
+>
+> Re-add on Storage:
+> ```powershell
+> az storage account network-rule add -g $RG_WORKLOAD -n <storageName> --ip-address $DEPLOYER_IP
+> ```
+>
+> Re-add on the Foundry account:
+> ```powershell
+> az cognitiveservices account network-rule add -g $RG_WORKLOAD -n <foundryAccountName> --ip-address $DEPLOYER_IP
+> ```
+>
+> Re-add on Cosmos:
+> ```powershell
+> az cosmosdb network-rule add -g $RG_WORKLOAD -n <cosmosName> --ip-address $DEPLOYER_IP
+> ```
+>
+> Re-add on AI Search:
+> ```powershell
+> az search service network-rule add -g $RG_WORKLOAD --service-name <searchName> --ip-address-value $DEPLOYER_IP
+> ```
+>
 > Remove them the same way with `network-rule remove` when you're done.
 
 > **Path B tfstate caveat.** C1 only strips the four **workload** service firewalls. The base stack's tfstate storage account in `$RG_NETWORK` keeps whatever allowlist entries the last base apply set. If your IP changes and you later run `terraform init` for either stack, the state read may 403 — see the tfstate-403 row in [Troubleshooting](#troubleshooting) for the one-line `az storage account network-rule add` recovery.
@@ -729,12 +930,15 @@ Expected: `ipRules` (or `IpRules`) is `[]` on every service.
 
 Run C1 first. C2 closes the public endpoints so the trusted-services bypass path can't be used either — anything reaching the 4 workload services now has to come through a private endpoint. Only run this if you're done with laptop-side administration for the foreseeable future.
 
-**Path A — Bicep:**
+**Path A — Bicep.** `cd` into the workload Bicep directory:
 
 ```powershell
-Set-Location (git rev-parse --show-toplevel)
-Set-Location environments/ai-foundry/workload/bicep
+Set-Location (Join-Path (git rev-parse --show-toplevel) 'environments/ai-foundry/workload/bicep')
+```
 
+Deploy with public endpoints disabled and allowlists cleared:
+
+```powershell
 az deployment group create `
     -g $RG_WORKLOAD `
     -n harden-$(Get-Date -Format 'yyyyMMdd-HHmmss') `
@@ -745,25 +949,50 @@ az deployment group create `
     -p allowedIpsExtra='[]'
 ```
 
-**Path B — Terraform:**
+**Path B — Terraform.** `cd` into the workload Terraform directory:
 
 ```powershell
-Set-Location (git rev-parse --show-toplevel)
-Set-Location environments/ai-foundry/workload/terraform
+Set-Location (Join-Path (git rev-parse --show-toplevel) 'environments/ai-foundry/workload/terraform')
+```
 
+Apply with public endpoints disabled and allowlists cleared:
+
+```powershell
 terraform apply `
     -var 'enable_public_network_access=false' `
     -var 'deployer_ip=' `
     -var 'allowed_ips_extra=[]'
 ```
 
-**Verify all 4 services flipped to `Disabled`.** The Foundry account resource name is `ais-<baseName>-<environment>-<location>` (the `cog-acc-...` string you may see elsewhere is the custom subdomain, not the account name) — discover it dynamically so this works regardless of override:
+**Verify all 4 services flipped to `Disabled`.** The Foundry account resource name is `ais-<baseName>-<environment>-<location>` (the `cog-acc-...` string you may see elsewhere is the custom subdomain, not the account name) — discover it dynamically so this works regardless of override.
+
+Grab the Foundry account name:
 
 ```powershell
 $foundryAccount = (az cognitiveservices account list -g $RG_WORKLOAD --query "[?kind=='AIServices'].name | [0]" -o tsv)
+```
+
+Check the Foundry account (requires `$foundryAccount` from the block above):
+
+```powershell
 az cognitiveservices account show -g $RG_WORKLOAD -n $foundryAccount --query "properties.publicNetworkAccess" -o tsv
+```
+
+Check the Storage account:
+
+```powershell
 az storage account list -g $RG_WORKLOAD --query "[].{Name:name, PublicNetwork:publicNetworkAccess}" -o table
+```
+
+Check Cosmos:
+
+```powershell
 az cosmosdb list -g $RG_WORKLOAD --query "[].{Name:name, PublicNetwork:publicNetworkAccess}" -o table
+```
+
+Check AI Search:
+
+```powershell
 az search service list -g $RG_WORKLOAD --query "[].{Name:name, PublicNetwork:publicNetworkAccess}" -o table
 ```
 
@@ -781,12 +1010,29 @@ Expected: `Disabled` for the Foundry account, the workload Storage account, Cosm
 
 ### Path A — Bicep
 
-Delete both RGs (workload first for cleanliness, though the operations are RG-scoped and won't cross-block):
+Delete both RGs (workload first for cleanliness, though the operations are RG-scoped and won't cross-block).
+
+Delete the workload RG:
 
 ```powershell
 az group delete -n $RG_WORKLOAD --yes --no-wait
+```
+
+Delete the networking RG:
+
+```powershell
 az group delete -n $RG_NETWORK  --yes --no-wait
+```
+
+Verify the workload RG is gone (poll every ~30 s until it returns `false`):
+
+```powershell
 az group exists -n $RG_WORKLOAD
+```
+
+Verify the networking RG is gone:
+
+```powershell
 az group exists -n $RG_NETWORK
 ```
 
@@ -796,32 +1042,65 @@ Expected: both return `false` once the async deletes complete (typically 2–5 m
 
 Remove the state SA + container from Terraform's tracking BEFORE destroying, so `terraform destroy` on base doesn't try to delete the backend it's currently reading state from.
 
-First, destroy the workload stack:
+First, `cd` into the workload Terraform directory:
 
 ```powershell
-Set-Location (git rev-parse --show-toplevel)
-Set-Location environments/ai-foundry/workload/terraform
+Set-Location (Join-Path (git rev-parse --show-toplevel) 'environments/ai-foundry/workload/terraform')
+```
 
+Destroy the workload stack:
+
+```powershell
 terraform destroy
 ```
 
-Then switch to base, untrack the state SA + container, and destroy:
+Then switch to base:
 
 ```powershell
-Set-Location (git rev-parse --show-toplevel)
-Set-Location environments/ai-foundry/base/terraform
+Set-Location (Join-Path (git rev-parse --show-toplevel) 'environments/ai-foundry/base/terraform')
+```
 
+Untrack the tfstate storage account (so `terraform destroy` won't touch it):
+
+```powershell
 terraform state rm 'module.tfstate_storage.azurerm_storage_account.this'
+```
+
+Untrack the tfstate container:
+
+```powershell
 terraform state rm 'azurerm_storage_container.tfstate'
+```
+
+Destroy the base stack:
+
+```powershell
 terraform destroy
 ```
 
-Finally, delete both RGs. Workload destroy runs first (its resources reference base); base destroy only removes the VNet + DNS zones because we untracked the tfstate SA + container; the final `az group delete` cleans up the still-in-Azure, no-longer-in-Terraform tfstate SA from `$RG_NETWORK`:
+Finally, delete both RGs. Workload destroy runs first (its resources reference base); base destroy only removes the VNet + DNS zones because we untracked the tfstate SA + container; the final `az group delete` cleans up the still-in-Azure, no-longer-in-Terraform tfstate SA from `$RG_NETWORK`.
+
+Delete the workload RG:
 
 ```powershell
 az group delete -n $RG_WORKLOAD --yes --no-wait
+```
+
+Delete the networking RG:
+
+```powershell
 az group delete -n $RG_NETWORK  --yes --no-wait
+```
+
+Verify the workload RG is gone:
+
+```powershell
 az group exists -n $RG_WORKLOAD
+```
+
+Verify the networking RG is gone:
+
+```powershell
 az group exists -n $RG_NETWORK
 ```
 
@@ -876,7 +1155,7 @@ The SAL usually releases in 5–45 min but has been observed to take **overnight
 
 > **Naming conventions.** The script uses the same session variables as the rest of the README (`$LOC`, `$RG_NETWORK`, `$RG_WORKLOAD`). The Foundry account lives in `$RG_WORKLOAD`; the VNet + delegated subnet live in `$RG_NETWORK`.
 
-**Step 1 — set variables + fire the delete.** Paste this whole block once:
+**Step 1 — set variables + fire the delete.** This is a scripted paste-once recovery block — it's a small script (variable setup + conditional show/delete), not a single command. Intentionally kept as one block; paste the whole thing at once:
 
 ```powershell
 $LOC          = "westus3"
@@ -896,7 +1175,7 @@ if ($LASTEXITCODE -eq 0) {
 $LASTEXITCODE = 0
 ```
 
-**Step 2 — poll for the SAL to release.** Paste this whole block once. It caps at 45 min. When it prints `SAL cleared` the poll is done; when it prints `SAL still stuck` after 45 min, go to the [If the SAL never clears](#if-the-sal-never-clears) section.
+**Step 2 — poll for the SAL to release.** This is a scripted paste-once recovery block — a small polling script (a `for` loop + a final status `if`), not a single command. Intentionally kept as one block. It caps at 45 min. When it prints `SAL cleared` the poll is done; when it prints `SAL still stuck` after 45 min, go to the [If the SAL never clears](#if-the-sal-never-clears) section.
 
 ```powershell
 for ($i = 0; $i -lt 90; $i++) {
@@ -908,13 +1187,30 @@ for ($i = 0; $i -lt 90; $i++) {
 if ($SAL) { Write-Host "SAL still stuck after 45 min. See 'If the SAL never clears'." } else { Write-Host "SAL cleared." }
 ```
 
-**Step 3 — clean up.** Only run this after Step 2 prints `SAL cleared`:
+**Step 3 — clean up.** Only run this after Step 2 prints `SAL cleared`.
+
+Purge the soft-deleted Foundry account (`2>$null` swallows the noise if it was hard-deleted already — the next command resets `$LASTEXITCODE` for the same reason):
 
 ```powershell
 az cognitiveservices account purge --location $LOC --name $ACCT --resource-group $RG_WORKLOAD 2>$null
+```
+
+Reset the exit code (purge may return non-zero if the account was already hard-deleted):
+
+```powershell
 $LASTEXITCODE = 0
+```
+
+Strip the `Microsoft.App/environments` delegation off the subnet:
+
+```powershell
 az network vnet subnet update -g $RG_NETWORK --vnet-name $VNET -n $SUBNET --set 'delegations=[]'
-az network vnet subnet delete  -g $RG_NETWORK --vnet-name $VNET -n $SUBNET
+```
+
+Delete the subnet:
+
+```powershell
+az network vnet subnet delete -g $RG_NETWORK --vnet-name $VNET -n $SUBNET
 ```
 
 > **PowerShell paste artifacts:** pwsh echoes `>>` continuation prompts while collecting a multi-line paste — those aren't output. Only lines from `Write-Host` or errors are real results; a clean `PS>` prompt after the paste means the block ran without throwing (real throws print `Exception:` + red-highlighted text).
