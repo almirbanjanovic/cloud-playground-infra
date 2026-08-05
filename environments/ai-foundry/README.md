@@ -115,22 +115,24 @@ When unsure, default to the public path — switching to private later is a one-
 
 The workload stack looks base resources up **by NAME** (Bicep `existing`, Terraform `data`) — it does NOT read the base stack's outputs or state. That means you can point the workload at ANY pre-existing VNet + subnets + private DNS zones (a shared platform VNet, an ALZ spoke, a run of `base/` with custom names, or a hand-built lab) by overriding the matching parameter / variable. Every override is optional; unset values fall back to the base stack's naming convention. Mix and match as needed.
 
-| What you want to override | Bicep param | Terraform variable | Default |
-|---|---|---|---|
-| RG that owns the VNet + subnets | `baseResourceGroupName` | `base_resource_group_name` | `rg-ai-foundry-network-dev-westus3` |
-| RG that owns the 11 private DNS zones (if separate from the VNet's RG — classic CAF connectivity / hub RG) | `dnsResourceGroupName` | `dns_resource_group_name` | reuses `baseResourceGroupName` |
-| VNet name | `vnetName` | `vnet_name` | `vnet-<baseName>-<environment>-<location>` |
-| Cognitive-PE subnet name | `subnetNameCognitivePep` | `subnet_name_cognitive_pep` | `snet-cognitive-<baseName>-<environment>` |
-| Storage-PE subnet name | `subnetNameStoragePep` | `subnet_name_storage_pep` | `snet-storage-<baseName>-<environment>` |
-| Cosmos-PE subnet name | `subnetNameCosmosPep` | `subnet_name_cosmos_pep` | `snet-cosmos-<baseName>-<environment>` |
-| Search-PE subnet name | `subnetNameSearchPep` | `subnet_name_search_pep` | `snet-search-<baseName>-<environment>` |
-| Agent (delegated) subnet name | `subnetNameAgent` | `subnet_name_agent` | `snet-agent-<baseName>-<environment>` |
-| Foundry custom subdomain (privatelink hostname prefix) | `cognitiveCustomSubdomainName` | `cognitive_custom_subdomain_name` | `cog-acc-<baseName>-<environment>-<location>` |
-| 3 Cognitive privatelink DNS zone names | `cognitivePrivateDnsZoneNames` (must be length 3) | `cognitive_private_dns_zone_names` (must be length 3) | `privatelink.{cognitiveservices,openai,services.ai}.azure.com` |
-| 6 Storage privatelink DNS zone names | `storagePrivateDnsZoneNames` (must be length 6) | `storage_private_dns_zone_names` (must be length 6) | `privatelink.{blob,file,queue,table,dfs,web}.core.windows.net` |
-| Cosmos privatelink DNS zone name | `cosmosPrivateDnsZoneName` | `cosmos_private_dns_zone_name` | `privatelink.documents.azure.com` |
-| AI Search privatelink DNS zone name | `searchPrivateDnsZoneName` | `search_private_dns_zone_name` | `privatelink.search.windows.net` |
-| Shift the whole derived-name set at once | `baseName` / `environment` / `location` | `base_name` / `environment` / `location` | `ai-foundry` / `dev` / `westus3` |
+> **VNet + subnet names have a preferred override path.** The workload deploy commands (Step 3 for Bicep, Step 5 for Terraform, plus Redeploy / C1 / C2 for each) always inject the 6 session variables `$VNET_NAME` and `$SUBNET_*` via `-p` / `-var` flags. **CLI flags win over `main.bicepparam` / `terraform.tfvars` for these 6 names** — editing those files for VNet / subnet names is silently ignored. To use different names, change the 6 session vars in Step 1 (Path A) or Step 1 (Path B) instead. Every OTHER override in the table below (RGs, DNS zone names, custom subdomain, `baseName` / `environment` / `location`) still works fine via the param / tfvars files. Note: `baseName` / `environment` / `location` in the file WON'T re-derive VNet + subnet names, because those 6 come from CLI — you'd need to update both the file AND the session vars.
+
+| What you want to override | Bicep param | Terraform variable | Default | Where to change |
+|---|---|---|---|---|
+| RG that owns the VNet + subnets | `baseResourceGroupName` | `base_resource_group_name` | `rg-ai-foundry-network-dev-westus3` | `main.bicepparam` / `terraform.tfvars` |
+| RG that owns the 11 private DNS zones (if separate from the VNet's RG — classic CAF connectivity / hub RG) | `dnsResourceGroupName` | `dns_resource_group_name` | reuses `baseResourceGroupName` | `main.bicepparam` / `terraform.tfvars` |
+| VNet name | `vnetName` | `vnet_name` | `vnet-ai-foundry-dev-<$LOC>` | **session var `$VNET_NAME` in Step 1** |
+| Cognitive-PE subnet name | `subnetNameCognitivePep` | `subnet_name_cognitive_pep` | `snet-cognitive-ai-foundry-dev` | **session var `$SUBNET_COGNITIVE_PEP` in Step 1** |
+| Storage-PE subnet name | `subnetNameStoragePep` | `subnet_name_storage_pep` | `snet-storage-ai-foundry-dev` | **session var `$SUBNET_STORAGE_PEP` in Step 1** |
+| Cosmos-PE subnet name | `subnetNameCosmosPep` | `subnet_name_cosmos_pep` | `snet-cosmos-ai-foundry-dev` | **session var `$SUBNET_COSMOS_PEP` in Step 1** |
+| Search-PE subnet name | `subnetNameSearchPep` | `subnet_name_search_pep` | `snet-search-ai-foundry-dev` | **session var `$SUBNET_SEARCH_PEP` in Step 1** |
+| Agent (delegated) subnet name | `subnetNameAgent` | `subnet_name_agent` | `snet-agent-ai-foundry-dev` | **session var `$SUBNET_AGENT` in Step 1** |
+| Foundry custom subdomain (privatelink hostname prefix) | `cognitiveCustomSubdomainName` | `cognitive_custom_subdomain_name` | `cog-acc-<baseName>-<environment>-<location>` | `main.bicepparam` / `terraform.tfvars` |
+| 3 Cognitive privatelink DNS zone names | `cognitivePrivateDnsZoneNames` (must be length 3) | `cognitive_private_dns_zone_names` (must be length 3) | `privatelink.{cognitiveservices,openai,services.ai}.azure.com` | `main.bicepparam` / `terraform.tfvars` |
+| 6 Storage privatelink DNS zone names | `storagePrivateDnsZoneNames` (must be length 6) | `storage_private_dns_zone_names` (must be length 6) | `privatelink.{blob,file,queue,table,dfs,web}.core.windows.net` | `main.bicepparam` / `terraform.tfvars` |
+| Cosmos privatelink DNS zone name | `cosmosPrivateDnsZoneName` | `cosmos_private_dns_zone_name` | `privatelink.documents.azure.com` | `main.bicepparam` / `terraform.tfvars` |
+| AI Search privatelink DNS zone name | `searchPrivateDnsZoneName` | `search_private_dns_zone_name` | `privatelink.search.windows.net` | `main.bicepparam` / `terraform.tfvars` |
+| Shift the whole derived-name set at once | `baseName` / `environment` / `location` | `base_name` / `environment` / `location` | `ai-foundry` / `dev` / `westus3` | `main.bicepparam` / `terraform.tfvars` |
 
 Two starting-point files bundle these overrides as commented examples:
 - **Bicep:** [`workload/bicep/main.bicepparam`](workload/bicep/main.bicepparam) has a "BRING YOUR OWN BASE NETWORKING" block with every option pre-written for you to uncomment.
@@ -186,10 +188,48 @@ Set the workload stack's RG name:
 $RG_WORKLOAD = "rg-ai-foundry-workload-dev-$LOC"
 ```
 
+Set the workload naming variables that the workload deploy looks up cross-RG on base's VNet. The defaults below match the base stack's naming convention with `baseName=ai-foundry`, `environment=dev`. If you're deploying against a pre-existing VNet with different names (BYO base networking), change any of them before running the workload deploy — see [Bringing your own base networking](#bringing-your-own-base-networking). PowerShell expands `$LOC` at assignment time, so make sure `$LOC` is set BEFORE the `$VNET_NAME` block below — if you change `$LOC` later, re-run the `$VNET_NAME` assignment too.
+
+Set the VNet name:
+
+```powershell
+$VNET_NAME = "vnet-ai-foundry-dev-$LOC"
+```
+
+Set the Cognitive-PE subnet name (Foundry Account Private Endpoint lives here):
+
+```powershell
+$SUBNET_COGNITIVE_PEP = "snet-cognitive-ai-foundry-dev"
+```
+
+Set the Storage-PE subnet name (all 6 Storage subresource Private Endpoints live here):
+
+```powershell
+$SUBNET_STORAGE_PEP = "snet-storage-ai-foundry-dev"
+```
+
+Set the Cosmos-PE subnet name:
+
+```powershell
+$SUBNET_COSMOS_PEP = "snet-cosmos-ai-foundry-dev"
+```
+
+Set the Search-PE subnet name:
+
+```powershell
+$SUBNET_SEARCH_PEP = "snet-search-ai-foundry-dev"
+```
+
+Set the agent subnet name (delegated to `Microsoft.App/environments`; Foundry Agent Service network-injects here):
+
+```powershell
+$SUBNET_AGENT = "snet-agent-ai-foundry-dev"
+```
+
 Echo them back to verify:
 
 ```powershell
-Get-Variable LOC, RG_NETWORK, RG_WORKLOAD | Format-Table -AutoSize Name, Value
+Get-Variable LOC, RG_NETWORK, RG_WORKLOAD, VNET_NAME, SUBNET_COGNITIVE_PEP, SUBNET_STORAGE_PEP, SUBNET_COSMOS_PEP, SUBNET_SEARCH_PEP, SUBNET_AGENT | Format-Table -AutoSize Name, Value
 ```
 
 Create the networking RG:
@@ -273,7 +313,7 @@ Expected: 1 VNet (`vnet-ai-foundry-dev-westus3`) + 11 privateDnsZones — all in
 
 The workload deploys **into `$RG_WORKLOAD`** and by default looks up base's VNet + subnets + 11 private DNS zones cross-RG in `$RG_NETWORK` (the `baseResourceGroupName` param in `main.bicep` defaults to `rg-ai-foundry-network-dev-westus3`). If the DNS zones live in a separate central connectivity / hub RG, override `dnsResourceGroupName` too — see [Bringing your own base networking](#bringing-your-own-base-networking).
 
-> **Resuming from an existing base deploy?** If you're in a new terminal session (variables gone) or the base was deployed by someone else / a prior CI run, you need at minimum these three session variables before running the deploy.
+> **Resuming from an existing base deploy?** If you're in a new terminal session (variables gone) or the base was deployed by someone else / a prior CI run, you need to re-set the session variables before running the deploy — the RG names AND the workload naming vars (VNet + 5 subnets) both feed the deploy command below.
 >
 > Set the region (the region the base stack was deployed in):
 >
@@ -291,6 +331,32 @@ The workload deploys **into `$RG_WORKLOAD`** and by default looks up base's VNet
 >
 > ```powershell
 > $RG_WORKLOAD = "rg-ai-foundry-workload-dev-$LOC"
+> ```
+>
+> Re-set the 6 workload naming vars (defaults match the base stack's convention; change any that don't match your actual base deploy — see the [BYO section](#bringing-your-own-base-networking)). PowerShell expands `$LOC` at assignment time, so `$LOC` must already be set (from the block above) before the `$VNET_NAME` line runs; if you change `$LOC` later, re-run the `$VNET_NAME` assignment too:
+>
+> ```powershell
+> $VNET_NAME = "vnet-ai-foundry-dev-$LOC"
+> ```
+>
+> ```powershell
+> $SUBNET_COGNITIVE_PEP = "snet-cognitive-ai-foundry-dev"
+> ```
+>
+> ```powershell
+> $SUBNET_STORAGE_PEP = "snet-storage-ai-foundry-dev"
+> ```
+>
+> ```powershell
+> $SUBNET_COSMOS_PEP = "snet-cosmos-ai-foundry-dev"
+> ```
+>
+> ```powershell
+> $SUBNET_SEARCH_PEP = "snet-search-ai-foundry-dev"
+> ```
+>
+> ```powershell
+> $SUBNET_AGENT = "snet-agent-ai-foundry-dev"
 > ```
 >
 > Make sure `$RG_WORKLOAD` exists (Path A Step 1 creates it — skip if you already ran it):
@@ -312,14 +378,14 @@ The workload deploys **into `$RG_WORKLOAD`** and by default looks up base's VNet
 > ```
 >
 > Then either:
-> - **Edit** [`main.bicepparam`](workload/bicep/main.bicepparam) directly — it has commented examples for every override (`baseName`, `environment`, `location`, `baseResourceGroupName`, `vnetName`, `subnetNameCognitivePep`, DNS zone names, `cognitiveCustomSubdomainName`, etc.), OR
-> - **Pass overrides on the CLI** via `-p` flags on the `az deployment group create` below — e.g. `-p baseResourceGroupName=<rg-name>`, `-p baseName=<value>`, `-p vnetName=<name>`. The CLI flags override anything in `main.bicepparam`.
+> - **Edit** [`main.bicepparam`](workload/bicep/main.bicepparam) directly — it has commented examples for every override EXCEPT the 6 CLI-pinned names (`baseName`, `environment`, `location`, `baseResourceGroupName`, `dnsResourceGroupName`, DNS zone names, `cognitiveCustomSubdomainName`, etc.). VNet + subnet names must be changed via the 6 session vars (`$VNET_NAME`, `$SUBNET_*`) in Step 1 above; editing those in `main.bicepparam` is silently ignored because Step 3's deploy passes CLI `-p` flags for them.
+> - **Pass overrides on the CLI** via `-p` flags on the `az deployment group create` below — e.g. `-p baseResourceGroupName=<rg-name>`, `-p baseName=<value>`. VNet + subnet names should go through the 6 session vars, NOT an ad-hoc `-p vnetName=<name>` (the deploy command already carries `-p "vnetName=$VNET_NAME"`).
 >
-> The three most common overrides:
+> The most common overrides:
 > - `-p baseResourceGroupName=<rg>` — if base lives in an RG that doesn't match the default `rg-ai-foundry-network-dev-<loc>`
 > - `-p dnsResourceGroupName=<rg>` — if the 11 private DNS zones live in a different RG from the VNet (classic CAF: DNS zones consolidated in a central connectivity / hub RG). Blank = reuse `baseResourceGroupName`.
-> - `-p baseName=<v> -p environment=<v> -p location=<v>` — shifts the whole derived-name set (VNet, subnet, and Cognitive subdomain names all follow `<baseName>-<environment>-<location>`)
-> - `-p vnetName=<n>` / `-p subnetName*=<n>` — override individual names if base's resources don't follow the convention (e.g. a shared platform VNet)
+> - **VNet + subnet names** — change the 6 session vars (`$VNET_NAME`, `$SUBNET_COGNITIVE_PEP`, `$SUBNET_STORAGE_PEP`, `$SUBNET_COSMOS_PEP`, `$SUBNET_SEARCH_PEP`, `$SUBNET_AGENT`) in Step 1, NOT the corresponding `main.bicepparam` entries. The Step 3 deploy always passes them as `-p` flags, so CLI overrides win over `main.bicepparam` — file edits to these 6 names are silently ignored.
+> - `-p baseName=<v> -p environment=<v> -p location=<v>` — shifts derived names for the Foundry Account subdomain (`cog-acc-<baseName>-<environment>-<location>`) and the account resource itself. It does NOT re-derive the VNet + subnet names, because those come from the 6 session vars — update the session vars separately if you're changing `baseName` / `environment` / `location`.
 
 `cd` into the workload Bicep directory:
 
@@ -360,7 +426,13 @@ az deployment group create `
     -g $RG_WORKLOAD `
     -n workload-$(Get-Date -Format 'yyyyMMdd-HHmmss') `
     -f main.bicep `
-    -p main.bicepparam
+    -p main.bicepparam `
+    -p "vnetName=$VNET_NAME" `
+    -p "subnetNameCognitivePep=$SUBNET_COGNITIVE_PEP" `
+    -p "subnetNameStoragePep=$SUBNET_STORAGE_PEP" `
+    -p "subnetNameCosmosPep=$SUBNET_COSMOS_PEP" `
+    -p "subnetNameSearchPep=$SUBNET_SEARCH_PEP" `
+    -p "subnetNameAgent=$SUBNET_AGENT"
 ```
 
 Verify the 4 data-plane services and the 9 workload PEs (all in `$RG_WORKLOAD`). List the four data-plane services:
@@ -453,6 +525,44 @@ Set the workload RG name:
 $RG_WORKLOAD = "rg-ai-foundry-workload-dev-$LOC"
 ```
 
+Set the workload naming variables that the workload deploy looks up cross-RG on base's VNet. The defaults below match the base stack's naming convention with `base_name=ai-foundry`, `environment=dev`. If you're deploying against a pre-existing VNet with different names (BYO base networking), change any of them before running the workload deploy — see [Bringing your own base networking](#bringing-your-own-base-networking). PowerShell expands `$LOC` at assignment time, so make sure `$LOC` is set BEFORE the `$VNET_NAME` block below — if you change `$LOC` later, re-run the `$VNET_NAME` assignment too.
+
+Set the VNet name:
+
+```powershell
+$VNET_NAME = "vnet-ai-foundry-dev-$LOC"
+```
+
+Set the Cognitive-PE subnet name (Foundry Account Private Endpoint lives here):
+
+```powershell
+$SUBNET_COGNITIVE_PEP = "snet-cognitive-ai-foundry-dev"
+```
+
+Set the Storage-PE subnet name (all 6 Storage subresource Private Endpoints live here):
+
+```powershell
+$SUBNET_STORAGE_PEP = "snet-storage-ai-foundry-dev"
+```
+
+Set the Cosmos-PE subnet name:
+
+```powershell
+$SUBNET_COSMOS_PEP = "snet-cosmos-ai-foundry-dev"
+```
+
+Set the Search-PE subnet name:
+
+```powershell
+$SUBNET_SEARCH_PEP = "snet-search-ai-foundry-dev"
+```
+
+Set the agent subnet name (delegated to `Microsoft.App/environments`; Foundry Agent Service network-injects here):
+
+```powershell
+$SUBNET_AGENT = "snet-agent-ai-foundry-dev"
+```
+
 Capture the current subscription ID:
 
 ```powershell
@@ -468,10 +578,10 @@ $ME = (az ad signed-in-user show --query id -o tsv)
 Echo them back to verify:
 
 ```powershell
-Get-Variable LOC, RG_NETWORK, RG_WORKLOAD, SUB, ME | Format-Table -AutoSize Name, Value
+Get-Variable LOC, RG_NETWORK, RG_WORKLOAD, VNET_NAME, SUBNET_COGNITIVE_PEP, SUBNET_STORAGE_PEP, SUBNET_COSMOS_PEP, SUBNET_SEARCH_PEP, SUBNET_AGENT, SUB, ME | Format-Table -AutoSize Name, Value
 ```
 
-Expected: all five values non-empty; `SUB` looks like a GUID, `ME` looks like a GUID.
+Expected: all values non-empty; `SUB` looks like a GUID, `ME` looks like a GUID.
 
 Create the networking RG:
 
@@ -712,6 +822,32 @@ The workload deploys **into `$RG_WORKLOAD`** and by default looks up base's VNet
 > $RG_WORKLOAD = "rg-ai-foundry-workload-dev-$LOC"
 > ```
 >
+> Re-set the 6 workload naming vars (defaults match the base stack's convention; change any that don't match your actual base deploy — see the [BYO section](#bringing-your-own-base-networking)). PowerShell expands `$LOC` at assignment time, so `$LOC` must already be set (from the block above) before the `$VNET_NAME` line runs; if you change `$LOC` later, re-run the `$VNET_NAME` assignment too:
+>
+> ```powershell
+> $VNET_NAME = "vnet-ai-foundry-dev-$LOC"
+> ```
+>
+> ```powershell
+> $SUBNET_COGNITIVE_PEP = "snet-cognitive-ai-foundry-dev"
+> ```
+>
+> ```powershell
+> $SUBNET_STORAGE_PEP = "snet-storage-ai-foundry-dev"
+> ```
+>
+> ```powershell
+> $SUBNET_COSMOS_PEP = "snet-cosmos-ai-foundry-dev"
+> ```
+>
+> ```powershell
+> $SUBNET_SEARCH_PEP = "snet-search-ai-foundry-dev"
+> ```
+>
+> ```powershell
+> $SUBNET_AGENT = "snet-agent-ai-foundry-dev"
+> ```
+>
 > The tfstate SA name lives in `$RG_NETWORK`. If you don't remember it, discover it directly (safer than recomputing the hash):
 >
 > ```powershell
@@ -746,8 +882,8 @@ The workload deploys **into `$RG_WORKLOAD`** and by default looks up base's VNet
 > - `resource_group_name` — workload RG (if not `rg-ai-foundry-workload-dev-<loc>`)
 > - `base_resource_group_name` — where base's VNet + subnets live (if not `rg-ai-foundry-network-dev-<loc>`)
 > - `dns_resource_group_name` — where the 11 private DNS zones live (if separate from the VNet's RG, i.e. classic CAF: zones consolidated in a central connectivity / hub RG). Leave null to reuse `base_resource_group_name`.
-> - `base_name` / `environment` / `location` — shifts the whole derived-name set (VNet, subnet, and Cognitive subdomain names all follow `<base_name>-<environment>-<location>`)
-> - Individual name overrides (`vnet_name`, `subnet_name_*`, DNS zone names, `cognitive_custom_subdomain_name`) — for a shared platform VNet whose resources don't follow the convention
+> - **VNet + subnet names** — change the 6 session vars (`$VNET_NAME`, `$SUBNET_COGNITIVE_PEP`, `$SUBNET_STORAGE_PEP`, `$SUBNET_COSMOS_PEP`, `$SUBNET_SEARCH_PEP`, `$SUBNET_AGENT`) in Step 1, NOT the corresponding `terraform.tfvars` entries. The Step 5 apply always passes them as `-var` flags, so CLI overrides win over `terraform.tfvars` — file edits to these 6 names are silently ignored.
+> - `base_name` / `environment` / `location` — shifts derived names for the Foundry Account subdomain (`cog-acc-<base_name>-<environment>-<location>`) and the account resource itself. It does NOT re-derive the VNet + subnet names, because those come from the 6 session vars — update the session vars separately if you're changing `base_name` / `environment` / `location`.
 
 `cd` into the workload Terraform directory:
 
@@ -774,13 +910,26 @@ Apply. See [Deployment topology](#deployment-topology-public-path-vs-private-pat
 **Option A — public-path deploy (default).** Deployer on the public internet. Terraform's `data.http.myip` auto-detects your public IP and pins it into the workload firewalls:
 
 ```powershell
-terraform apply
+terraform apply `
+    -var "vnet_name=$VNET_NAME" `
+    -var "subnet_name_cognitive_pep=$SUBNET_COGNITIVE_PEP" `
+    -var "subnet_name_storage_pep=$SUBNET_STORAGE_PEP" `
+    -var "subnet_name_cosmos_pep=$SUBNET_COSMOS_PEP" `
+    -var "subnet_name_search_pep=$SUBNET_SEARCH_PEP" `
+    -var "subnet_name_agent=$SUBNET_AGENT"
 ```
 
 **Option B — private-path deploy.** Deployer on VPN / ExpressRoute / Bastion / VNet-injected runner. Skip the ipify call entirely by pinning `deployer_ip` to empty string; the workload FQDNs resolve to private IPs via the base stack's private DNS zones, so no allowlist entry is needed:
 
 ```powershell
-terraform apply -var 'deployer_ip='
+terraform apply `
+    -var 'deployer_ip=' `
+    -var "vnet_name=$VNET_NAME" `
+    -var "subnet_name_cognitive_pep=$SUBNET_COGNITIVE_PEP" `
+    -var "subnet_name_storage_pep=$SUBNET_STORAGE_PEP" `
+    -var "subnet_name_cosmos_pep=$SUBNET_COSMOS_PEP" `
+    -var "subnet_name_search_pep=$SUBNET_SEARCH_PEP" `
+    -var "subnet_name_agent=$SUBNET_AGENT"
 ```
 
 **Verify the private path** (only if you chose Option B). Resolve the Foundry Account's FQDN; a `10.x.x.x` address means DNS routed through the base stack's private zones. A public IP means fix your DNS routing (or drop back to the public path).
@@ -846,7 +995,13 @@ az deployment group create `
     -g $RG_WORKLOAD `
     -n workload-$(Get-Date -Format 'yyyyMMdd-HHmmss') `
     -f main.bicep `
-    -p main.bicepparam
+    -p main.bicepparam `
+    -p "vnetName=$VNET_NAME" `
+    -p "subnetNameCognitivePep=$SUBNET_COGNITIVE_PEP" `
+    -p "subnetNameStoragePep=$SUBNET_STORAGE_PEP" `
+    -p "subnetNameCosmosPep=$SUBNET_COSMOS_PEP" `
+    -p "subnetNameSearchPep=$SUBNET_SEARCH_PEP" `
+    -p "subnetNameAgent=$SUBNET_AGENT"
 ```
 
 ### Path B — Terraform
@@ -874,7 +1029,13 @@ Set-Location (Join-Path (git rev-parse --show-toplevel) 'environments/ai-foundry
 Apply:
 
 ```powershell
-terraform apply
+terraform apply `
+    -var "vnet_name=$VNET_NAME" `
+    -var "subnet_name_cognitive_pep=$SUBNET_COGNITIVE_PEP" `
+    -var "subnet_name_storage_pep=$SUBNET_STORAGE_PEP" `
+    -var "subnet_name_cosmos_pep=$SUBNET_COSMOS_PEP" `
+    -var "subnet_name_search_pep=$SUBNET_SEARCH_PEP" `
+    -var "subnet_name_agent=$SUBNET_AGENT"
 ```
 
 The ad-hoc network-rule stays as drift on the state SA until the next `base` apply, at which point `data.http.myip` reconciles the full allowlist canonically.
@@ -911,7 +1072,13 @@ az deployment group create `
     -f main.bicep `
     -p main.bicepparam `
     -p deployerIp="" `
-    -p allowedIpsExtra='[]'
+    -p allowedIpsExtra='[]' `
+    -p "vnetName=$VNET_NAME" `
+    -p "subnetNameCognitivePep=$SUBNET_COGNITIVE_PEP" `
+    -p "subnetNameStoragePep=$SUBNET_STORAGE_PEP" `
+    -p "subnetNameCosmosPep=$SUBNET_COSMOS_PEP" `
+    -p "subnetNameSearchPep=$SUBNET_SEARCH_PEP" `
+    -p "subnetNameAgent=$SUBNET_AGENT"
 ```
 
 **Path B — Terraform.** Same reasoning — `compact(concat([deployer_ip], allowed_ips_extra))` means both must be cleared.
@@ -927,7 +1094,13 @@ Apply with cleared allowlists:
 ```powershell
 terraform apply `
     -var 'deployer_ip=' `
-    -var 'allowed_ips_extra=[]'
+    -var 'allowed_ips_extra=[]' `
+    -var "vnet_name=$VNET_NAME" `
+    -var "subnet_name_cognitive_pep=$SUBNET_COGNITIVE_PEP" `
+    -var "subnet_name_storage_pep=$SUBNET_STORAGE_PEP" `
+    -var "subnet_name_cosmos_pep=$SUBNET_COSMOS_PEP" `
+    -var "subnet_name_search_pep=$SUBNET_SEARCH_PEP" `
+    -var "subnet_name_agent=$SUBNET_AGENT"
 ```
 
 **Verify the allowlists are empty across all 4 services.**
@@ -1017,7 +1190,13 @@ az deployment group create `
     -p main.bicepparam `
     -p enablePublicNetworkAccess=false `
     -p deployerIp="" `
-    -p allowedIpsExtra='[]'
+    -p allowedIpsExtra='[]' `
+    -p "vnetName=$VNET_NAME" `
+    -p "subnetNameCognitivePep=$SUBNET_COGNITIVE_PEP" `
+    -p "subnetNameStoragePep=$SUBNET_STORAGE_PEP" `
+    -p "subnetNameCosmosPep=$SUBNET_COSMOS_PEP" `
+    -p "subnetNameSearchPep=$SUBNET_SEARCH_PEP" `
+    -p "subnetNameAgent=$SUBNET_AGENT"
 ```
 
 **Path B — Terraform.** `cd` into the workload Terraform directory:
@@ -1032,7 +1211,13 @@ Apply with public endpoints disabled and allowlists cleared:
 terraform apply `
     -var 'enable_public_network_access=false' `
     -var 'deployer_ip=' `
-    -var 'allowed_ips_extra=[]'
+    -var 'allowed_ips_extra=[]' `
+    -var "vnet_name=$VNET_NAME" `
+    -var "subnet_name_cognitive_pep=$SUBNET_COGNITIVE_PEP" `
+    -var "subnet_name_storage_pep=$SUBNET_STORAGE_PEP" `
+    -var "subnet_name_cosmos_pep=$SUBNET_COSMOS_PEP" `
+    -var "subnet_name_search_pep=$SUBNET_SEARCH_PEP" `
+    -var "subnet_name_agent=$SUBNET_AGENT"
 ```
 
 **Verify all 4 services flipped to `Disabled`.** The Foundry Account resource name is `ais-<baseName>-<environment>-<location>` (the `cog-acc-...` string you may see elsewhere is the custom subdomain, not the account name) — discover it dynamically so this works regardless of override.
@@ -1071,9 +1256,9 @@ Expected: `Disabled` for the Foundry Account, the workload Storage Account, Cosm
 
 ### Un-harden (before your next deploy)
 
-**Path A — Bicep**: rerun Path A Step 3 exactly as written (including the `cd` into `environments/ai-foundry/workload/bicep`) — `$env:DEPLOYER_IP` gets re-read from the current session, `enablePublicNetworkAccess` falls back to its default (`true`), and `allowedIpsExtra` falls back to its default (`[]`) or whatever you pass on the CLI.
+**Path A — Bicep**: rerun Path A Step 3 exactly as written (including the `cd` into `environments/ai-foundry/workload/bicep`). If you're in a new terminal session, re-run Path A Step 1 first (or the Resume blockquote at the top of Step 3) so `$RG_WORKLOAD` + the 6 workload naming vars are re-seeded. `$env:DEPLOYER_IP` gets re-read from the current session, `enablePublicNetworkAccess` falls back to its default (`true`), `allowedIpsExtra` falls back to `[]`, and the 6 workload naming vars get re-passed unchanged.
 
-**Path B — Terraform**: `cd` into `environments/ai-foundry/workload/terraform` and rerun `terraform apply` with no `-var` flags. `enable_public_network_access` defaults back to `true`, `deployer_ip` re-auto-detects via `data.http.myip`, and `allowed_ips_extra` falls back to its default (`[]`) or whatever's in your `terraform.tfvars`.
+**Path B — Terraform**: `cd` into `environments/ai-foundry/workload/terraform` and rerun the [Path B Step 5 Option A public-path apply](#step-5-init-workload-with-remote-backend--apply-1520-min) (the one with `-var` flags for the 6 workload naming vars). If you're in a new terminal session, re-run Path B Step 1 first (or the Resume blockquote at the top of Step 5) so `$RG_WORKLOAD` + the 6 workload naming vars are re-seeded. `enable_public_network_access` defaults back to `true`, `deployer_ip` re-auto-detects via `data.http.myip`, and `allowed_ips_extra` falls back to `[]`.
 
 ---
 
@@ -1119,10 +1304,16 @@ First, `cd` into the workload Terraform directory:
 Set-Location (Join-Path (git rev-parse --show-toplevel) 'environments/ai-foundry/workload/terraform')
 ```
 
-Destroy the workload stack:
+Destroy the workload stack. The 6 `-var` flags are required because Terraform re-plans data sources (subnets, DNS zones) on destroy, and if you deployed with BYO names, the defaults won't find the resources:
 
 ```powershell
-terraform destroy
+terraform destroy `
+    -var "vnet_name=$VNET_NAME" `
+    -var "subnet_name_cognitive_pep=$SUBNET_COGNITIVE_PEP" `
+    -var "subnet_name_storage_pep=$SUBNET_STORAGE_PEP" `
+    -var "subnet_name_cosmos_pep=$SUBNET_COSMOS_PEP" `
+    -var "subnet_name_search_pep=$SUBNET_SEARCH_PEP" `
+    -var "subnet_name_agent=$SUBNET_AGENT"
 ```
 
 Then switch to base:
@@ -1200,7 +1391,7 @@ Terraform waits 60 s via `time_sleep` between the assignments and capability-hos
 |---|---|---|
 | `terraform apply` fails reading state with an authorization / 403 on the tfstate blob | Your IP changed and isn't allowlisted on the state SA firewall | `az storage account network-rule add -g $RG_NETWORK -n $STATE_SA --ip-address $((Invoke-RestMethod https://api.ipify.org).Trim())` then retry |
 | `az storage account create` in Path B Step 2 returns `StorageAccountAlreadyTaken` | Your derived `sttfs<hash>` name collides globally with someone else's account | See the collision note **inside Path B Step 2** — pick a unique name for `$STATE_SA` and re-run Step 2 with it; carry the same value through `terraform init` and the `-var 'tfstate_storage_account_name=...'` in Step 4 |
-| Bicep or Terraform deploy fails on `Microsoft.CognitiveServices/accounts/capabilityHosts` with 403 | RBAC propagation lag (Entra ID replication) between the workload's role assignments and the data-plane call to create the capability host | **Bicep**: rerun `az deployment group create` — the whole deploy is idempotent and everything else is a no-op; the capability host retry succeeds once propagation completes (typically < 60 s). **Terraform**: `time_sleep` will NOT re-fire if already in state — if the retry still 403s, force the sleep to re-run from `environments/ai-foundry/workload/terraform`: `terraform apply -replace='module.foundry_project.time_sleep.wait_for_rbac_propagation'` |
+| Bicep or Terraform deploy fails on `Microsoft.CognitiveServices/accounts/capabilityHosts` with 403 | RBAC propagation lag (Entra ID replication) between the workload's role assignments and the data-plane call to create the capability host | **Bicep**: rerun the [Path A Step 3 deploy](#step-3-deploy-the-workload-stack-1520-min) exactly as written (idempotent; capability host retry succeeds once propagation completes, typically < 60 s). If in a new session, re-run Step 1 first so `$RG_WORKLOAD` + the 6 workload naming vars are re-seeded. **Terraform**: `time_sleep` will NOT re-fire if already in state — rerun the [Path B Step 5 Option A `terraform apply` block](#step-5-init-workload-with-remote-backend--apply-1520-min) with `-replace='module.foundry_project.time_sleep.wait_for_rbac_propagation'` appended (this way the 6 workload naming `-var`s stay attached). |
 | First `terraform apply` for base in Path B Step 4 wants to *create* the state SA instead of updating it | You skipped the `terraform import` commands in Path B Step 3 | Cancel the apply, run the two `terraform import` commands from Step 3, then rerun `terraform apply` |
 | Workload deployed OK but hitting a workload endpoint (e.g. `Invoke-RestMethod` to the Foundry Account) returns 403 | Your public IP isn't currently allowlisted, or you ran the [hardening step](#part-c--harden-remove-deployer-ip-and-close-public-endpoints) | Rerun the workload deploy from the current network to reconcile the allowlist; if hardened, follow the [un-harden step](#un-harden-before-your-next-deploy) |
 | `az storage container create --auth-mode login` returns 403 | RBAC propagation lag on the `Storage Blob Data Contributor` assignment | Wait 30-60 s and retry (Path B Step 1 already includes a `Start-Sleep 60`) |
