@@ -57,11 +57,14 @@ param agentSubnetId string = ''
 @description('Tags applied to the account and PE.')
 param tags object = {}
 
+@description('Full account name override. When set (non-empty) this wins over the derived `ais-<baseName>-<environment>-<location>` convention. Note: this is the ARM resource name (RG-scoped) -- for the globally-unique DNS prefix use `customSubdomainName`. Empty string (default) triggers the derived-name path.')
+param customName string = ''
+
 // ------------------------------------------------------------------
 // Cognitive account
 // ------------------------------------------------------------------
 
-var accountName = toLower('ais-${baseName}-${environment}-${location}')
+var accountName = empty(customName) ? toLower('ais-${baseName}-${environment}-${location}') : customName
 
 // Pre-computed IP-rule set (avoids BCP138 -- can't nest for-expressions inside union()).
 var cognitiveIpRules = [for ip in networkAclsIpRules: {

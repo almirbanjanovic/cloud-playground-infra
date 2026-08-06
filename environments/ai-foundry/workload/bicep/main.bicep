@@ -69,8 +69,20 @@ param subnetNameSearchPep string = ''
 @description('Agent (delegated) subnet name. Blank = convention.')
 param subnetNameAgent string = ''
 
-@description('Custom subdomain for the Foundry / Cognitive AIServices account. This is NOT the account resource name -- the account is always ais-<baseName>-<environment>-<location>. Blank = convention (cog-acc-...).')
+@description('Storage account name (globally unique, 3-24 chars, lowercase alphanumeric only). Blank = convention `st<baseName><environment><location>` (hyphens stripped). Override when the derived name collides globally or exceeds 24 chars.')
+param storageAccountName string = ''
+
+@description('Foundry / Cognitive AIServices account resource name (RG-scoped uniqueness). Blank = convention `ais-<baseName>-<environment>-<location>`.')
+param cognitiveAccountName string = ''
+
+@description('Custom subdomain for the Foundry / Cognitive AIServices account (globally unique DNS prefix -- separate from `cognitiveAccountName`). Blank = convention `cog-acc-<baseName>-<environment>-<location>`.')
 param cognitiveCustomSubdomainName string = ''
+
+@description('Cosmos DB account name (globally unique, 3-44 chars, lowercase alphanumeric + hyphens). Blank = convention `cosmos-<baseName>-<environment>-<location>`.')
+param cosmosAccountName string = ''
+
+@description('AI Search service name (globally unique, 2-60 chars, lowercase alphanumeric + hyphens). Blank = convention `srch-<baseName>-<environment>-<location>`.')
+param aiSearchName string = ''
 
 // --- DNS zone name overrides (defaults are the required Standard Setup set) ---
 
@@ -220,6 +232,8 @@ module storage '../../../../iac-modules/bicep/storage_account/v1/storage_account
     location: location
     tags: tags
 
+    customName: storageAccountName
+
     publicNetworkAccessEnabled: enablePublicNetworkAccess
     networkRulesDefaultAction: 'Deny'
     allowedIps: allowedIps
@@ -243,6 +257,8 @@ module cosmos '../../../../iac-modules/bicep/cosmos_db/v1/cosmos_db.bicep' = {
     location: location
     tags: tags
 
+    customName: cosmosAccountName
+
     publicNetworkAccessEnabled: enablePublicNetworkAccess
     ipRangeFilter: allowedIps
 
@@ -258,6 +274,8 @@ module search '../../../../iac-modules/bicep/ai_search/v1/ai_search.bicep' = {
     environment: environment
     location: location
     tags: tags
+
+    customName: aiSearchName
 
     sku: 'standard'
     publicNetworkAccessEnabled: enablePublicNetworkAccess
@@ -279,6 +297,8 @@ module cognitive '../../../../iac-modules/bicep/cognitive_account/v1/cognitive_a
     environment: environment
     location: location
     tags: tags
+
+    customName: cognitiveAccountName
 
     kind: 'AIServices'
     skuName: 'S0'

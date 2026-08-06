@@ -37,7 +37,10 @@ param privateDnsZoneIds array
 @description('Tags applied to the search service and PE.')
 param tags object = {}
 
-var searchName = toLower('srch-${baseName}-${environment}-${location}')
+@description('Full search service name override. When set (non-empty) this wins over the derived `srch-<baseName>-<environment>-<location>` convention. Use to resolve global-name collisions or match an existing platform-team naming standard. Empty string (default) triggers the derived-name path.')
+param customName string = ''
+
+var searchName = empty(customName) ? toLower('srch-${baseName}-${environment}-${location}') : customName
 
 // Pre-computed IP-rule set (avoids BCP138 -- can't nest for-expressions inside union()).
 var searchIpRules = [for ip in allowedIps: {

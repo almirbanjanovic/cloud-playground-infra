@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.45.15.27210",
-      "templateHash": "10570449854720280346"
+      "templateHash": "17100973670026352992"
     }
   },
   "parameters": {
@@ -86,11 +86,39 @@
         "description": "Agent (delegated) subnet name. Blank = convention."
       }
     },
+    "storageAccountName": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Storage account name (globally unique, 3-24 chars, lowercase alphanumeric only). Blank = convention `st<baseName><environment><location>` (hyphens stripped). Override when the derived name collides globally or exceeds 24 chars."
+      }
+    },
+    "cognitiveAccountName": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Foundry / Cognitive AIServices account resource name (RG-scoped uniqueness). Blank = convention `ais-<baseName>-<environment>-<location>`."
+      }
+    },
     "cognitiveCustomSubdomainName": {
       "type": "string",
       "defaultValue": "",
       "metadata": {
-        "description": "Custom subdomain for the Foundry / Cognitive AIServices account. This is NOT the account resource name -- the account is always ais-<baseName>-<environment>-<location>. Blank = convention (cog-acc-...)."
+        "description": "Custom subdomain for the Foundry / Cognitive AIServices account (globally unique DNS prefix -- separate from `cognitiveAccountName`). Blank = convention `cog-acc-<baseName>-<environment>-<location>`."
+      }
+    },
+    "cosmosAccountName": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Cosmos DB account name (globally unique, 3-44 chars, lowercase alphanumeric + hyphens). Blank = convention `cosmos-<baseName>-<environment>-<location>`."
+      }
+    },
+    "aiSearchName": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "AI Search service name (globally unique, 2-60 chars, lowercase alphanumeric + hyphens). Blank = convention `srch-<baseName>-<environment>-<location>`."
       }
     },
     "cognitivePrivateDnsZoneNames": {
@@ -204,6 +232,9 @@
           },
           "tags": {
             "value": "[parameters('tags')]"
+          },
+          "customName": {
+            "value": "[parameters('storageAccountName')]"
           },
           "publicNetworkAccessEnabled": {
             "value": "[parameters('enablePublicNetworkAccess')]"
@@ -1471,6 +1502,9 @@
           "tags": {
             "value": "[parameters('tags')]"
           },
+          "customName": {
+            "value": "[parameters('cosmosAccountName')]"
+          },
           "publicNetworkAccessEnabled": {
             "value": "[parameters('enablePublicNetworkAccess')]"
           },
@@ -1493,7 +1527,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.45.15.27210",
-              "templateHash": "5509533353827179401"
+              "templateHash": "1761106606278417370"
             }
           },
           "parameters": {
@@ -1607,10 +1641,17 @@
               "metadata": {
                 "description": "Tags applied to the account and PE."
               }
+            },
+            "customName": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Full Cosmos account name override. When set (non-empty) this wins over the derived `cosmos-<baseName>-<environment>-<location>` convention. Use to resolve global-name collisions or match an existing platform-team naming standard. Empty string (default) triggers the derived-name path."
+              }
             }
           },
           "variables": {
-            "accountName": "[toLower(format('cosmos-{0}-{1}-{2}', parameters('baseName'), parameters('environment'), parameters('location')))]"
+            "accountName": "[if(empty(parameters('customName')), toLower(format('cosmos-{0}-{1}-{2}', parameters('baseName'), parameters('environment'), parameters('location'))), parameters('customName'))]"
           },
           "resources": [
             {
@@ -1855,6 +1896,9 @@
           "tags": {
             "value": "[parameters('tags')]"
           },
+          "customName": {
+            "value": "[parameters('aiSearchName')]"
+          },
           "sku": {
             "value": "standard"
           },
@@ -1880,7 +1924,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.45.15.27210",
-              "templateHash": "3869424641888762532"
+              "templateHash": "1018110910119393499"
             }
           },
           "parameters": {
@@ -1958,6 +2002,13 @@
               "metadata": {
                 "description": "Tags applied to the search service and PE."
               }
+            },
+            "customName": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Full search service name override. When set (non-empty) this wins over the derived `srch-<baseName>-<environment>-<location>` convention. Use to resolve global-name collisions or match an existing platform-team naming standard. Empty string (default) triggers the derived-name path."
+              }
             }
           },
           "variables": {
@@ -1970,7 +2021,7 @@
                 }
               }
             ],
-            "searchName": "[toLower(format('srch-{0}-{1}-{2}', parameters('baseName'), parameters('environment'), parameters('location')))]"
+            "searchName": "[if(empty(parameters('customName')), toLower(format('srch-{0}-{1}-{2}', parameters('baseName'), parameters('environment'), parameters('location'))), parameters('customName'))]"
           },
           "resources": [
             {
@@ -2190,6 +2241,9 @@
           "tags": {
             "value": "[parameters('tags')]"
           },
+          "customName": {
+            "value": "[parameters('cognitiveAccountName')]"
+          },
           "kind": {
             "value": "AIServices"
           },
@@ -2237,7 +2291,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.45.15.27210",
-              "templateHash": "5082395302988847393"
+              "templateHash": "15312846142693438966"
             }
           },
           "parameters": {
@@ -2355,6 +2409,13 @@
               "metadata": {
                 "description": "Tags applied to the account and PE."
               }
+            },
+            "customName": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Full account name override. When set (non-empty) this wins over the derived `ais-<baseName>-<environment>-<location>` convention. Note: this is the ARM resource name (RG-scoped) -- for the globally-unique DNS prefix use `customSubdomainName`. Empty string (default) triggers the derived-name path."
+              }
             }
           },
           "variables": {
@@ -2367,7 +2428,7 @@
                 }
               }
             ],
-            "accountName": "[toLower(format('ais-{0}-{1}-{2}', parameters('baseName'), parameters('environment'), parameters('location')))]"
+            "accountName": "[if(empty(parameters('customName')), toLower(format('ais-{0}-{1}-{2}', parameters('baseName'), parameters('environment'), parameters('location'))), parameters('customName'))]"
           },
           "resources": [
             {

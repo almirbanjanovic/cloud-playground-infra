@@ -53,7 +53,10 @@ param subresourceName string = 'Sql'
 @description('Tags applied to the account and PE.')
 param tags object = {}
 
-var accountName = toLower('cosmos-${baseName}-${environment}-${location}')
+@description('Full Cosmos account name override. When set (non-empty) this wins over the derived `cosmos-<baseName>-<environment>-<location>` convention. Use to resolve global-name collisions or match an existing platform-team naming standard. Empty string (default) triggers the derived-name path.')
+param customName string = ''
+
+var accountName = empty(customName) ? toLower('cosmos-${baseName}-${environment}-${location}') : customName
 
 resource cosmos 'Microsoft.DocumentDB/databaseAccounts@2024-11-15' = {
   name: accountName
