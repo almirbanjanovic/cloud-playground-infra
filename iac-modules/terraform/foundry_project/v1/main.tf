@@ -46,16 +46,8 @@
 #       `<workspaceId>-azureml-blobstore` container.
 #
 #   Storage Blob Data Owner         on the Storage account
-#     → agents read/write files in the auto-created
-#       `<workspaceId>-agents-blobstore` container. Microsoft's Standard
-#       Setup docs REQUIRE Owner (not Contributor) on this container —
-#       missing this surfaces as runtime `403 Forbidden` when the agent
-#       reads or writes files. Granted at account scope because the
-#       `<workspaceId>` prefix isn't known until AFTER the capability
-#       host runs. Microsoft's `15-private-network-standard-agent-setup`
-#       sample uses an ABAC condition to narrow this to workspace-
-#       prefixed containers; this module accepts the wider account-scope
-#       grant for simplicity.
+#     → agents read/write files in `<workspaceId>-agents-blobstore`
+#       (Owner, not Contributor, per Microsoft docs; missing = runtime 403).
 #
 #   Cosmos DB Built-in Data Contributor  on the Cosmos account (SQL role)
 #     → agents read/write documents in the `enterprise_memory` database
@@ -210,9 +202,7 @@ resource "azurerm_role_assignment" "project_storage_blob_data_contributor" {
   principal_type       = "ServicePrincipal"
 }
 
-# Owner (not Contributor) is required by Microsoft's Standard Setup docs
-# for the `<workspaceId>-agents-blobstore` container -- missing this surfaces
-# as runtime 403s on agent file read/write. See header roster.
+# Owner (not Contributor) is required per Microsoft's Standard Setup docs -- missing this = runtime 403 on agent file I/O. See header roster.
 resource "azurerm_role_assignment" "project_storage_blob_data_owner" {
   count                = var.enable_capability_host && var.storage_account_id != null ? 1 : 0
   scope                = var.storage_account_id

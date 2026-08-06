@@ -232,10 +232,7 @@ resource raStorageBlob 'Microsoft.Authorization/roleAssignments@2022-04-01' = if
   }
 }
 
-// Owner (not Contributor) is required by Microsoft's Standard Setup docs for
-// the `<workspaceId>-agents-blobstore` container -- missing this surfaces as
-// runtime 403s on agent file read/write. Granted at account scope because the
-// container names aren't known until after capability-host provisioning.
+// Owner (not Contributor) is required per Microsoft's Standard Setup docs -- missing this = runtime 403 on agent file I/O.
 resource raStorageBlobOwner 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (enableCapabilityHost) {
   name: guid(storageAccount.id, project.id, roleIds.storageBlobDataOwner)
   scope: storageAccount

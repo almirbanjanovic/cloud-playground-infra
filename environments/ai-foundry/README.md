@@ -41,6 +41,7 @@ Pick one path. Don't mix Path A + Path B against the same RGs — the two paths 
   - [Path A — Bicep](#path-a--bicep-2)
   - [Path B — Terraform](#path-b--terraform-2)
 - [RBAC roster (workload)](#rbac-roster-workload)
+  - [Verify the project MI RBAC](#verify-the-project-mi-rbac)
 - [Troubleshooting](#troubleshooting)
   - [Deleting an AI Foundry subnet blocked by `legionservicelink`](#deleting-an-ai-foundry-subnet-blocked-by-legionservicelink)
 - [References](#references)
@@ -487,6 +488,8 @@ Count the Private Endpoints:
 ```
 
 Expected: 1 Foundry Account + 1 Storage + 1 Cosmos + 1 Search; PE count = **9** (1 Foundry + 6 Storage subresources + 1 Cosmos + 1 Search).
+
+→ **Verify the project MI RBAC:** run the [commands in the RBAC roster section](#verify-the-project-mi-rbac) to confirm the workload's 6 ARM role assignments + 1 Cosmos SQL role landed on the Foundry project's SystemAssigned MI. Missing assignments are a common cause of runtime agent 403s that only surface later.
 
 → **Public-path deploys should now run [Part C1](#part-c1--strip-deployer-ip-and-any-extra-allowlisted-ips-public-path-only)** to strip the deployer IP + `allowedIpsExtra` off every workload firewall so those IPs don't linger. [Part C2](#part-c2--optionally-disable-public-endpoints-entirely-zero-trust) then optionally closes the public endpoints entirely.
 
@@ -995,6 +998,8 @@ Resolve it:
 Resolve-DnsName $foundryFqdn | Select-Object Name, IPAddress
 ```
 
+→ **Verify the project MI RBAC:** run the [commands in the RBAC roster section](#verify-the-project-mi-rbac) to confirm the workload's 6 ARM role assignments + 1 Cosmos SQL role landed on the Foundry project's SystemAssigned MI. Missing assignments are a common cause of runtime agent 403s that only surface later.
+
 → **Public-path deploys should now run [Part C1](#part-c1--strip-deployer-ip-and-any-extra-allowlisted-ips-public-path-only)** to strip the deployer IP + `allowed_ips_extra` off every workload firewall so those IPs don't linger. [Part C2](#part-c2--optionally-disable-public-endpoints-entirely-zero-trust) then optionally closes the public endpoints entirely.
 
 ### Step 6. Full inventory (across both RGs)
@@ -1428,10 +1433,78 @@ The workload's `foundry_project` module grants these to the Foundry project's Sy
 | 5 | Search Index Data Contributor | AI Search | Agents read/write vector indexes |
 | 5 | Search Service Contributor | AI Search | Agents create indexes on demand |
 | 5 | Storage Blob Data Contributor | Storage Account | Agents read/write files in the auto-created `<workspaceId>-azureml-blobstore` container |
-| 5 | Storage Blob Data Owner | Storage Account | Agents read/write files in the auto-created `<workspaceId>-agents-blobstore` container. Microsoft's [Standard Setup docs](https://learn.microsoft.com/azure/ai-foundry/agents/concepts/standard-agent-setup) require **Owner** (not Contributor) on this container — omitting it surfaces as runtime `403 Forbidden` on agent file read/write, per Microsoft's [private-networking troubleshooting table](https://learn.microsoft.com/azure/ai-foundry/agents/how-to/virtual-networks). Granted at account scope because the `<workspaceId>` prefix isn't known until after capability-host provisioning. Broader than Microsoft's `15-private-network-standard-agent-setup` sample, which uses an ABAC condition to narrow the Owner grant to workspace-prefixed containers only — for this lab we accept the wider account-scope grant to keep the module resource-provider-agnostic. |
+| 5 | Storage Blob Data Owner | Storage Account | Agents read/write files in `<workspaceId>-agents-blobstore` (Owner, not Contributor, per Microsoft's [Standard Setup docs](https://learn.microsoft.com/azure/ai-foundry/agents/concepts/standard-agent-setup)) |
 | 5 | Cosmos DB Built-in Data Contributor | Cosmos Account (SQL role) | Agents read/write threads in `enterprise_memory` |
 
 Terraform waits 60 s via `time_sleep` between the assignments and capability-host provisioning — a client-side wait, no Azure resources involved. Bicep has no equivalent primitive: `Microsoft.Resources/deploymentScripts` requires shared-key auth to its own auto-provisioned Storage Account, which is incompatible with tenants that enforce `allowSharedKeyAccess = false`. Bicep therefore relies on ARM's `dependsOn` chain and accepts that first-apply capability-host creation may occasionally 403 on RBAC propagation lag — recovery is a plain rerun of the same `az deployment group create` (idempotent; the capability-host retry succeeds after propagation completes).
+
+### Verify the project MI RBAC
+
+Confirm every role in the roster above landed on the project MI. Uses `$RG_WORKLOAD` from Step 1 — same commands work for both Path A and Path B.
+
+Get the Foundry project's resource ID:
+
+```powershell
+$PROJ_ID = az resource list -g $RG_WORKLOAD --resource-type "Microsoft.CognitiveServices/accounts/projects" --query "[0].id" -o tsv
+```
+
+Get the project MI principal ID:
+
+```powershell
+$MI = az resource show --ids $PROJ_ID --api-version 2025-04-01-preview --query "identity.principalId" -o tsv
+```
+
+Get the Storage account ID:
+
+```powershell
+$STORAGE = az storage account list -g $RG_WORKLOAD --query "[0].id" -o tsv
+```
+
+Get the Cosmos account ID:
+
+```powershell
+$COSMOS = az cosmosdb list -g $RG_WORKLOAD --query "[0].id" -o tsv
+```
+
+Get the AI Search service ID:
+
+```powershell
+$SEARCH = az search service list -g $RG_WORKLOAD --query "[0].id" -o tsv
+```
+
+List the MI's role assignments on the Storage account:
+
+```powershell
+az role assignment list --assignee-object-id $MI --fill-principal-name false --scope $STORAGE --query "[].{Role:roleDefinitionName}" -o table
+```
+
+Expected: 3 rows — Storage Account Contributor, Storage Blob Data Contributor, Storage Blob Data Owner.
+
+List the MI's role assignments on the Cosmos account:
+
+```powershell
+az role assignment list --assignee-object-id $MI --fill-principal-name false --scope $COSMOS --query "[].{Role:roleDefinitionName}" -o table
+```
+
+Expected: 1 row — Cosmos DB Operator.
+
+List the MI's role assignments on the AI Search service:
+
+```powershell
+az role assignment list --assignee-object-id $MI --fill-principal-name false --scope $SEARCH --query "[].{Role:roleDefinitionName}" -o table
+```
+
+Expected: 2 rows — Search Index Data Contributor, Search Service Contributor.
+
+List the Cosmos SQL data-plane role assignment on the MI (separate resource type from ARM RBAC):
+
+```powershell
+az cosmosdb sql role assignment list -g $RG_WORKLOAD --account-name (($COSMOS -split '/')[-1]) --query "[?principalId=='$MI'].{RoleDefinitionId:roleDefinitionId}" -o table
+```
+
+Expected: 1 row with `roleDefinitionId` ending in `00000000-0000-0000-0000-000000000002` (Cosmos DB Built-in Data Contributor).
+
+Any row missing → rerun the workload deploy (both paths are idempotent). If it still fails, check whether an Azure Policy is blocking role-assignment creation at that scope, or whether the deployer principal lacks `Microsoft.Authorization/roleAssignments/write` per the [Prerequisites](#prerequisites) table.
 
 ---
 
