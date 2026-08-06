@@ -535,6 +535,8 @@ Get-Location   # expect: ...\environments\ai-foundry\workload\bicep
 
 Set your public IP as an environment variable — the deploy command below passes it into the template via `-p "deployerIp=$env:DEPLOYER_IP"`. See [Deployment topology](#deployment-topology-public-path-vs-private-path) for how to choose — both are valid; pick one:
 
+Choose ONE of Options A or B below — they differ in whether the deployer's public IP goes into the workload firewall allowlist. See [Deployment topology](#deployment-topology-public-path-vs-private-path).
+
 **Option A — public-path deploy (default).** Laptop on the public internet. Grab your public IP so the workload firewalls allow your `az` session:
 
 ```powershell
@@ -547,15 +549,7 @@ Echo to verify:
 Write-Host "DEPLOYER_IP = $env:DEPLOYER_IP"
 ```
 
-**Option B — private-path deploy.** Deployer on VPN / ExpressRoute / Bastion / VNet-injected runner. The workload FQDNs resolve to private IPs via the base stack's private DNS zones, so no allowlist entry is needed:
-
-```powershell
-$env:DEPLOYER_IP = ""
-```
-
-Skipping both options leaves `$env:DEPLOYER_IP` unset, which deploys successfully but with an empty allowlist (equivalent to Option B) — post-deploy admin traffic from this machine must then route through the Private Endpoints, not the public FQDN.
-
-Deploy:
+Deploy (this variant passes `-p deployerIp=` to allowlist your IP):
 
 ```powershell
 az deployment group create `
@@ -563,6 +557,26 @@ az deployment group create `
     -n workload-$(Get-Date -Format 'yyyyMMdd-HHmmss') `
     -f main.bicep `
     -p "deployerIp=$env:DEPLOYER_IP" `
+    -p "vnetName=$VNET_NAME" `
+    -p "subnetNameCognitivePep=$SUBNET_COGNITIVE_PEP" `
+    -p "subnetNameStoragePep=$SUBNET_STORAGE_PEP" `
+    -p "subnetNameCosmosPep=$SUBNET_COSMOS_PEP" `
+    -p "subnetNameSearchPep=$SUBNET_SEARCH_PEP" `
+    -p "subnetNameAgent=$SUBNET_AGENT" `
+    -p "storageAccountName=$STORAGE_NAME" `
+    -p "cognitiveAccountName=$COGNITIVE_ACCOUNT_NAME" `
+    -p "cognitiveCustomSubdomainName=$COGNITIVE_SUBDOMAIN" `
+    -p "cosmosAccountName=$COSMOS_NAME" `
+    -p "aiSearchName=$AI_SEARCH_NAME"
+```
+
+**Option B — private-path deploy.** Deployer on VPN / ExpressRoute / Bastion / VNet-injected runner. The workload FQDNs resolve to private IPs via the base stack's private DNS zones, so no allowlist entry is needed — the deploy command below omits `-p deployerIp=` entirely, so it works even if your local `main.bicep` predates the `deployerIp` parameter default (`az` won't reject an unpassed parameter that has a template default).
+
+```powershell
+az deployment group create `
+    -g $RG_WORKLOAD `
+    -n workload-$(Get-Date -Format 'yyyyMMdd-HHmmss') `
+    -f main.bicep `
     -p "vnetName=$VNET_NAME" `
     -p "subnetNameCognitivePep=$SUBNET_COGNITIVE_PEP" `
     -p "subnetNameStoragePep=$SUBNET_STORAGE_PEP" `
@@ -1668,6 +1682,7 @@ Any row missing → rerun the workload deploy (both paths are idempotent). If it
 | `terraform apply` fails reading state with an authorization / 403 on the tfstate blob | Your IP changed and isn't allowlisted on the state SA firewall | `az storage account network-rule add -g $RG_NETWORK -n $STATE_SA --ip-address $((Invoke-RestMethod https://api.ipify.org).Trim())` then retry |
 | `az storage account create` in Path B Step 2 returns `StorageAccountAlreadyTaken` | Your derived `sttfs<hash>` name collides globally with someone else's account | See the collision note **inside Path B Step 2** — pick a unique name for `$STATE_SA` and re-run Step 2 with it; carry the same value through `terraform init` and the `-var 'tfstate_storage_account_name=...'` in Step 4 |
 | Workload deploy preflight fails with `StorageAccountAlreadyTaken` / `ServiceNameUnavailable` / `CustomDomainInUse` on Storage, AI Search, Cosmos, or the Cognitive Services subdomain | The derived name (e.g. `staifoundrydevwestus3`, `srch-ai-foundry-dev-westus3`) is globally taken by someone else | **Bicep**: edit the corresponding session var from Step 1 (`$STORAGE_NAME`, `$AI_SEARCH_NAME`, `$COSMOS_NAME`, `$COGNITIVE_SUBDOMAIN`, or `$COGNITIVE_ACCOUNT_NAME`) to a unique value and rerun the deploy — the `-p` flags in the deploy command pick them up automatically. **Terraform**: no CLI override yet; edit the derived-name locals in the relevant `iac-modules/terraform/<service>/v1/main.tf` module. See [BYO section](#bringing-your-own-base-networking). |
+| Workload deploy fails with `The template parameter 'deployerIp' is not found` (or similar "unrecognized template parameter") | Your local `main.bicep` predates the current version — the deploy command's `-p "deployerIp=..."` flag has no matching parameter | `git pull` (or re-clone) to get the current template, then rerun the Option A or Option B deploy. Same fix if the error names any other `-p` flag from the current deploy command (`storageAccountName`, `cognitiveAccountName`, etc.). If a `git pull` isn't available, the Option B (private-path) deploy in Step 3 omits `-p deployerIp=` entirely and works with older templates as long as the Bicep hasn't drifted on the other params. |
 | Bicep or Terraform deploy fails on `Microsoft.CognitiveServices/accounts/capabilityHosts` with 403 | RBAC propagation lag (Entra ID replication) between the workload's role assignments and the data-plane call to create the capability host | **Bicep**: rerun the [Path A Step 3 deploy](#step-3-deploy-the-workload-stack-1520-min) exactly as written (idempotent; capability host retry succeeds once propagation completes, typically < 60 s). If in a new session, re-run Step 1 first so `$RG_WORKLOAD` + the 11 workload naming vars are re-seeded. **Terraform**: `time_sleep` will NOT re-fire if already in state — rerun the [Path B Step 5 Option A `terraform apply` block](#step-5-init-workload-with-remote-backend--apply-1520-min) with `-replace='module.foundry_project.time_sleep.wait_for_rbac_propagation'` appended (this way the 6 workload naming `-var`s stay attached). |
 | First `terraform apply` for base in Path B Step 4 wants to *create* the state SA instead of updating it | You skipped the `terraform import` commands in Path B Step 3 | Cancel the apply, run the two `terraform import` commands from Step 3, then rerun `terraform apply` |
 | Workload deployed OK but hitting a workload endpoint (e.g. `Invoke-RestMethod` to the Foundry Account) returns 403 | Your public IP isn't currently allowlisted, or you ran the [hardening step](#part-c--harden-remove-deployer-ip-and-close-public-endpoints) | Rerun the workload deploy from the current network to reconcile the allowlist; if hardened, follow the [un-harden step](#un-harden-before-your-next-deploy) |
