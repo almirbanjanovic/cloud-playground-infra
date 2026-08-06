@@ -11,8 +11,7 @@
 //   az group create -n rg-ai-foundry-network-dev-westus3 -l westus3
 //   az deployment group create \
 //     -g rg-ai-foundry-network-dev-westus3 \
-//     -f main.bicep \
-//     -p main.bicepparam
+//     -f main.bicep
 //
 // Peer of `environments/ai-foundry/base/terraform/`. Creates:
 //   - VNet with 5 subnets (4 PE + 1 agent, delegated to Microsoft.App/environments)

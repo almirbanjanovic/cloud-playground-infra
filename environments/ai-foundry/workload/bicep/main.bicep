@@ -12,7 +12,6 @@
 //   az deployment group create \
 //     -g rg-ai-foundry-workload-dev-westus3 \
 //     -f main.bicep \
-//     -p main.bicepparam \
 //     -p deployerIp=$MYIP
 //
 // Peer of `environments/ai-foundry/workload/terraform/`. Creates:
@@ -108,7 +107,7 @@ param searchPrivateDnsZoneName string = 'privatelink.search.windows.net'
 param enablePublicNetworkAccess bool = true
 
 @description('Public IPv4 of the machine running the deployment. Bare IPv4 or CIDR /0-/30. Do NOT pass /31 or /32 -- Cognitive Services rejects them; use the bare IP. Pass "" (empty) to skip adding the deployer IP -- required for the private-path deploy (deployer is on a VPN / ExpressRoute / Bastion / VNet-injected runner and reaches the workload FQDNs via the base stack\'s private DNS zones), and also used for the hardening step and CI runs that shouldn\'t advertise their runner IP. See the ai-foundry README\'s "Deployment topology" section for the full lifecycle.')
-param deployerIp string
+param deployerIp string = ''
 
 @description('Additional IPv4 or CIDR entries allowlisted on every workload service (teammates, office ranges, CI runner). Same format rules as deployerIp.')
 param allowedIpsExtra array = []

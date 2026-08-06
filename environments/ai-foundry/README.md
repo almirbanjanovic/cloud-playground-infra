@@ -151,28 +151,28 @@ When unsure, default to the public path — switching to private later is a one-
 
 The workload stack looks base resources up **by NAME** (Bicep `existing`, Terraform `data`) — it does NOT read the base stack's outputs or state. That means you can point the workload at ANY pre-existing VNet + subnets + private DNS zones (a shared platform VNet, an ALZ spoke, a run of `base/` with custom names, or a hand-built lab) by overriding the matching parameter / variable. Every override is optional; unset values fall back to the base stack's naming convention. Mix and match as needed.
 
-> **VNet + subnet names have a preferred override path.** The workload deploy commands (Step 3 for Bicep, Step 5 for Terraform, plus Redeploy / C1 / C2 for each) always inject the 6 session variables `$VNET_NAME` and `$SUBNET_*` via `-p` / `-var` flags. **CLI flags win over `main.bicepparam` / `terraform.tfvars` for these 6 names** — editing those files for VNet / subnet names is silently ignored. To use different names, change the 6 session vars in Step 1 (Path A) or Step 1 (Path B) instead. Every OTHER override in the table below (RGs, DNS zone names, custom subdomain, `baseName` / `environment` / `location`) still works fine via the param / tfvars files. Note: `baseName` / `environment` / `location` in the file WON'T re-derive VNet + subnet names, because those 6 come from CLI — you'd need to update both the file AND the session vars.
+> **VNet + subnet names have a preferred override path.** The workload deploy commands (Step 3 for Bicep, Step 5 for Terraform, plus Redeploy / C1 / C2 for each) always inject the 6 session variables `$VNET_NAME` and `$SUBNET_*` via `-p` / `-var` flags. **CLI flags win over `terraform.tfvars` for these 6 names** — editing that file for VNet / subnet names is silently ignored. To use different names, change the 6 session vars in Step 1 (Path A) or Step 1 (Path B) instead. Every OTHER override in the table below (RGs, DNS zone names, custom subdomain, `baseName` / `environment` / `location`) is set via CLI `-p` flags (Bicep) or `terraform.tfvars` (Terraform).
 
 | What you want to override | Bicep param | Terraform variable | Default | Where to change |
 |---|---|---|---|---|
-| RG that owns the VNet + subnets | `baseResourceGroupName` | `base_resource_group_name` | `rg-ai-foundry-network-dev-westus3` | `main.bicepparam` / `terraform.tfvars` |
-| RG that owns the 11 private DNS zones (if separate from the VNet's RG — classic CAF connectivity / hub RG) | `dnsResourceGroupName` | `dns_resource_group_name` | reuses `baseResourceGroupName` | `main.bicepparam` / `terraform.tfvars` |
+| RG that owns the VNet + subnets | `baseResourceGroupName` | `base_resource_group_name` | `rg-ai-foundry-network-dev-westus3` | Bicep CLI `-p key=value` / Terraform `terraform.tfvars` |
+| RG that owns the 11 private DNS zones (if separate from the VNet's RG — classic CAF connectivity / hub RG) | `dnsResourceGroupName` | `dns_resource_group_name` | reuses `baseResourceGroupName` | Bicep CLI `-p key=value` / Terraform `terraform.tfvars` |
 | VNet name | `vnetName` | `vnet_name` | `vnet-ai-foundry-dev-<$LOC>` | **session var `$VNET_NAME` in Step 1** |
 | Cognitive-PE subnet name | `subnetNameCognitivePep` | `subnet_name_cognitive_pep` | `snet-cognitive-ai-foundry-dev` | **session var `$SUBNET_COGNITIVE_PEP` in Step 1** |
 | Storage-PE subnet name | `subnetNameStoragePep` | `subnet_name_storage_pep` | `snet-storage-ai-foundry-dev` | **session var `$SUBNET_STORAGE_PEP` in Step 1** |
 | Cosmos-PE subnet name | `subnetNameCosmosPep` | `subnet_name_cosmos_pep` | `snet-cosmos-ai-foundry-dev` | **session var `$SUBNET_COSMOS_PEP` in Step 1** |
 | Search-PE subnet name | `subnetNameSearchPep` | `subnet_name_search_pep` | `snet-search-ai-foundry-dev` | **session var `$SUBNET_SEARCH_PEP` in Step 1** |
 | Agent (delegated) subnet name | `subnetNameAgent` | `subnet_name_agent` | `snet-agent-ai-foundry-dev` | **session var `$SUBNET_AGENT` in Step 1** |
-| Foundry custom subdomain (privatelink hostname prefix) | `cognitiveCustomSubdomainName` | `cognitive_custom_subdomain_name` | `cog-acc-<baseName>-<environment>-<location>` | `main.bicepparam` / `terraform.tfvars` |
-| 3 Cognitive privatelink DNS zone names | `cognitivePrivateDnsZoneNames` (must be length 3) | `cognitive_private_dns_zone_names` (must be length 3) | `privatelink.{cognitiveservices,openai,services.ai}.azure.com` | `main.bicepparam` / `terraform.tfvars` |
-| 6 Storage privatelink DNS zone names | `storagePrivateDnsZoneNames` (must be length 6) | `storage_private_dns_zone_names` (must be length 6) | `privatelink.{blob,file,queue,table,dfs,web}.core.windows.net` | `main.bicepparam` / `terraform.tfvars` |
-| Cosmos privatelink DNS zone name | `cosmosPrivateDnsZoneName` | `cosmos_private_dns_zone_name` | `privatelink.documents.azure.com` | `main.bicepparam` / `terraform.tfvars` |
-| AI Search privatelink DNS zone name | `searchPrivateDnsZoneName` | `search_private_dns_zone_name` | `privatelink.search.windows.net` | `main.bicepparam` / `terraform.tfvars` |
-| Shift the whole derived-name set at once | `baseName` / `environment` / `location` | `base_name` / `environment` / `location` | `ai-foundry` / `dev` / `westus3` | `main.bicepparam` / `terraform.tfvars` |
+| Foundry custom subdomain (privatelink hostname prefix) | `cognitiveCustomSubdomainName` | `cognitive_custom_subdomain_name` | `cog-acc-<baseName>-<environment>-<location>` | Bicep CLI `-p key=value` / Terraform `terraform.tfvars` |
+| 3 Cognitive privatelink DNS zone names | `cognitivePrivateDnsZoneNames` (must be length 3) | `cognitive_private_dns_zone_names` (must be length 3) | `privatelink.{cognitiveservices,openai,services.ai}.azure.com` | Bicep CLI `-p key=value` / Terraform `terraform.tfvars` |
+| 6 Storage privatelink DNS zone names | `storagePrivateDnsZoneNames` (must be length 6) | `storage_private_dns_zone_names` (must be length 6) | `privatelink.{blob,file,queue,table,dfs,web}.core.windows.net` | Bicep CLI `-p key=value` / Terraform `terraform.tfvars` |
+| Cosmos privatelink DNS zone name | `cosmosPrivateDnsZoneName` | `cosmos_private_dns_zone_name` | `privatelink.documents.azure.com` | Bicep CLI `-p key=value` / Terraform `terraform.tfvars` |
+| AI Search privatelink DNS zone name | `searchPrivateDnsZoneName` | `search_private_dns_zone_name` | `privatelink.search.windows.net` | Bicep CLI `-p key=value` / Terraform `terraform.tfvars` |
+| Shift the whole derived-name set at once | `baseName` / `environment` / `location` | `base_name` / `environment` / `location` | `ai-foundry` / `dev` / `westus3` | Bicep CLI `-p key=value` / Terraform `terraform.tfvars` |
 
-Two starting-point files bundle these overrides as commented examples:
-- **Bicep:** [`workload/bicep/main.bicepparam`](workload/bicep/main.bicepparam) has a "BRING YOUR OWN BASE NETWORKING" block with every option pre-written for you to uncomment.
-- **Terraform:** [`workload/terraform/terraform.tfvars.example`](workload/terraform/terraform.tfvars.example) has the same block. Copy it to `terraform.tfvars` (git-ignored) and uncomment what you need.
+For Bicep, pass any of the above overrides on the CLI: append `-p key=value` flags to the `az deployment group create` command (e.g. `-p "baseResourceGroupName=rg-shared-networking-westus3"`).
+
+For Terraform, [`workload/terraform/terraform.tfvars.example`](workload/terraform/terraform.tfvars.example) bundles these overrides as commented examples. Copy it to `terraform.tfvars` (git-ignored) and uncomment what you need.
 
 Constraints that DON'T bend:
 - The 5 subnets must exist on the VNet you point at, with the standard sizes (`/24` is fine) and the agent subnet delegated to `Microsoft.App/environments`.
@@ -288,14 +288,15 @@ az group list --query "[?name=='$RG_NETWORK' || name=='$RG_WORKLOAD'].{Name:name
 
 Expected: both rows show `Succeeded` in the `State` column.
 
-Register the 6 Resource Providers this stack needs (this block is one command — the `foreach` loop):
+Register the 7 Resource Providers this stack needs (this block is one command — the `foreach` loop):
 
 ```powershell
 foreach ($rp in @(
     # NOTE: if you add/remove an RP here, also update the verify query below AND the mirror
-    # list in Path B Step 1's register block + verify query -- 4 places total.
+    # list in Path A Step 3's Resume block + Path B Step 1's register block + Path B Step 5's Resume block + all 4 verify queries -- 8 places total.
     'Microsoft.App',                # required by the agent subnet's Microsoft.App/environments delegation (Foundry Agent Service runtime)
     'Microsoft.CognitiveServices',  # Foundry account + project + connections + capability hosts
+    'Microsoft.ContainerService',   # capability-host provisioning uses AKS internally; MS docs REQUIRE this for network-injection deploys
     'Microsoft.DocumentDB',         # Cosmos DB
     'Microsoft.Network',            # VNet, subnets, private DNS zones, private endpoints
     'Microsoft.Search',             # AI Search
@@ -306,7 +307,7 @@ foreach ($rp in @(
 Verify every RP shows `Registered` (keep this list in sync with the registration block above):
 
 ```powershell
-az provider list --query "[?contains(['Microsoft.App','Microsoft.CognitiveServices','Microsoft.DocumentDB','Microsoft.Network','Microsoft.Search','Microsoft.Storage'], namespace)].{Namespace:namespace, State:registrationState}" -o table
+az provider list --query "[?contains(['Microsoft.App','Microsoft.CognitiveServices','Microsoft.ContainerService','Microsoft.DocumentDB','Microsoft.Network','Microsoft.Search','Microsoft.Storage'], namespace)].{Namespace:namespace, State:registrationState}" -o table
 ```
 
 Expected: every row shows `Registered`.
@@ -333,8 +334,7 @@ Deploy:
 az deployment group create `
     -g $RG_NETWORK `
     -n base-$(Get-Date -Format 'yyyyMMdd-HHmmss') `
-    -f main.bicep `
-    -p main.bicepparam
+    -f main.bicep
 ```
 
 Verify:
@@ -350,6 +350,44 @@ Expected: 1 VNet (`vnet-ai-foundry-dev-westus3`) + 11 privateDnsZones.
 The workload deploys **into `$RG_WORKLOAD`** and by default looks up base's VNet + subnets + 11 private DNS zones cross-RG in `$RG_NETWORK` (the `baseResourceGroupName` param in `main.bicep` defaults to `rg-ai-foundry-network-dev-westus3`). If the DNS zones live in a separate central connectivity / hub RG, override `dnsResourceGroupName` too — see [Bringing your own base networking](#bringing-your-own-base-networking).
 
 > **Resuming from an existing base deploy?** If you're in a new terminal session (variables gone) or the base was deployed by someone else / a prior CI run, you need to re-set the session variables before running the deploy — the RG names AND the workload naming vars (VNet + 5 subnets) both feed the deploy command below.
+>
+> Sign in (skip if you already have an active session on the target subscription):
+>
+> ```powershell
+> az login
+> ```
+>
+> Pin the subscription (paste yours):
+>
+> ```powershell
+> az account set --subscription <YOUR_SUBSCRIPTION_ID>
+> ```
+>
+> Verify:
+>
+> ```powershell
+> az account show --query "{Subscription:name, Id:id, Tenant:tenantId}" -o table
+> ```
+>
+> Register the 7 workload Resource Providers on this subscription (safe to re-run — `--wait` no-ops if already registered):
+>
+> ```powershell
+> foreach ($rp in @(
+>     'Microsoft.App',
+>     'Microsoft.CognitiveServices',
+>     'Microsoft.ContainerService',
+>     'Microsoft.DocumentDB',
+>     'Microsoft.Network',
+>     'Microsoft.Search',
+>     'Microsoft.Storage'
+> )) { az provider register --namespace $rp --wait }
+> ```
+>
+> Verify every RP shows `Registered`:
+>
+> ```powershell
+> az provider list --query "[?contains(['Microsoft.App','Microsoft.CognitiveServices','Microsoft.ContainerService','Microsoft.DocumentDB','Microsoft.Network','Microsoft.Search','Microsoft.Storage'], namespace)].{Namespace:namespace, State:registrationState}" -o table
+> ```
 >
 > Set the region (the region the base stack was deployed in):
 >
@@ -419,12 +457,12 @@ The workload deploys **into `$RG_WORKLOAD`** and by default looks up base's VNet
 > az network vnet subnet list -g $RG_NETWORK --vnet-name $VNET_NAME --query "[].name" -o tsv
 > ```
 >
-> Then override on the CLI: append `-p key=value` flags to the `az deployment group create` command below — e.g. `-p baseResourceGroupName=<rg-name> -p baseName=<value>`. VNet + subnet names are the exception: change the 6 session vars (`$VNET_NAME`, `$SUBNET_*`) from Step 1, NOT `-p vnetName=…` (the deploy command already carries `-p "vnetName=$VNET_NAME"` etc.). Everything below is CLI-only — no `main.bicepparam` edits required.
+> Then override on the CLI: append `-p key=value` flags to the `az deployment group create` command below — e.g. `-p baseResourceGroupName=<rg-name> -p baseName=<value>`. VNet + subnet names are the exception: change the 6 session vars (`$VNET_NAME`, `$SUBNET_*`) from Step 1, NOT `-p vnetName=…` (the deploy command already carries `-p "vnetName=$VNET_NAME"` etc.).
 >
 > The most common overrides:
 > - `-p baseResourceGroupName=<rg>` — if base lives in an RG that doesn't match the default `rg-ai-foundry-network-dev-<loc>`
 > - `-p dnsResourceGroupName=<rg>` — if the 11 private DNS zones live in a different RG from the VNet (classic CAF: DNS zones consolidated in a central connectivity / hub RG). Blank = reuse `baseResourceGroupName`.
-> - **VNet + subnet names** — change the 6 session vars (`$VNET_NAME`, `$SUBNET_COGNITIVE_PEP`, `$SUBNET_STORAGE_PEP`, `$SUBNET_COSMOS_PEP`, `$SUBNET_SEARCH_PEP`, `$SUBNET_AGENT`) in Step 1, NOT the corresponding `main.bicepparam` entries. The Step 3 deploy always passes them as `-p` flags, so CLI overrides win over `main.bicepparam` — file edits to these 6 names are silently ignored.
+> - **VNet + subnet names** — change the 6 session vars (`$VNET_NAME`, `$SUBNET_COGNITIVE_PEP`, `$SUBNET_STORAGE_PEP`, `$SUBNET_COSMOS_PEP`, `$SUBNET_SEARCH_PEP`, `$SUBNET_AGENT`) in Step 1. The Step 3 deploy always passes them as `-p` flags.
 > - `-p baseName=<v> -p environment=<v> -p location=<v>` — shifts derived names for the Foundry Account subdomain (`cog-acc-<baseName>-<environment>-<location>`) and the account resource itself. It does NOT re-derive the VNet + subnet names, because those come from the 6 session vars — update the session vars separately if you're changing `baseName` / `environment` / `location`.
 
 `cd` into the workload Bicep directory:
@@ -439,7 +477,7 @@ Verify:
 Get-Location   # expect: ...\environments\ai-foundry\workload\bicep
 ```
 
-Set your public IP as an environment variable (Bicep's `main.bicepparam` reads it via `readEnvironmentVariable('DEPLOYER_IP', '')`). See [Deployment topology](#deployment-topology-public-path-vs-private-path) for how to choose — both are valid; pick one:
+Set your public IP as an environment variable — the deploy command below passes it into the template via `-p "deployerIp=$env:DEPLOYER_IP"`. See [Deployment topology](#deployment-topology-public-path-vs-private-path) for how to choose — both are valid; pick one:
 
 **Option A — public-path deploy (default).** Laptop on the public internet. Grab your public IP so the workload firewalls allow your `az` session:
 
@@ -459,6 +497,8 @@ Write-Host "DEPLOYER_IP = $env:DEPLOYER_IP"
 $env:DEPLOYER_IP = ""
 ```
 
+Skipping both options leaves `$env:DEPLOYER_IP` unset, which deploys successfully but with an empty allowlist (equivalent to Option B) — post-deploy admin traffic from this machine must then route through the Private Endpoints, not the public FQDN.
+
 Deploy:
 
 ```powershell
@@ -466,7 +506,7 @@ az deployment group create `
     -g $RG_WORKLOAD `
     -n workload-$(Get-Date -Format 'yyyyMMdd-HHmmss') `
     -f main.bicep `
-    -p main.bicepparam `
+    -p "deployerIp=$env:DEPLOYER_IP" `
     -p "vnetName=$VNET_NAME" `
     -p "subnetNameCognitivePep=$SUBNET_COGNITIVE_PEP" `
     -p "subnetNameStoragePep=$SUBNET_STORAGE_PEP" `
@@ -643,14 +683,15 @@ Verify both RGs are `Succeeded`:
 az group list --query "[?name=='$RG_NETWORK' || name=='$RG_WORKLOAD'].{Name:name, Location:location, State:properties.provisioningState}" -o table
 ```
 
-Register the 6 Resource Providers (Terraform's `resource_provider_registrations = "none"` means Terraform will NOT auto-register, so this is required):
+Register the 7 Resource Providers (Terraform's `resource_provider_registrations = "none"` means Terraform will NOT auto-register, so this is required):
 
 ```powershell
 foreach ($rp in @(
     # NOTE: if you add/remove an RP here, also update the verify query below AND the mirror
-    # list in Path A Step 1's register block + verify query -- 4 places total.
+    # list in Path A Step 1's register block + Path A Step 3's Resume block + Path B Step 5's Resume block + all 4 verify queries -- 8 places total.
     'Microsoft.App',                # required by the agent subnet's Microsoft.App/environments delegation (Foundry Agent Service runtime)
     'Microsoft.CognitiveServices',  # Foundry account + project + connections + capability hosts
+    'Microsoft.ContainerService',   # capability-host provisioning uses AKS internally; MS docs REQUIRE this for network-injection deploys
     'Microsoft.DocumentDB',         # Cosmos DB
     'Microsoft.Network',            # VNet, subnets, private DNS zones, private endpoints
     'Microsoft.Search',             # AI Search
@@ -661,7 +702,7 @@ foreach ($rp in @(
 Verify every RP shows `Registered` (keep this list in sync with the registration block above):
 
 ```powershell
-az provider list --query "[?contains(['Microsoft.App','Microsoft.CognitiveServices','Microsoft.DocumentDB','Microsoft.Network','Microsoft.Search','Microsoft.Storage'], namespace)].{Namespace:namespace, State:registrationState}" -o table
+az provider list --query "[?contains(['Microsoft.App','Microsoft.CognitiveServices','Microsoft.ContainerService','Microsoft.DocumentDB','Microsoft.Network','Microsoft.Search','Microsoft.Storage'], namespace)].{Namespace:namespace, State:registrationState}" -o table
 ```
 
 Expected: every row shows `Registered`.
@@ -847,6 +888,44 @@ Expected: 1 VNet, 11 privateDnsZones, **1 privateEndpoint** (on the state SA).
 The workload deploys **into `$RG_WORKLOAD`** and by default looks up base's VNet + subnets + 11 private DNS zones cross-RG in `$RG_NETWORK` (`variables.tf`'s `resource_group_name` defaults to `rg-ai-foundry-workload-dev-westus3` and `base_resource_group_name` defaults to `rg-ai-foundry-network-dev-westus3`). If the DNS zones live in a separate central connectivity / hub RG, override `dns_resource_group_name` too — see [Bringing your own base networking](#bringing-your-own-base-networking).
 
 > **Resuming from an existing base deploy?** If you're in a new terminal session (variables gone) or the base was deployed by someone else / a prior CI run, you need at minimum these session variables before running init + apply.
+>
+> Sign in (skip if you already have an active session on the target subscription):
+>
+> ```powershell
+> az login
+> ```
+>
+> Pin the subscription (paste yours):
+>
+> ```powershell
+> az account set --subscription <YOUR_SUBSCRIPTION_ID>
+> ```
+>
+> Verify:
+>
+> ```powershell
+> az account show --query "{Subscription:name, Id:id, Tenant:tenantId}" -o table
+> ```
+>
+> Register the 7 workload Resource Providers on this subscription (Terraform's `resource_provider_registrations = "none"` means it won't auto-register; safe to re-run):
+>
+> ```powershell
+> foreach ($rp in @(
+>     'Microsoft.App',
+>     'Microsoft.CognitiveServices',
+>     'Microsoft.ContainerService',
+>     'Microsoft.DocumentDB',
+>     'Microsoft.Network',
+>     'Microsoft.Search',
+>     'Microsoft.Storage'
+> )) { az provider register --namespace $rp --wait }
+> ```
+>
+> Verify every RP shows `Registered`:
+>
+> ```powershell
+> az provider list --query "[?contains(['Microsoft.App','Microsoft.CognitiveServices','Microsoft.ContainerService','Microsoft.DocumentDB','Microsoft.Network','Microsoft.Search','Microsoft.Storage'], namespace)].{Namespace:namespace, State:registrationState}" -o table
+> ```
 >
 > Set the region (the region the base stack was deployed in):
 >
@@ -1049,7 +1128,7 @@ az deployment group create `
     -g $RG_WORKLOAD `
     -n workload-$(Get-Date -Format 'yyyyMMdd-HHmmss') `
     -f main.bicep `
-    -p main.bicepparam `
+    -p "deployerIp=$env:DEPLOYER_IP" `
     -p "vnetName=$VNET_NAME" `
     -p "subnetNameCognitivePep=$SUBNET_COGNITIVE_PEP" `
     -p "subnetNameStoragePep=$SUBNET_STORAGE_PEP" `
@@ -1124,7 +1203,6 @@ az deployment group create `
     -g $RG_WORKLOAD `
     -n strip-ip-$(Get-Date -Format 'yyyyMMdd-HHmmss') `
     -f main.bicep `
-    -p main.bicepparam `
     -p deployerIp="" `
     -p allowedIpsExtra='[]' `
     -p "vnetName=$VNET_NAME" `
@@ -1241,7 +1319,6 @@ az deployment group create `
     -g $RG_WORKLOAD `
     -n harden-$(Get-Date -Format 'yyyyMMdd-HHmmss') `
     -f main.bicep `
-    -p main.bicepparam `
     -p enablePublicNetworkAccess=false `
     -p deployerIp="" `
     -p allowedIpsExtra='[]' `
