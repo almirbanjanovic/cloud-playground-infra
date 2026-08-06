@@ -166,20 +166,21 @@ var effectiveDnsRg = empty(dnsResourceGroupName) ? effectiveBaseRg : dnsResource
 // pin `dnsSubscriptionId` to a hub-sub GUID for cross-sub (same-tenant only
 // -- Azure private DNS doesn't support cross-tenant zones).
 //
-// NOTE: we build the zone IDs directly with 4-arg `resourceId(subId, rgName,
-// type, name)` inline at each module invocation, instead of via `existing`
-// resources with `scope:` OR via a Bicep `[for ... resourceId(...)]` var.
-//   - `existing` + variable `scope:` silently drops the scope through `.id`
-//     at compile time (emitted ARM falls back to the deployment's sub+RG).
-//   - Bicep `[for ... resourceId(...)]` compiles to an ARM variable copy
-//     loop, and `variables('foo')[N]` reads return empty at deploy time --
-//     shipped once, produced `InvalidPrivateDnsZoneIds ,,.` for the cognitive
-//     PE and `. ` for each storage sub-PE. Scalar vars are fine (see cosmos
-//     and search below), so we keep them; the arrays get inlined.
+// NOTE: we build the zone IDs as literal strings via `dnsZoneIdPrefix`
+// interpolation instead of `existing` lookups OR the ARM `resourceId()`
+// function. Both alternatives silently break cross-sub / split-RG DNS:
+//   - `existing` + variable `scope:` drops the scope through `.id` at
+//     compile time (emitted ARM falls back to the deployment's sub+RG).
+//   - `resourceId(subId, rgName, type, name)` at RG scope returned empty
+//     strings at deploy time (shipped once; produced `InvalidPrivateDnsZoneIds`
+//     for all 4 PE modules -- storage/cosmos/search/cognitive -- even for
+//     scalar vars). Plain concat sidesteps the ARM function-overload path
+//     entirely.
 var dnsSubForId = empty(dnsSubscriptionId) ? subscription().subscriptionId : dnsSubscriptionId
+var dnsZoneIdPrefix = '/subscriptions/${dnsSubForId}/resourceGroups/${effectiveDnsRg}/providers/Microsoft.Network/privateDnsZones'
 
-var cosmosZoneId = resourceId(dnsSubForId, effectiveDnsRg, 'Microsoft.Network/privateDnsZones', cosmosPrivateDnsZoneName)
-var searchZoneId = resourceId(dnsSubForId, effectiveDnsRg, 'Microsoft.Network/privateDnsZones', searchPrivateDnsZoneName)
+var cosmosZoneId = '${dnsZoneIdPrefix}/${cosmosPrivateDnsZoneName}'
+var searchZoneId = '${dnsZoneIdPrefix}/${searchPrivateDnsZoneName}'
 
 // DNS zone params default to the full required set, and length is locked to
 // exactly 3/6 by @minLength/@maxLength decorators, so we can use the param
@@ -247,12 +248,12 @@ module storage '../../../../iac-modules/bicep/storage_account/v1/storage_account
 
     subnetId: snetStorage.id
 
-    blobPrivateDnsZoneIds:  [resourceId(dnsSubForId, effectiveDnsRg, 'Microsoft.Network/privateDnsZones', storagePrivateDnsZoneNames[0])]
-    filePrivateDnsZoneIds:  [resourceId(dnsSubForId, effectiveDnsRg, 'Microsoft.Network/privateDnsZones', storagePrivateDnsZoneNames[1])]
-    queuePrivateDnsZoneIds: [resourceId(dnsSubForId, effectiveDnsRg, 'Microsoft.Network/privateDnsZones', storagePrivateDnsZoneNames[2])]
-    tablePrivateDnsZoneIds: [resourceId(dnsSubForId, effectiveDnsRg, 'Microsoft.Network/privateDnsZones', storagePrivateDnsZoneNames[3])]
-    dfsPrivateDnsZoneIds:   [resourceId(dnsSubForId, effectiveDnsRg, 'Microsoft.Network/privateDnsZones', storagePrivateDnsZoneNames[4])]
-    webPrivateDnsZoneIds:   [resourceId(dnsSubForId, effectiveDnsRg, 'Microsoft.Network/privateDnsZones', storagePrivateDnsZoneNames[5])]
+    blobPrivateDnsZoneIds:  ['${dnsZoneIdPrefix}/${storagePrivateDnsZoneNames[0]}']
+    filePrivateDnsZoneIds:  ['${dnsZoneIdPrefix}/${storagePrivateDnsZoneNames[1]}']
+    queuePrivateDnsZoneIds: ['${dnsZoneIdPrefix}/${storagePrivateDnsZoneNames[2]}']
+    tablePrivateDnsZoneIds: ['${dnsZoneIdPrefix}/${storagePrivateDnsZoneNames[3]}']
+    dfsPrivateDnsZoneIds:   ['${dnsZoneIdPrefix}/${storagePrivateDnsZoneNames[4]}']
+    webPrivateDnsZoneIds:   ['${dnsZoneIdPrefix}/${storagePrivateDnsZoneNames[5]}']
   }
 }
 
@@ -318,7 +319,7 @@ module cognitive '../../../../iac-modules/bicep/cognitive_account/v1/cognitive_a
     networkAclsIpRules: allowedIps
 
     subnetId: snetCognitive.id
-    privateDnsZoneIds: [for zone in cognitivePrivateDnsZoneNames: resourceId(dnsSubForId, effectiveDnsRg, 'Microsoft.Network/privateDnsZones', zone)]
+    privateDnsZoneIds: [for zone in cognitivePrivateDnsZoneNames: '${dnsZoneIdPrefix}/${zone}']
 
     agentSubnetId: snetAgent.id
   }

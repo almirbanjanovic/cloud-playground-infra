@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.46.1.21595",
-      "templateHash": "199380320635879585"
+      "templateHash": "16766741395337890750"
     }
   },
   "parameters": {
@@ -216,8 +216,9 @@
     "effectiveBaseRg": "[if(empty(parameters('baseResourceGroupName')), resourceGroup().name, parameters('baseResourceGroupName'))]",
     "effectiveDnsRg": "[if(empty(parameters('dnsResourceGroupName')), variables('effectiveBaseRg'), parameters('dnsResourceGroupName'))]",
     "dnsSubForId": "[if(empty(parameters('dnsSubscriptionId')), subscription().subscriptionId, parameters('dnsSubscriptionId'))]",
-    "cosmosZoneId": "[resourceId(variables('dnsSubForId'), variables('effectiveDnsRg'), 'Microsoft.Network/privateDnsZones', parameters('cosmosPrivateDnsZoneName'))]",
-    "searchZoneId": "[resourceId(variables('dnsSubForId'), variables('effectiveDnsRg'), 'Microsoft.Network/privateDnsZones', parameters('searchPrivateDnsZoneName'))]",
+    "dnsZoneIdPrefix": "[format('/subscriptions/{0}/resourceGroups/{1}/providers/Microsoft.Network/privateDnsZones', variables('dnsSubForId'), variables('effectiveDnsRg'))]",
+    "cosmosZoneId": "[format('{0}/{1}', variables('dnsZoneIdPrefix'), parameters('cosmosPrivateDnsZoneName'))]",
+    "searchZoneId": "[format('{0}/{1}', variables('dnsZoneIdPrefix'), parameters('searchPrivateDnsZoneName'))]",
     "allowedIps": "[union(if(empty(parameters('deployerIp')), createArray(), createArray(parameters('deployerIp'))), parameters('allowedIpsExtra'))]"
   },
   "resources": [
@@ -260,32 +261,32 @@
           },
           "blobPrivateDnsZoneIds": {
             "value": [
-              "[resourceId(variables('dnsSubForId'), variables('effectiveDnsRg'), 'Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[0])]"
+              "[format('{0}/{1}', variables('dnsZoneIdPrefix'), parameters('storagePrivateDnsZoneNames')[0])]"
             ]
           },
           "filePrivateDnsZoneIds": {
             "value": [
-              "[resourceId(variables('dnsSubForId'), variables('effectiveDnsRg'), 'Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[1])]"
+              "[format('{0}/{1}', variables('dnsZoneIdPrefix'), parameters('storagePrivateDnsZoneNames')[1])]"
             ]
           },
           "queuePrivateDnsZoneIds": {
             "value": [
-              "[resourceId(variables('dnsSubForId'), variables('effectiveDnsRg'), 'Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[2])]"
+              "[format('{0}/{1}', variables('dnsZoneIdPrefix'), parameters('storagePrivateDnsZoneNames')[2])]"
             ]
           },
           "tablePrivateDnsZoneIds": {
             "value": [
-              "[resourceId(variables('dnsSubForId'), variables('effectiveDnsRg'), 'Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[3])]"
+              "[format('{0}/{1}', variables('dnsZoneIdPrefix'), parameters('storagePrivateDnsZoneNames')[3])]"
             ]
           },
           "dfsPrivateDnsZoneIds": {
             "value": [
-              "[resourceId(variables('dnsSubForId'), variables('effectiveDnsRg'), 'Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[4])]"
+              "[format('{0}/{1}', variables('dnsZoneIdPrefix'), parameters('storagePrivateDnsZoneNames')[4])]"
             ]
           },
           "webPrivateDnsZoneIds": {
             "value": [
-              "[resourceId(variables('dnsSubForId'), variables('effectiveDnsRg'), 'Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[5])]"
+              "[format('{0}/{1}', variables('dnsZoneIdPrefix'), parameters('storagePrivateDnsZoneNames')[5])]"
             ]
           }
         },
@@ -2286,7 +2287,7 @@
               {
                 "name": "value",
                 "count": "[length(parameters('cognitivePrivateDnsZoneNames'))]",
-                "input": "[resourceId(variables('dnsSubForId'), variables('effectiveDnsRg'), 'Microsoft.Network/privateDnsZones', parameters('cognitivePrivateDnsZoneNames')[copyIndex('value')])]"
+                "input": "[format('{0}/{1}', variables('dnsZoneIdPrefix'), parameters('cognitivePrivateDnsZoneNames')[copyIndex('value')])]"
               }
             ]
           },
