@@ -49,6 +49,9 @@ param baseResourceGroupName string = 'rg-ai-foundry-network-dev-westus3'
 @description('Resource group where the private DNS zones live. Blank = reuse `baseResourceGroupName` (base owns the VNet and the DNS zones together, our default topology). Override when your zones are consolidated in a separate central connectivity / hub RG (a common enterprise CAF pattern where a platform team owns DNS zones centrally and each spoke owns its own VNet). Applies uniformly to all 11 zones (cognitive/storage/cosmos/search).')
 param dnsResourceGroupName string = ''
 
+@description('Subscription ID that owns the private DNS zones. Blank (default) = same subscription as the workload deploy. Set to a different subscription ID when DNS zones live in a central connectivity / hub subscription (enterprise CAF: platform team owns DNS centrally in a hub sub; workload deploys land in a spoke sub in the same tenant). Cross-tenant is NOT supported by Azure private DNS.')
+param dnsSubscriptionId string = ''
+
 // --- Name overrides (blank = derive from baseName/environment/location) ---
 
 @description('VNet name. Blank = convention.')
@@ -159,6 +162,11 @@ var effectiveBaseRg = empty(baseResourceGroupName) ? resourceGroup().name : base
 // 11 privatelink zones outside the spoke's VNet RG.
 var effectiveDnsRg = empty(dnsResourceGroupName) ? effectiveBaseRg : dnsResourceGroupName
 
+// DNS zone scope: same-subscription (1-arg resourceGroup) unless the caller
+// pins a cross-sub subscription ID via `dnsSubscriptionId` (2-arg form).
+// Same-tenant only -- Azure private DNS doesn't support cross-tenant zones.
+var dnsScope = empty(dnsSubscriptionId) ? resourceGroup(effectiveDnsRg) : resourceGroup(dnsSubscriptionId, effectiveDnsRg)
+
 // DNS zone params default to the full required set, and length is locked to
 // exactly 3/6 by @minLength/@maxLength decorators, so we can use the param
 // values directly without an "empty -> defaults" fallback.
@@ -205,19 +213,19 @@ resource snetAgent 'Microsoft.Network/virtualNetworks/subnets@2024-05-01' existi
 
 resource cognitiveZones 'Microsoft.Network/privateDnsZones@2024-06-01' existing = [for zone in cognitivePrivateDnsZoneNames: {
   name: zone
-  scope: resourceGroup(effectiveDnsRg)
+  scope: dnsScope
 }]
 resource storageZones 'Microsoft.Network/privateDnsZones@2024-06-01' existing = [for zone in storagePrivateDnsZoneNames: {
   name: zone
-  scope: resourceGroup(effectiveDnsRg)
+  scope: dnsScope
 }]
 resource cosmosZone 'Microsoft.Network/privateDnsZones@2024-06-01' existing = {
   name: cosmosPrivateDnsZoneName
-  scope: resourceGroup(effectiveDnsRg)
+  scope: dnsScope
 }
 resource searchZone 'Microsoft.Network/privateDnsZones@2024-06-01' existing = {
   name: searchPrivateDnsZoneName
-  scope: resourceGroup(effectiveDnsRg)
+  scope: dnsScope
 }
 
 // ----------------------------------------------------------------------------

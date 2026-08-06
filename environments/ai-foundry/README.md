@@ -157,6 +157,7 @@ The workload stack looks base resources up **by NAME** (Bicep `existing`, Terraf
 |---|---|---|---|---|
 | RG that owns the VNet + subnets | `baseResourceGroupName` | `base_resource_group_name` | `rg-ai-foundry-network-dev-westus3` | **session var `$RG_NETWORK` in Step 1** (Bicep) / `terraform.tfvars` (Terraform) |
 | RG that owns the 11 private DNS zones (if separate from the VNet's RG — classic CAF connectivity / hub RG) | `dnsResourceGroupName` | `dns_resource_group_name` | reuses `baseResourceGroupName` | **session var `$RG_DNS` in Step 1** (Bicep) / `terraform.tfvars` (Terraform) |
+| Subscription that owns the 11 private DNS zones (same tenant only; classic CAF connectivity / hub subscription) | `dnsSubscriptionId` | — (Terraform module derives) | current deploy subscription | **session var `$SUB_DNS` in Step 1** (Bicep) / N/A (Terraform) |
 | VNet name | `vnetName` | `vnet_name` | `vnet-ai-foundry-dev-<$LOC>` | **session var `$VNET_NAME` in Step 1** |
 | Cognitive-PE subnet name | `subnetNameCognitivePep` | `subnet_name_cognitive_pep` | `snet-cognitive-ai-foundry-dev` | **session var `$SUBNET_COGNITIVE_PEP` in Step 1** |
 | Storage-PE subnet name | `subnetNameStoragePep` | `subnet_name_storage_pep` | `snet-storage-ai-foundry-dev` | **session var `$SUBNET_STORAGE_PEP` in Step 1** |
@@ -228,6 +229,12 @@ Set the RG that owns the 11 private DNS zones (defaults to `$RG_NETWORK` for the
 
 ```powershell
 $RG_DNS = $RG_NETWORK
+```
+
+Set the subscription that owns the DNS zones (defaults to the current subscription; override with a hub-sub ID when DNS zones live in a central connectivity / hub subscription — same tenant only, cross-tenant DNS isn't supported):
+
+```powershell
+$SUB_DNS = (az account show --query id -o tsv)
 ```
 
 Set the workload stack's RG name:
@@ -307,7 +314,7 @@ $AI_SEARCH_NAME = "srch-ai-foundry-dev-$LOC"
 Echo them back to verify:
 
 ```powershell
-Get-Variable LOC, RG_NETWORK, RG_DNS, RG_WORKLOAD, VNET_NAME, SUBNET_COGNITIVE_PEP, SUBNET_STORAGE_PEP, SUBNET_COSMOS_PEP, SUBNET_SEARCH_PEP, SUBNET_AGENT, STORAGE_NAME, COGNITIVE_ACCOUNT_NAME, COGNITIVE_SUBDOMAIN, COSMOS_NAME, AI_SEARCH_NAME | Format-Table -AutoSize Name, Value
+Get-Variable LOC, RG_NETWORK, RG_DNS, SUB_DNS, RG_WORKLOAD, VNET_NAME, SUBNET_COGNITIVE_PEP, SUBNET_STORAGE_PEP, SUBNET_COSMOS_PEP, SUBNET_SEARCH_PEP, SUBNET_AGENT, STORAGE_NAME, COGNITIVE_ACCOUNT_NAME, COGNITIVE_SUBDOMAIN, COSMOS_NAME, AI_SEARCH_NAME | Format-Table -AutoSize Name, Value
 ```
 
 Create the networking RG:
@@ -449,6 +456,12 @@ The workload deploys **into `$RG_WORKLOAD`** and by default looks up base's VNet
 > $RG_DNS = $RG_NETWORK
 > ```
 >
+> Set the subscription that owns the DNS zones (defaults to the current subscription; override if DNS lives in a hub subscription — same tenant only):
+>
+> ```powershell
+> $SUB_DNS = (az account show --query id -o tsv)
+> ```
+>
 > Set the RG the workload deploys into (create it below if missing):
 >
 > ```powershell
@@ -570,6 +583,7 @@ az deployment group create `
     -f main.bicep `
     -p "baseResourceGroupName=$RG_NETWORK" `
     -p "dnsResourceGroupName=$RG_DNS" `
+    -p "dnsSubscriptionId=$SUB_DNS" `
     -p "deployerIp=$env:DEPLOYER_IP" `
     -p "vnetName=$VNET_NAME" `
     -p "subnetNameCognitivePep=$SUBNET_COGNITIVE_PEP" `
@@ -593,6 +607,7 @@ az deployment group create `
     -f main.bicep `
     -p "baseResourceGroupName=$RG_NETWORK" `
     -p "dnsResourceGroupName=$RG_DNS" `
+    -p "dnsSubscriptionId=$SUB_DNS" `
     -p "vnetName=$VNET_NAME" `
     -p "subnetNameCognitivePep=$SUBNET_COGNITIVE_PEP" `
     -p "subnetNameStoragePep=$SUBNET_STORAGE_PEP" `
@@ -1221,6 +1236,7 @@ az deployment group create `
     -f main.bicep `
     -p "baseResourceGroupName=$RG_NETWORK" `
     -p "dnsResourceGroupName=$RG_DNS" `
+    -p "dnsSubscriptionId=$SUB_DNS" `
     -p "deployerIp=$env:DEPLOYER_IP" `
     -p "vnetName=$VNET_NAME" `
     -p "subnetNameCognitivePep=$SUBNET_COGNITIVE_PEP" `
@@ -1303,6 +1319,7 @@ az deployment group create `
     -f main.bicep `
     -p "baseResourceGroupName=$RG_NETWORK" `
     -p "dnsResourceGroupName=$RG_DNS" `
+    -p "dnsSubscriptionId=$SUB_DNS" `
     -p deployerIp="" `
     -p allowedIpsExtra='[]' `
     -p "vnetName=$VNET_NAME" `
@@ -1426,6 +1443,7 @@ az deployment group create `
     -f main.bicep `
     -p "baseResourceGroupName=$RG_NETWORK" `
     -p "dnsResourceGroupName=$RG_DNS" `
+    -p "dnsSubscriptionId=$SUB_DNS" `
     -p enablePublicNetworkAccess=false `
     -p deployerIp="" `
     -p allowedIpsExtra='[]' `

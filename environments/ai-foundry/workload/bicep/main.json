@@ -4,8 +4,8 @@
   "metadata": {
     "_generator": {
       "name": "bicep",
-      "version": "0.45.15.27210",
-      "templateHash": "17100973670026352992"
+      "version": "0.46.1.21595",
+      "templateHash": "14820123600590103990"
     }
   },
   "parameters": {
@@ -42,6 +42,13 @@
       "defaultValue": "",
       "metadata": {
         "description": "Resource group where the private DNS zones live. Blank = reuse `baseResourceGroupName` (base owns the VNet and the DNS zones together, our default topology). Override when your zones are consolidated in a separate central connectivity / hub RG (a common enterprise CAF pattern where a platform team owns DNS zones centrally and each spoke owns its own VNet). Applies uniformly to all 11 zones (cognitive/storage/cosmos/search)."
+      }
+    },
+    "dnsSubscriptionId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Subscription ID that owns the private DNS zones. Blank (default) = same subscription as the workload deploy. Set to a different subscription ID when DNS zones live in a central connectivity / hub subscription (enterprise CAF: platform team owns DNS centrally in a hub sub; workload deploys land in a spoke sub in the same tenant). Cross-tenant is NOT supported by Azure private DNS."
       }
     },
     "vnetName": {
@@ -208,6 +215,7 @@
     "effectiveCognitiveSubdomain": "[if(empty(parameters('cognitiveCustomSubdomainName')), format('cog-acc-{0}-{1}-{2}', parameters('baseName'), parameters('environment'), parameters('location')), parameters('cognitiveCustomSubdomainName'))]",
     "effectiveBaseRg": "[if(empty(parameters('baseResourceGroupName')), resourceGroup().name, parameters('baseResourceGroupName'))]",
     "effectiveDnsRg": "[if(empty(parameters('dnsResourceGroupName')), variables('effectiveBaseRg'), parameters('dnsResourceGroupName'))]",
+    "dnsScope": "[if(empty(parameters('dnsSubscriptionId')), createObject(), createObject())]",
     "allowedIps": "[union(if(empty(parameters('deployerIp')), createArray(), createArray(parameters('deployerIp'))), parameters('allowedIpsExtra'))]"
   },
   "resources": [
@@ -250,32 +258,32 @@
           },
           "blobPrivateDnsZoneIds": {
             "value": [
-              "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('effectiveDnsRg')), 'Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[0])]"
+              "[resourceId('Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[0])]"
             ]
           },
           "filePrivateDnsZoneIds": {
             "value": [
-              "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('effectiveDnsRg')), 'Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[1])]"
+              "[resourceId('Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[1])]"
             ]
           },
           "queuePrivateDnsZoneIds": {
             "value": [
-              "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('effectiveDnsRg')), 'Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[2])]"
+              "[resourceId('Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[2])]"
             ]
           },
           "tablePrivateDnsZoneIds": {
             "value": [
-              "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('effectiveDnsRg')), 'Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[3])]"
+              "[resourceId('Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[3])]"
             ]
           },
           "dfsPrivateDnsZoneIds": {
             "value": [
-              "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('effectiveDnsRg')), 'Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[4])]"
+              "[resourceId('Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[4])]"
             ]
           },
           "webPrivateDnsZoneIds": {
             "value": [
-              "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('effectiveDnsRg')), 'Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[5])]"
+              "[resourceId('Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[5])]"
             ]
           }
         },
@@ -285,8 +293,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.45.15.27210",
-              "templateHash": "2946639412848931861"
+              "version": "0.46.1.21595",
+              "templateHash": "17911350950525446212"
             }
           },
           "parameters": {
@@ -534,8 +542,8 @@
                   "metadata": {
                     "_generator": {
                       "name": "bicep",
-                      "version": "0.45.15.27210",
-                      "templateHash": "9524211413905157884"
+                      "version": "0.46.1.21595",
+                      "templateHash": "16254176186944031612"
                     }
                   },
                   "parameters": {
@@ -694,8 +702,8 @@
                   "metadata": {
                     "_generator": {
                       "name": "bicep",
-                      "version": "0.45.15.27210",
-                      "templateHash": "9524211413905157884"
+                      "version": "0.46.1.21595",
+                      "templateHash": "16254176186944031612"
                     }
                   },
                   "parameters": {
@@ -855,8 +863,8 @@
                   "metadata": {
                     "_generator": {
                       "name": "bicep",
-                      "version": "0.45.15.27210",
-                      "templateHash": "9524211413905157884"
+                      "version": "0.46.1.21595",
+                      "templateHash": "16254176186944031612"
                     }
                   },
                   "parameters": {
@@ -1016,8 +1024,8 @@
                   "metadata": {
                     "_generator": {
                       "name": "bicep",
-                      "version": "0.45.15.27210",
-                      "templateHash": "9524211413905157884"
+                      "version": "0.46.1.21595",
+                      "templateHash": "16254176186944031612"
                     }
                   },
                   "parameters": {
@@ -1177,8 +1185,8 @@
                   "metadata": {
                     "_generator": {
                       "name": "bicep",
-                      "version": "0.45.15.27210",
-                      "templateHash": "9524211413905157884"
+                      "version": "0.46.1.21595",
+                      "templateHash": "16254176186944031612"
                     }
                   },
                   "parameters": {
@@ -1338,8 +1346,8 @@
                   "metadata": {
                     "_generator": {
                       "name": "bicep",
-                      "version": "0.45.15.27210",
-                      "templateHash": "9524211413905157884"
+                      "version": "0.46.1.21595",
+                      "templateHash": "16254176186944031612"
                     }
                   },
                   "parameters": {
@@ -1516,7 +1524,7 @@
           },
           "privateDnsZoneIds": {
             "value": [
-              "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('effectiveDnsRg')), 'Microsoft.Network/privateDnsZones', parameters('cosmosPrivateDnsZoneName'))]"
+              "[resourceId('Microsoft.Network/privateDnsZones', parameters('cosmosPrivateDnsZoneName'))]"
             ]
           }
         },
@@ -1526,8 +1534,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.45.15.27210",
-              "templateHash": "1761106606278417370"
+              "version": "0.46.1.21595",
+              "templateHash": "9860588630819671183"
             }
           },
           "parameters": {
@@ -1733,8 +1741,8 @@
                   "metadata": {
                     "_generator": {
                       "name": "bicep",
-                      "version": "0.45.15.27210",
-                      "templateHash": "9524211413905157884"
+                      "version": "0.46.1.21595",
+                      "templateHash": "16254176186944031612"
                     }
                   },
                   "parameters": {
@@ -1913,7 +1921,7 @@
           },
           "privateDnsZoneIds": {
             "value": [
-              "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('effectiveDnsRg')), 'Microsoft.Network/privateDnsZones', parameters('searchPrivateDnsZoneName'))]"
+              "[resourceId('Microsoft.Network/privateDnsZones', parameters('searchPrivateDnsZoneName'))]"
             ]
           }
         },
@@ -1923,8 +1931,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.45.15.27210",
-              "templateHash": "1018110910119393499"
+              "version": "0.46.1.21595",
+              "templateHash": "10454710316007934562"
             }
           },
           "parameters": {
@@ -2078,8 +2086,8 @@
                   "metadata": {
                     "_generator": {
                       "name": "bicep",
-                      "version": "0.45.15.27210",
-                      "templateHash": "9524211413905157884"
+                      "version": "0.46.1.21595",
+                      "templateHash": "16254176186944031612"
                     }
                   },
                   "parameters": {
@@ -2276,7 +2284,7 @@
               {
                 "name": "value",
                 "count": "[length(range(0, length(parameters('cognitivePrivateDnsZoneNames'))))]",
-                "input": "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('effectiveDnsRg')), 'Microsoft.Network/privateDnsZones', parameters('cognitivePrivateDnsZoneNames')[range(0, length(parameters('cognitivePrivateDnsZoneNames')))[copyIndex('value')]])]"
+                "input": "[resourceId('Microsoft.Network/privateDnsZones', parameters('cognitivePrivateDnsZoneNames')[range(0, length(parameters('cognitivePrivateDnsZoneNames')))[copyIndex('value')]])]"
               }
             ]
           },
@@ -2290,8 +2298,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.45.15.27210",
-              "templateHash": "15312846142693438966"
+              "version": "0.46.1.21595",
+              "templateHash": "1597307353761631666"
             }
           },
           "parameters": {
@@ -2486,8 +2494,8 @@
                   "metadata": {
                     "_generator": {
                       "name": "bicep",
-                      "version": "0.45.15.27210",
-                      "templateHash": "9524211413905157884"
+                      "version": "0.46.1.21595",
+                      "templateHash": "16254176186944031612"
                     }
                   },
                   "parameters": {
@@ -2680,8 +2688,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.45.15.27210",
-              "templateHash": "5944951463435232826"
+              "version": "0.46.1.21595",
+              "templateHash": "6278418782036260379"
             }
           },
           "parameters": {
