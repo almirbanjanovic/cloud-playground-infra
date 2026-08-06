@@ -231,7 +231,7 @@ Set the RG that owns the 11 private DNS zones (defaults to `$RG_NETWORK` for the
 $RG_DNS = $RG_NETWORK
 ```
 
-Set the subscription that owns the DNS zones (defaults to the current subscription; override with a hub-sub ID when DNS zones live in a central connectivity / hub subscription — same tenant only, cross-tenant DNS isn't supported):
+Set the subscription that owns the DNS zones (defaults to the current subscription; override with a hub-sub ID when DNS zones live in a central connectivity / hub subscription — same tenant only, cross-tenant DNS isn't supported). PowerShell captures the current subscription at assignment time — if you later `az account set --subscription <different>`, re-run this line too:
 
 ```powershell
 $SUB_DNS = (az account show --query id -o tsv)

@@ -162,14 +162,15 @@ var effectiveBaseRg = empty(baseResourceGroupName) ? resourceGroup().name : base
 // 11 privatelink zones outside the spoke's VNet RG.
 var effectiveDnsRg = empty(dnsResourceGroupName) ? effectiveBaseRg : dnsResourceGroupName
 
-// DNS zone scope: same-subscription (1-arg resourceGroup) unless the caller
-// pins a cross-sub subscription ID via `dnsSubscriptionId` (2-arg form).
-// Same-tenant only -- Azure private DNS doesn't support cross-tenant zones.
-// NOTE: Bicep can't propagate a variable scope (`resourceGroup(<var>)`) into
-// `existing.id` at compile time -- the emitted ARM `resourceId()` silently
-// falls back to the current deployment's sub+RG. So we build the 11 zone IDs
-// directly with 4-arg `resourceId(subId, rgName, type, name)` instead of
-// relying on `existing` symbol IDs.
+// DNS zone sub+RG for the 11 privatelink zones. Same-sub is the default;
+// pin `dnsSubscriptionId` to a hub-sub GUID for cross-sub (same-tenant only
+// -- Azure private DNS doesn't support cross-tenant zones).
+//
+// NOTE: we build the zone IDs directly with 4-arg `resourceId(subId, rgName,
+// type, name)` instead of using `existing` resources with `scope:`. Bicep
+// silently drops a variable scope through `existing.id` at compile time --
+// the emitted ARM `resourceId()` falls back to the current deployment's
+// sub+RG, quietly breaking any split-RG-DNS or cross-sub scenario.
 var dnsSubForId = empty(dnsSubscriptionId) ? subscription().subscriptionId : dnsSubscriptionId
 
 var cognitiveZoneIds = [for zone in cognitivePrivateDnsZoneNames: resourceId(dnsSubForId, effectiveDnsRg, 'Microsoft.Network/privateDnsZones', zone)]
@@ -192,7 +193,9 @@ var allowedIps = union(empty(deployerIp) ? [] : [deployerIp], allowedIpsExtra)
 // ----------------------------------------------------------------------------
 // Existing base-stack resources (looked up by name in `effectiveBaseRg`;
 // created by base main.bicep). Subnet lookups inherit their RG scope from
-// the parent VNet, so only the VNet + DNS zones need an explicit `scope:`.
+// the parent VNet, so only the VNet needs an explicit `scope:`. DNS zone
+// IDs are constructed directly above via 4-arg `resourceId()` -- see the
+// `dnsSubForId` comment for the reason.
 // ----------------------------------------------------------------------------
 
 resource vnet 'Microsoft.Network/virtualNetworks@2024-05-01' existing = {
