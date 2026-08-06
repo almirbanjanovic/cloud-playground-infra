@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.46.1.21595",
-      "templateHash": "16766741395337890750"
+      "templateHash": "18017267448376123070"
     }
   },
   "parameters": {
@@ -216,9 +216,6 @@
     "effectiveBaseRg": "[if(empty(parameters('baseResourceGroupName')), resourceGroup().name, parameters('baseResourceGroupName'))]",
     "effectiveDnsRg": "[if(empty(parameters('dnsResourceGroupName')), variables('effectiveBaseRg'), parameters('dnsResourceGroupName'))]",
     "dnsSubForId": "[if(empty(parameters('dnsSubscriptionId')), subscription().subscriptionId, parameters('dnsSubscriptionId'))]",
-    "dnsZoneIdPrefix": "[format('/subscriptions/{0}/resourceGroups/{1}/providers/Microsoft.Network/privateDnsZones', variables('dnsSubForId'), variables('effectiveDnsRg'))]",
-    "cosmosZoneId": "[format('{0}/{1}', variables('dnsZoneIdPrefix'), parameters('cosmosPrivateDnsZoneName'))]",
-    "searchZoneId": "[format('{0}/{1}', variables('dnsZoneIdPrefix'), parameters('searchPrivateDnsZoneName'))]",
     "allowedIps": "[union(if(empty(parameters('deployerIp')), createArray(), createArray(parameters('deployerIp'))), parameters('allowedIpsExtra'))]"
   },
   "resources": [
@@ -261,32 +258,32 @@
           },
           "blobPrivateDnsZoneIds": {
             "value": [
-              "[format('{0}/{1}', variables('dnsZoneIdPrefix'), parameters('storagePrivateDnsZoneNames')[0])]"
+              "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', variables('dnsSubForId'), variables('effectiveDnsRg')), 'Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[0])]"
             ]
           },
           "filePrivateDnsZoneIds": {
             "value": [
-              "[format('{0}/{1}', variables('dnsZoneIdPrefix'), parameters('storagePrivateDnsZoneNames')[1])]"
+              "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', variables('dnsSubForId'), variables('effectiveDnsRg')), 'Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[1])]"
             ]
           },
           "queuePrivateDnsZoneIds": {
             "value": [
-              "[format('{0}/{1}', variables('dnsZoneIdPrefix'), parameters('storagePrivateDnsZoneNames')[2])]"
+              "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', variables('dnsSubForId'), variables('effectiveDnsRg')), 'Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[2])]"
             ]
           },
           "tablePrivateDnsZoneIds": {
             "value": [
-              "[format('{0}/{1}', variables('dnsZoneIdPrefix'), parameters('storagePrivateDnsZoneNames')[3])]"
+              "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', variables('dnsSubForId'), variables('effectiveDnsRg')), 'Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[3])]"
             ]
           },
           "dfsPrivateDnsZoneIds": {
             "value": [
-              "[format('{0}/{1}', variables('dnsZoneIdPrefix'), parameters('storagePrivateDnsZoneNames')[4])]"
+              "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', variables('dnsSubForId'), variables('effectiveDnsRg')), 'Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[4])]"
             ]
           },
           "webPrivateDnsZoneIds": {
             "value": [
-              "[format('{0}/{1}', variables('dnsZoneIdPrefix'), parameters('storagePrivateDnsZoneNames')[5])]"
+              "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', variables('dnsSubForId'), variables('effectiveDnsRg')), 'Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[5])]"
             ]
           }
         },
@@ -1527,7 +1524,7 @@
           },
           "privateDnsZoneIds": {
             "value": [
-              "[variables('cosmosZoneId')]"
+              "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', variables('dnsSubForId'), variables('effectiveDnsRg')), 'Microsoft.Network/privateDnsZones', parameters('cosmosPrivateDnsZoneName'))]"
             ]
           }
         },
@@ -1924,7 +1921,7 @@
           },
           "privateDnsZoneIds": {
             "value": [
-              "[variables('searchZoneId')]"
+              "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', variables('dnsSubForId'), variables('effectiveDnsRg')), 'Microsoft.Network/privateDnsZones', parameters('searchPrivateDnsZoneName'))]"
             ]
           }
         },
@@ -2286,8 +2283,8 @@
             "copy": [
               {
                 "name": "value",
-                "count": "[length(parameters('cognitivePrivateDnsZoneNames'))]",
-                "input": "[format('{0}/{1}', variables('dnsZoneIdPrefix'), parameters('cognitivePrivateDnsZoneNames')[copyIndex('value')])]"
+                "count": "[length(range(0, length(parameters('cognitivePrivateDnsZoneNames'))))]",
+                "input": "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', variables('dnsSubForId'), variables('effectiveDnsRg')), 'Microsoft.Network/privateDnsZones', parameters('cognitivePrivateDnsZoneNames')[range(0, length(parameters('cognitivePrivateDnsZoneNames')))[copyIndex('value')]])]"
               }
             ]
           },

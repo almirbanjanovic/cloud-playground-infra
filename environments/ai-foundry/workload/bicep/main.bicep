@@ -162,25 +162,10 @@ var effectiveBaseRg = empty(baseResourceGroupName) ? resourceGroup().name : base
 // 11 privatelink zones outside the spoke's VNet RG.
 var effectiveDnsRg = empty(dnsResourceGroupName) ? effectiveBaseRg : dnsResourceGroupName
 
-// DNS zone sub+RG for the 11 privatelink zones. Same-sub is the default;
+// DNS zone sub for the 11 privatelink zones. Same-sub is the default;
 // pin `dnsSubscriptionId` to a hub-sub GUID for cross-sub (same-tenant only
 // -- Azure private DNS doesn't support cross-tenant zones).
-//
-// NOTE: we build the zone IDs as literal strings via `dnsZoneIdPrefix`
-// interpolation instead of `existing` lookups OR the ARM `resourceId()`
-// function. Both alternatives silently break cross-sub / split-RG DNS:
-//   - `existing` + variable `scope:` drops the scope through `.id` at
-//     compile time (emitted ARM falls back to the deployment's sub+RG).
-//   - `resourceId(subId, rgName, type, name)` at RG scope returned empty
-//     strings at deploy time (shipped once; produced `InvalidPrivateDnsZoneIds`
-//     for all 4 PE modules -- storage/cosmos/search/cognitive -- even for
-//     scalar vars). Plain concat sidesteps the ARM function-overload path
-//     entirely.
 var dnsSubForId = empty(dnsSubscriptionId) ? subscription().subscriptionId : dnsSubscriptionId
-var dnsZoneIdPrefix = '/subscriptions/${dnsSubForId}/resourceGroups/${effectiveDnsRg}/providers/Microsoft.Network/privateDnsZones'
-
-var cosmosZoneId = '${dnsZoneIdPrefix}/${cosmosPrivateDnsZoneName}'
-var searchZoneId = '${dnsZoneIdPrefix}/${searchPrivateDnsZoneName}'
 
 // DNS zone params default to the full required set, and length is locked to
 // exactly 3/6 by @minLength/@maxLength decorators, so we can use the param
@@ -197,9 +182,10 @@ var allowedIps = union(empty(deployerIp) ? [] : [deployerIp], allowedIpsExtra)
 // ----------------------------------------------------------------------------
 // Existing base-stack resources (looked up by name in `effectiveBaseRg`;
 // created by base main.bicep). Subnet lookups inherit their RG scope from
-// the parent VNet, so only the VNet needs an explicit `scope:`. DNS zone
-// IDs are constructed above via `dnsZoneIdPrefix` string interpolation --
-// see the `dnsSubForId` comment for the reason.
+// the parent VNet, so only the VNet needs an explicit `scope:`. Same for the
+// DNS zones -- each `existing` reference below carries its own `scope:` so
+// `.id` compiles to the correct cross-sub/cross-RG resource ID via ARM's
+// `extensionResourceId('/subscriptions/{sub}/resourceGroups/{rg}', ...)`.
 // ----------------------------------------------------------------------------
 
 resource vnet 'Microsoft.Network/virtualNetworks@2024-05-01' existing = {
@@ -228,6 +214,23 @@ resource snetAgent 'Microsoft.Network/virtualNetworks/subnets@2024-05-01' existi
   name: effectiveAgentSubnetName
 }
 
+resource cognitiveDnsZones 'Microsoft.Network/privateDnsZones@2024-06-01' existing = [for zone in cognitivePrivateDnsZoneNames: {
+  name: zone
+  scope: resourceGroup(dnsSubForId, effectiveDnsRg)
+}]
+resource storageDnsZones 'Microsoft.Network/privateDnsZones@2024-06-01' existing = [for zone in storagePrivateDnsZoneNames: {
+  name: zone
+  scope: resourceGroup(dnsSubForId, effectiveDnsRg)
+}]
+resource cosmosDnsZone 'Microsoft.Network/privateDnsZones@2024-06-01' existing = {
+  name: cosmosPrivateDnsZoneName
+  scope: resourceGroup(dnsSubForId, effectiveDnsRg)
+}
+resource searchDnsZone 'Microsoft.Network/privateDnsZones@2024-06-01' existing = {
+  name: searchPrivateDnsZoneName
+  scope: resourceGroup(dnsSubForId, effectiveDnsRg)
+}
+
 // ----------------------------------------------------------------------------
 // Data-plane services (all with IP allowlist + private endpoint).
 // ----------------------------------------------------------------------------
@@ -248,12 +251,12 @@ module storage '../../../../iac-modules/bicep/storage_account/v1/storage_account
 
     subnetId: snetStorage.id
 
-    blobPrivateDnsZoneIds:  ['${dnsZoneIdPrefix}/${storagePrivateDnsZoneNames[0]}']
-    filePrivateDnsZoneIds:  ['${dnsZoneIdPrefix}/${storagePrivateDnsZoneNames[1]}']
-    queuePrivateDnsZoneIds: ['${dnsZoneIdPrefix}/${storagePrivateDnsZoneNames[2]}']
-    tablePrivateDnsZoneIds: ['${dnsZoneIdPrefix}/${storagePrivateDnsZoneNames[3]}']
-    dfsPrivateDnsZoneIds:   ['${dnsZoneIdPrefix}/${storagePrivateDnsZoneNames[4]}']
-    webPrivateDnsZoneIds:   ['${dnsZoneIdPrefix}/${storagePrivateDnsZoneNames[5]}']
+    blobPrivateDnsZoneIds:  [storageDnsZones[0].id]
+    filePrivateDnsZoneIds:  [storageDnsZones[1].id]
+    queuePrivateDnsZoneIds: [storageDnsZones[2].id]
+    tablePrivateDnsZoneIds: [storageDnsZones[3].id]
+    dfsPrivateDnsZoneIds:   [storageDnsZones[4].id]
+    webPrivateDnsZoneIds:   [storageDnsZones[5].id]
   }
 }
 
@@ -271,7 +274,7 @@ module cosmos '../../../../iac-modules/bicep/cosmos_db/v1/cosmos_db.bicep' = {
     ipRangeFilter: allowedIps
 
     subnetId: snetCosmos.id
-    privateDnsZoneIds: [cosmosZoneId]
+    privateDnsZoneIds: [cosmosDnsZone.id]
   }
 }
 
@@ -290,7 +293,7 @@ module search '../../../../iac-modules/bicep/ai_search/v1/ai_search.bicep' = {
     allowedIps: allowedIps
 
     subnetId: snetSearch.id
-    privateDnsZoneIds: [searchZoneId]
+    privateDnsZoneIds: [searchDnsZone.id]
   }
 }
 
@@ -319,7 +322,7 @@ module cognitive '../../../../iac-modules/bicep/cognitive_account/v1/cognitive_a
     networkAclsIpRules: allowedIps
 
     subnetId: snetCognitive.id
-    privateDnsZoneIds: [for zone in cognitivePrivateDnsZoneNames: '${dnsZoneIdPrefix}/${zone}']
+    privateDnsZoneIds: [for i in range(0, length(cognitivePrivateDnsZoneNames)): cognitiveDnsZones[i].id]
 
     agentSubnetId: snetAgent.id
   }
