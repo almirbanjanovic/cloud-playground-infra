@@ -42,12 +42,20 @@
 #     → agents create new vector-store indexes on demand
 #
 #   Storage Blob Data Contributor   on the Storage account
-#     → agents read/write files in the two auto-created containers.
-#       Contributor (not Owner) is the least-privilege choice for the
-#       runtime data-plane use case — Owner adds ACL / POSIX management
-#       that agents don't need.
-#       (Broader than the doc's per-container scoping, but the container
-#       names aren't known at plan time — see comment below)
+#     → agents read/write files in the auto-created
+#       `<workspaceId>-azureml-blobstore` container.
+#
+#   Storage Blob Data Owner         on the Storage account
+#     → agents read/write files in the auto-created
+#       `<workspaceId>-agents-blobstore` container. Microsoft's Standard
+#       Setup docs REQUIRE Owner (not Contributor) on this container —
+#       missing this surfaces as runtime `403 Forbidden` when the agent
+#       reads or writes files. Granted at account scope because the
+#       `<workspaceId>` prefix isn't known until AFTER the capability
+#       host runs. Microsoft's `15-private-network-standard-agent-setup`
+#       sample uses an ABAC condition to narrow this to workspace-
+#       prefixed containers; this module accepts the wider account-scope
+#       grant for simplicity.
 #
 #   Cosmos DB Built-in Data Contributor  on the Cosmos account (SQL role)
 #     → agents read/write documents in the `enterprise_memory` database
@@ -202,6 +210,17 @@ resource "azurerm_role_assignment" "project_storage_blob_data_contributor" {
   principal_type       = "ServicePrincipal"
 }
 
+# Owner (not Contributor) is required by Microsoft's Standard Setup docs
+# for the `<workspaceId>-agents-blobstore` container -- missing this surfaces
+# as runtime 403s on agent file read/write. See header roster.
+resource "azurerm_role_assignment" "project_storage_blob_data_owner" {
+  count                = var.enable_capability_host && var.storage_account_id != null ? 1 : 0
+  scope                = var.storage_account_id
+  role_definition_name = "Storage Blob Data Owner"
+  principal_id         = azurerm_cognitive_account_project.this.identity[0].principal_id
+  principal_type       = "ServicePrincipal"
+}
+
 resource "azurerm_cosmosdb_sql_role_assignment" "project_cosmos_data_contributor" {
   count               = var.enable_capability_host && var.cosmos_db_account_id != null ? 1 : 0
   resource_group_name = local.cosmos_rg_name
@@ -237,6 +256,7 @@ resource "time_sleep" "wait_for_rbac_propagation" {
     search_index        = try(azurerm_role_assignment.project_search_index_contributor[0].id, "")
     search_service      = try(azurerm_role_assignment.project_search_service_contributor[0].id, "")
     storage_blob        = try(azurerm_role_assignment.project_storage_blob_data_contributor[0].id, "")
+    storage_blob_owner  = try(azurerm_role_assignment.project_storage_blob_data_owner[0].id, "")
     cosmos_data         = try(azurerm_cosmosdb_sql_role_assignment.project_cosmos_data_contributor[0].id, "")
   }
 
@@ -246,6 +266,7 @@ resource "time_sleep" "wait_for_rbac_propagation" {
     azurerm_role_assignment.project_search_index_contributor,
     azurerm_role_assignment.project_search_service_contributor,
     azurerm_role_assignment.project_storage_blob_data_contributor,
+    azurerm_role_assignment.project_storage_blob_data_owner,
     azurerm_cosmosdb_sql_role_assignment.project_cosmos_data_contributor,
   ]
 }

@@ -372,9 +372,10 @@ module "cognitive_account" {
 #         Cosmos DB Operator          on Cosmos account
 #         Storage Account Contributor on Storage account
 #   4. Phase 5 RBAC (data plane):
-#         Search Index Data Contributor    on AI Search
-#         Search Service Contributor       on AI Search
-#         Storage Blob Data Owner          on Storage account
+#         Search Index Data Contributor      on AI Search
+#         Search Service Contributor         on AI Search
+#         Storage Blob Data Contributor      on Storage account
+#         Storage Blob Data Owner            on Storage account
 #         Cosmos DB Built-in Data Contributor on Cosmos account
 #   5. 60s time_sleep to cover RBAC propagation (best-effort)
 #   6. Account + project capability hosts (Foundry Agent Service

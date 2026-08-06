@@ -81,6 +81,7 @@ var roleIds = {
   searchIndexDataContributor   : '8ebe5a00-799e-43f5-93ac-243d3dce84a7'
   searchServiceContributor     : '7ca78c08-252a-4471-8644-bb5ff32d4ba0'
   storageBlobDataContributor   : 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
+  storageBlobDataOwner         : 'b7e6dc6d-f1e8-4753-8033-0f276bb0955b'
 }
 
 // ----------------------------------------------------------------------------
@@ -231,6 +232,20 @@ resource raStorageBlob 'Microsoft.Authorization/roleAssignments@2022-04-01' = if
   }
 }
 
+// Owner (not Contributor) is required by Microsoft's Standard Setup docs for
+// the `<workspaceId>-agents-blobstore` container -- missing this surfaces as
+// runtime 403s on agent file read/write. Granted at account scope because the
+// container names aren't known until after capability-host provisioning.
+resource raStorageBlobOwner 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (enableCapabilityHost) {
+  name: guid(storageAccount.id, project.id, roleIds.storageBlobDataOwner)
+  scope: storageAccount
+  properties: {
+    principalId: project.identity.principalId
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roleIds.storageBlobDataOwner)
+    principalType: 'ServicePrincipal'
+  }
+}
+
 // Cosmos DB data-plane RBAC (SQL role assignment -- Cosmos has its own RBAC).
 resource cosmosDataRole 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments@2024-11-15' = if (enableCapabilityHost) {
   parent: cosmosAccount
@@ -324,6 +339,7 @@ resource projectCapabilityHost 'Microsoft.CognitiveServices/accounts/projects/ca
     raSearchIndex
     raSearchService
     raStorageBlob
+    raStorageBlobOwner
     cosmosDataRole
   ]
 }
