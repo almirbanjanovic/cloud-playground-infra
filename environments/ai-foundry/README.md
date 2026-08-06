@@ -151,12 +151,12 @@ When unsure, default to the public path — switching to private later is a one-
 
 The workload stack looks base resources up **by NAME** (Bicep `existing`, Terraform `data`) — it does NOT read the base stack's outputs or state. That means you can point the workload at ANY pre-existing VNet + subnets + private DNS zones (a shared platform VNet, an ALZ spoke, a run of `base/` with custom names, or a hand-built lab) by overriding the matching parameter / variable. Every override is optional; unset values fall back to the base stack's naming convention. Mix and match as needed.
 
-> **VNet + subnet names AND workload resource names have a preferred override path.** The workload deploy commands (Step 3 for Bicep, Step 5 for Terraform, plus Redeploy / C1 / C2 for each) inject the 6 VNet/subnet vars for both paths, and (Bicep only) 5 additional workload resource-name vars (`$STORAGE_NAME`, `$COGNITIVE_ACCOUNT_NAME`, `$COGNITIVE_SUBDOMAIN`, `$COSMOS_NAME`, `$AI_SEARCH_NAME`) via `-p` flags. **CLI flags win over `terraform.tfvars`** — editing that file for the 6 VNet/subnet names is silently ignored. To use different names, change the session vars from Step 1 (Path A) or Step 1 (Path B) instead. Every OTHER override in the table below (RGs, DNS zone names, `baseName` / `environment` / `location`) is set via CLI `-p` flags (Bicep) or `terraform.tfvars` (Terraform).
+> **VNet + subnet names AND workload resource names have a preferred override path.** The workload deploy commands (Step 3 for Bicep, Step 5 for Terraform, plus Redeploy / C1 / C2 for each) inject the 6 VNet/subnet vars for both paths, and (Bicep only) 5 additional workload resource-name vars (`$STORAGE_NAME`, `$COGNITIVE_ACCOUNT_NAME`, `$COGNITIVE_SUBDOMAIN`, `$COSMOS_NAME`, `$AI_SEARCH_NAME`) via `-p` flags. **Bicep also injects `$RG_NETWORK` and `$RG_DNS` from Step 1 as `baseResourceGroupName` / `dnsResourceGroupName`**, so RG overrides go through session vars too. **CLI flags win over `terraform.tfvars`** — editing that file for the 6 VNet/subnet names is silently ignored. Every OTHER override in the table below (DNS zone names, `baseName` / `environment` / `location`) is set via CLI `-p` flags (Bicep) or `terraform.tfvars` (Terraform).
 
 | What you want to override | Bicep param | Terraform variable | Default | Where to change |
 |---|---|---|---|---|
-| RG that owns the VNet + subnets | `baseResourceGroupName` | `base_resource_group_name` | `rg-ai-foundry-network-dev-westus3` | Bicep CLI `-p key=value` / Terraform `terraform.tfvars` |
-| RG that owns the 11 private DNS zones (if separate from the VNet's RG — classic CAF connectivity / hub RG) | `dnsResourceGroupName` | `dns_resource_group_name` | reuses `baseResourceGroupName` | Bicep CLI `-p key=value` / Terraform `terraform.tfvars` |
+| RG that owns the VNet + subnets | `baseResourceGroupName` | `base_resource_group_name` | `rg-ai-foundry-network-dev-westus3` | **session var `$RG_NETWORK` in Step 1** (Bicep) / `terraform.tfvars` (Terraform) |
+| RG that owns the 11 private DNS zones (if separate from the VNet's RG — classic CAF connectivity / hub RG) | `dnsResourceGroupName` | `dns_resource_group_name` | reuses `baseResourceGroupName` | **session var `$RG_DNS` in Step 1** (Bicep) / `terraform.tfvars` (Terraform) |
 | VNet name | `vnetName` | `vnet_name` | `vnet-ai-foundry-dev-<$LOC>` | **session var `$VNET_NAME` in Step 1** |
 | Cognitive-PE subnet name | `subnetNameCognitivePep` | `subnet_name_cognitive_pep` | `snet-cognitive-ai-foundry-dev` | **session var `$SUBNET_COGNITIVE_PEP` in Step 1** |
 | Storage-PE subnet name | `subnetNameStoragePep` | `subnet_name_storage_pep` | `snet-storage-ai-foundry-dev` | **session var `$SUBNET_STORAGE_PEP` in Step 1** |
@@ -174,7 +174,7 @@ The workload stack looks base resources up **by NAME** (Bicep `existing`, Terraf
 | AI Search privatelink DNS zone name | `searchPrivateDnsZoneName` | `search_private_dns_zone_name` | `privatelink.search.windows.net` | Bicep CLI `-p key=value` / Terraform `terraform.tfvars` |
 | Shift the whole derived-name set at once | `baseName` / `environment` / `location` | `base_name` / `environment` / `location` | `ai-foundry` / `dev` / `westus3` | Bicep CLI `-p key=value` / Terraform `terraform.tfvars` |
 
-For Bicep, pass any of the above overrides on the CLI: append `-p key=value` flags to the `az deployment group create` command (e.g. `-p "baseResourceGroupName=rg-shared-networking-westus3"`).
+For Bicep, pass any of the above overrides on the CLI: append `-p key=value` flags to the `az deployment group create` command (e.g. `-p "baseName=mycompany"`).
 
 For Terraform, [`workload/terraform/terraform.tfvars.example`](workload/terraform/terraform.tfvars.example) bundles these overrides as commented examples. Copy it to `terraform.tfvars` (git-ignored) and uncomment what you need.
 
@@ -222,6 +222,12 @@ Set the base stack's RG name:
 
 ```powershell
 $RG_NETWORK = "rg-ai-foundry-network-dev-$LOC"
+```
+
+Set the RG that owns the 11 private DNS zones (defaults to `$RG_NETWORK` for the split-RG topology where base owns both the VNet and the DNS zones; override to a separate central connectivity / hub RG if your platform team consolidated them elsewhere). PowerShell evaluates `$RG_NETWORK` at assignment time — if you change `$RG_NETWORK` later, re-run this line too:
+
+```powershell
+$RG_DNS = $RG_NETWORK
 ```
 
 Set the workload stack's RG name:
@@ -301,7 +307,7 @@ $AI_SEARCH_NAME = "srch-ai-foundry-dev-$LOC"
 Echo them back to verify:
 
 ```powershell
-Get-Variable LOC, RG_NETWORK, RG_WORKLOAD, VNET_NAME, SUBNET_COGNITIVE_PEP, SUBNET_STORAGE_PEP, SUBNET_COSMOS_PEP, SUBNET_SEARCH_PEP, SUBNET_AGENT, STORAGE_NAME, COGNITIVE_ACCOUNT_NAME, COGNITIVE_SUBDOMAIN, COSMOS_NAME, AI_SEARCH_NAME | Format-Table -AutoSize Name, Value
+Get-Variable LOC, RG_NETWORK, RG_DNS, RG_WORKLOAD, VNET_NAME, SUBNET_COGNITIVE_PEP, SUBNET_STORAGE_PEP, SUBNET_COSMOS_PEP, SUBNET_SEARCH_PEP, SUBNET_AGENT, STORAGE_NAME, COGNITIVE_ACCOUNT_NAME, COGNITIVE_SUBDOMAIN, COSMOS_NAME, AI_SEARCH_NAME | Format-Table -AutoSize Name, Value
 ```
 
 Create the networking RG:
@@ -437,6 +443,12 @@ The workload deploys **into `$RG_WORKLOAD`** and by default looks up base's VNet
 > $RG_NETWORK = "rg-ai-foundry-network-dev-$LOC"
 > ```
 >
+> Set the RG that owns the 11 private DNS zones (defaults to `$RG_NETWORK`; override if DNS lives in a separate central connectivity / hub RG):
+>
+> ```powershell
+> $RG_DNS = $RG_NETWORK
+> ```
+>
 > Set the RG the workload deploys into (create it below if missing):
 >
 > ```powershell
@@ -513,11 +525,11 @@ The workload deploys **into `$RG_WORKLOAD`** and by default looks up base's VNet
 > az network vnet subnet list -g $RG_NETWORK --vnet-name $VNET_NAME --query "[].name" -o tsv
 > ```
 >
-> Then override on the CLI: append `-p key=value` flags to the `az deployment group create` command below — e.g. `-p baseResourceGroupName=<rg-name> -p baseName=<value>`. VNet + subnet names are the exception: change the 6 session vars (`$VNET_NAME`, `$SUBNET_*`) from Step 1, NOT `-p vnetName=…` (the deploy command already carries `-p "vnetName=$VNET_NAME"` etc.).
+> Then override on the CLI: append `-p key=value` flags to the `az deployment group create` command below — e.g. `-p baseName=<value>`. VNet + subnet names, RG names, and workload resource names are the exception: change the session vars from Step 1, NOT `-p vnetName=…` / `-p baseResourceGroupName=…` etc. (the deploy command already carries those `-p` flags from the session vars).
 >
 > The most common overrides:
-> - `-p baseResourceGroupName=<rg>` — if base lives in an RG that doesn't match the default `rg-ai-foundry-network-dev-<loc>`
-> - `-p dnsResourceGroupName=<rg>` — if the 11 private DNS zones live in a different RG from the VNet (classic CAF: DNS zones consolidated in a central connectivity / hub RG). Blank = reuse `baseResourceGroupName`.
+> - **`$RG_NETWORK`** — change this session var if base lives in an RG that doesn't match the default `rg-ai-foundry-network-dev-<loc>`. The Step 3 deploy already passes `-p "baseResourceGroupName=$RG_NETWORK"`, so no CLI flag to append.
+> - **`$RG_DNS`** — change this session var if the 11 private DNS zones live in a different RG from the VNet (classic CAF: DNS zones consolidated in a central connectivity / hub RG). Default reuses `$RG_NETWORK`. The Step 3 deploy already passes `-p "dnsResourceGroupName=$RG_DNS"`.
 > - **VNet + subnet names** — change the 6 session vars (`$VNET_NAME`, `$SUBNET_COGNITIVE_PEP`, `$SUBNET_STORAGE_PEP`, `$SUBNET_COSMOS_PEP`, `$SUBNET_SEARCH_PEP`, `$SUBNET_AGENT`) in Step 1. The Step 3 deploy always passes them as `-p` flags.
 > - `-p baseName=<v> -p environment=<v> -p location=<v>` — only affects the module's tag defaults and internal-derived names. The deploy command already passes explicit `-p` flags for the VNet, subnets, Storage / Cognitive / Cosmos / AI Search resource names, and the Cognitive custom subdomain, so those DO NOT re-derive from `baseName` / `environment` / `location`. Update the corresponding session vars separately if you're changing them.
 
@@ -556,6 +568,8 @@ az deployment group create `
     -g $RG_WORKLOAD `
     -n workload-$(Get-Date -Format 'yyyyMMdd-HHmmss') `
     -f main.bicep `
+    -p "baseResourceGroupName=$RG_NETWORK" `
+    -p "dnsResourceGroupName=$RG_DNS" `
     -p "deployerIp=$env:DEPLOYER_IP" `
     -p "vnetName=$VNET_NAME" `
     -p "subnetNameCognitivePep=$SUBNET_COGNITIVE_PEP" `
@@ -577,6 +591,8 @@ az deployment group create `
     -g $RG_WORKLOAD `
     -n workload-$(Get-Date -Format 'yyyyMMdd-HHmmss') `
     -f main.bicep `
+    -p "baseResourceGroupName=$RG_NETWORK" `
+    -p "dnsResourceGroupName=$RG_DNS" `
     -p "vnetName=$VNET_NAME" `
     -p "subnetNameCognitivePep=$SUBNET_COGNITIVE_PEP" `
     -p "subnetNameStoragePep=$SUBNET_STORAGE_PEP" `
@@ -1203,6 +1219,8 @@ az deployment group create `
     -g $RG_WORKLOAD `
     -n workload-$(Get-Date -Format 'yyyyMMdd-HHmmss') `
     -f main.bicep `
+    -p "baseResourceGroupName=$RG_NETWORK" `
+    -p "dnsResourceGroupName=$RG_DNS" `
     -p "deployerIp=$env:DEPLOYER_IP" `
     -p "vnetName=$VNET_NAME" `
     -p "subnetNameCognitivePep=$SUBNET_COGNITIVE_PEP" `
@@ -1283,6 +1301,8 @@ az deployment group create `
     -g $RG_WORKLOAD `
     -n strip-ip-$(Get-Date -Format 'yyyyMMdd-HHmmss') `
     -f main.bicep `
+    -p "baseResourceGroupName=$RG_NETWORK" `
+    -p "dnsResourceGroupName=$RG_DNS" `
     -p deployerIp="" `
     -p allowedIpsExtra='[]' `
     -p "vnetName=$VNET_NAME" `
@@ -1404,6 +1424,8 @@ az deployment group create `
     -g $RG_WORKLOAD `
     -n harden-$(Get-Date -Format 'yyyyMMdd-HHmmss') `
     -f main.bicep `
+    -p "baseResourceGroupName=$RG_NETWORK" `
+    -p "dnsResourceGroupName=$RG_DNS" `
     -p enablePublicNetworkAccess=false `
     -p deployerIp="" `
     -p allowedIpsExtra='[]' `
