@@ -165,7 +165,17 @@ var effectiveDnsRg = empty(dnsResourceGroupName) ? effectiveBaseRg : dnsResource
 // DNS zone scope: same-subscription (1-arg resourceGroup) unless the caller
 // pins a cross-sub subscription ID via `dnsSubscriptionId` (2-arg form).
 // Same-tenant only -- Azure private DNS doesn't support cross-tenant zones.
-var dnsScope = empty(dnsSubscriptionId) ? resourceGroup(effectiveDnsRg) : resourceGroup(dnsSubscriptionId, effectiveDnsRg)
+// NOTE: Bicep can't propagate a variable scope (`resourceGroup(<var>)`) into
+// `existing.id` at compile time -- the emitted ARM `resourceId()` silently
+// falls back to the current deployment's sub+RG. So we build the 11 zone IDs
+// directly with 4-arg `resourceId(subId, rgName, type, name)` instead of
+// relying on `existing` symbol IDs.
+var dnsSubForId = empty(dnsSubscriptionId) ? subscription().subscriptionId : dnsSubscriptionId
+
+var cognitiveZoneIds = [for zone in cognitivePrivateDnsZoneNames: resourceId(dnsSubForId, effectiveDnsRg, 'Microsoft.Network/privateDnsZones', zone)]
+var storageZoneIds = [for zone in storagePrivateDnsZoneNames: resourceId(dnsSubForId, effectiveDnsRg, 'Microsoft.Network/privateDnsZones', zone)]
+var cosmosZoneId = resourceId(dnsSubForId, effectiveDnsRg, 'Microsoft.Network/privateDnsZones', cosmosPrivateDnsZoneName)
+var searchZoneId = resourceId(dnsSubForId, effectiveDnsRg, 'Microsoft.Network/privateDnsZones', searchPrivateDnsZoneName)
 
 // DNS zone params default to the full required set, and length is locked to
 // exactly 3/6 by @minLength/@maxLength decorators, so we can use the param
@@ -211,23 +221,6 @@ resource snetAgent 'Microsoft.Network/virtualNetworks/subnets@2024-05-01' existi
   name: effectiveAgentSubnetName
 }
 
-resource cognitiveZones 'Microsoft.Network/privateDnsZones@2024-06-01' existing = [for zone in cognitivePrivateDnsZoneNames: {
-  name: zone
-  scope: dnsScope
-}]
-resource storageZones 'Microsoft.Network/privateDnsZones@2024-06-01' existing = [for zone in storagePrivateDnsZoneNames: {
-  name: zone
-  scope: dnsScope
-}]
-resource cosmosZone 'Microsoft.Network/privateDnsZones@2024-06-01' existing = {
-  name: cosmosPrivateDnsZoneName
-  scope: dnsScope
-}
-resource searchZone 'Microsoft.Network/privateDnsZones@2024-06-01' existing = {
-  name: searchPrivateDnsZoneName
-  scope: dnsScope
-}
-
 // ----------------------------------------------------------------------------
 // Data-plane services (all with IP allowlist + private endpoint).
 // ----------------------------------------------------------------------------
@@ -248,12 +241,12 @@ module storage '../../../../iac-modules/bicep/storage_account/v1/storage_account
 
     subnetId: snetStorage.id
 
-    blobPrivateDnsZoneIds:  [storageZones[0].id]
-    filePrivateDnsZoneIds:  [storageZones[1].id]
-    queuePrivateDnsZoneIds: [storageZones[2].id]
-    tablePrivateDnsZoneIds: [storageZones[3].id]
-    dfsPrivateDnsZoneIds:   [storageZones[4].id]
-    webPrivateDnsZoneIds:   [storageZones[5].id]
+    blobPrivateDnsZoneIds:  [storageZoneIds[0]]
+    filePrivateDnsZoneIds:  [storageZoneIds[1]]
+    queuePrivateDnsZoneIds: [storageZoneIds[2]]
+    tablePrivateDnsZoneIds: [storageZoneIds[3]]
+    dfsPrivateDnsZoneIds:   [storageZoneIds[4]]
+    webPrivateDnsZoneIds:   [storageZoneIds[5]]
   }
 }
 
@@ -271,7 +264,7 @@ module cosmos '../../../../iac-modules/bicep/cosmos_db/v1/cosmos_db.bicep' = {
     ipRangeFilter: allowedIps
 
     subnetId: snetCosmos.id
-    privateDnsZoneIds: [cosmosZone.id]
+    privateDnsZoneIds: [cosmosZoneId]
   }
 }
 
@@ -290,7 +283,7 @@ module search '../../../../iac-modules/bicep/ai_search/v1/ai_search.bicep' = {
     allowedIps: allowedIps
 
     subnetId: snetSearch.id
-    privateDnsZoneIds: [searchZone.id]
+    privateDnsZoneIds: [searchZoneId]
   }
 }
 
@@ -319,7 +312,7 @@ module cognitive '../../../../iac-modules/bicep/cognitive_account/v1/cognitive_a
     networkAclsIpRules: allowedIps
 
     subnetId: snetCognitive.id
-    privateDnsZoneIds: [for i in range(0, length(cognitivePrivateDnsZoneNames)): cognitiveZones[i].id]
+    privateDnsZoneIds: [for i in range(0, length(cognitivePrivateDnsZoneNames)): cognitiveZoneIds[i]]
 
     agentSubnetId: snetAgent.id
   }

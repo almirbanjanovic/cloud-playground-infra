@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.46.1.21595",
-      "templateHash": "14820123600590103990"
+      "templateHash": "14033309308585933790"
     }
   },
   "parameters": {
@@ -206,6 +206,18 @@
     }
   },
   "variables": {
+    "copy": [
+      {
+        "name": "cognitiveZoneIds",
+        "count": "[length(parameters('cognitivePrivateDnsZoneNames'))]",
+        "input": "[resourceId(variables('dnsSubForId'), variables('effectiveDnsRg'), 'Microsoft.Network/privateDnsZones', parameters('cognitivePrivateDnsZoneNames')[copyIndex('cognitiveZoneIds')])]"
+      },
+      {
+        "name": "storageZoneIds",
+        "count": "[length(parameters('storagePrivateDnsZoneNames'))]",
+        "input": "[resourceId(variables('dnsSubForId'), variables('effectiveDnsRg'), 'Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[copyIndex('storageZoneIds')])]"
+      }
+    ],
     "effectiveVnetName": "[if(empty(parameters('vnetName')), format('vnet-{0}-{1}-{2}', parameters('baseName'), parameters('environment'), parameters('location')), parameters('vnetName'))]",
     "effectiveCognitiveSubnetName": "[if(empty(parameters('subnetNameCognitivePep')), format('snet-cognitive-{0}-{1}', parameters('baseName'), parameters('environment')), parameters('subnetNameCognitivePep'))]",
     "effectiveStorageSubnetName": "[if(empty(parameters('subnetNameStoragePep')), format('snet-storage-{0}-{1}', parameters('baseName'), parameters('environment')), parameters('subnetNameStoragePep'))]",
@@ -215,7 +227,9 @@
     "effectiveCognitiveSubdomain": "[if(empty(parameters('cognitiveCustomSubdomainName')), format('cog-acc-{0}-{1}-{2}', parameters('baseName'), parameters('environment'), parameters('location')), parameters('cognitiveCustomSubdomainName'))]",
     "effectiveBaseRg": "[if(empty(parameters('baseResourceGroupName')), resourceGroup().name, parameters('baseResourceGroupName'))]",
     "effectiveDnsRg": "[if(empty(parameters('dnsResourceGroupName')), variables('effectiveBaseRg'), parameters('dnsResourceGroupName'))]",
-    "dnsScope": "[if(empty(parameters('dnsSubscriptionId')), createObject(), createObject())]",
+    "dnsSubForId": "[if(empty(parameters('dnsSubscriptionId')), subscription().subscriptionId, parameters('dnsSubscriptionId'))]",
+    "cosmosZoneId": "[resourceId(variables('dnsSubForId'), variables('effectiveDnsRg'), 'Microsoft.Network/privateDnsZones', parameters('cosmosPrivateDnsZoneName'))]",
+    "searchZoneId": "[resourceId(variables('dnsSubForId'), variables('effectiveDnsRg'), 'Microsoft.Network/privateDnsZones', parameters('searchPrivateDnsZoneName'))]",
     "allowedIps": "[union(if(empty(parameters('deployerIp')), createArray(), createArray(parameters('deployerIp'))), parameters('allowedIpsExtra'))]"
   },
   "resources": [
@@ -258,32 +272,32 @@
           },
           "blobPrivateDnsZoneIds": {
             "value": [
-              "[resourceId('Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[0])]"
+              "[variables('storageZoneIds')[0]]"
             ]
           },
           "filePrivateDnsZoneIds": {
             "value": [
-              "[resourceId('Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[1])]"
+              "[variables('storageZoneIds')[1]]"
             ]
           },
           "queuePrivateDnsZoneIds": {
             "value": [
-              "[resourceId('Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[2])]"
+              "[variables('storageZoneIds')[2]]"
             ]
           },
           "tablePrivateDnsZoneIds": {
             "value": [
-              "[resourceId('Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[3])]"
+              "[variables('storageZoneIds')[3]]"
             ]
           },
           "dfsPrivateDnsZoneIds": {
             "value": [
-              "[resourceId('Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[4])]"
+              "[variables('storageZoneIds')[4]]"
             ]
           },
           "webPrivateDnsZoneIds": {
             "value": [
-              "[resourceId('Microsoft.Network/privateDnsZones', parameters('storagePrivateDnsZoneNames')[5])]"
+              "[variables('storageZoneIds')[5]]"
             ]
           }
         },
@@ -1524,7 +1538,7 @@
           },
           "privateDnsZoneIds": {
             "value": [
-              "[resourceId('Microsoft.Network/privateDnsZones', parameters('cosmosPrivateDnsZoneName'))]"
+              "[variables('cosmosZoneId')]"
             ]
           }
         },
@@ -1921,7 +1935,7 @@
           },
           "privateDnsZoneIds": {
             "value": [
-              "[resourceId('Microsoft.Network/privateDnsZones', parameters('searchPrivateDnsZoneName'))]"
+              "[variables('searchZoneId')]"
             ]
           }
         },
@@ -2284,7 +2298,7 @@
               {
                 "name": "value",
                 "count": "[length(range(0, length(parameters('cognitivePrivateDnsZoneNames'))))]",
-                "input": "[resourceId('Microsoft.Network/privateDnsZones', parameters('cognitivePrivateDnsZoneNames')[range(0, length(parameters('cognitivePrivateDnsZoneNames')))[copyIndex('value')]])]"
+                "input": "[variables('cognitiveZoneIds')[range(0, length(parameters('cognitivePrivateDnsZoneNames')))[copyIndex('value')]]]"
               }
             ]
           },
