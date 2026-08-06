@@ -167,14 +167,17 @@ var effectiveDnsRg = empty(dnsResourceGroupName) ? effectiveBaseRg : dnsResource
 // -- Azure private DNS doesn't support cross-tenant zones).
 //
 // NOTE: we build the zone IDs directly with 4-arg `resourceId(subId, rgName,
-// type, name)` instead of using `existing` resources with `scope:`. Bicep
-// silently drops a variable scope through `existing.id` at compile time --
-// the emitted ARM `resourceId()` falls back to the current deployment's
-// sub+RG, quietly breaking any split-RG-DNS or cross-sub scenario.
+// type, name)` inline at each module invocation, instead of via `existing`
+// resources with `scope:` OR via a Bicep `[for ... resourceId(...)]` var.
+//   - `existing` + variable `scope:` silently drops the scope through `.id`
+//     at compile time (emitted ARM falls back to the deployment's sub+RG).
+//   - Bicep `[for ... resourceId(...)]` compiles to an ARM variable copy
+//     loop, and `variables('foo')[N]` reads return empty at deploy time --
+//     shipped once, produced `InvalidPrivateDnsZoneIds ,,.` for the cognitive
+//     PE and `. ` for each storage sub-PE. Scalar vars are fine (see cosmos
+//     and search below), so we keep them; the arrays get inlined.
 var dnsSubForId = empty(dnsSubscriptionId) ? subscription().subscriptionId : dnsSubscriptionId
 
-var cognitiveZoneIds = [for zone in cognitivePrivateDnsZoneNames: resourceId(dnsSubForId, effectiveDnsRg, 'Microsoft.Network/privateDnsZones', zone)]
-var storageZoneIds = [for zone in storagePrivateDnsZoneNames: resourceId(dnsSubForId, effectiveDnsRg, 'Microsoft.Network/privateDnsZones', zone)]
 var cosmosZoneId = resourceId(dnsSubForId, effectiveDnsRg, 'Microsoft.Network/privateDnsZones', cosmosPrivateDnsZoneName)
 var searchZoneId = resourceId(dnsSubForId, effectiveDnsRg, 'Microsoft.Network/privateDnsZones', searchPrivateDnsZoneName)
 
@@ -244,12 +247,12 @@ module storage '../../../../iac-modules/bicep/storage_account/v1/storage_account
 
     subnetId: snetStorage.id
 
-    blobPrivateDnsZoneIds:  [storageZoneIds[0]]
-    filePrivateDnsZoneIds:  [storageZoneIds[1]]
-    queuePrivateDnsZoneIds: [storageZoneIds[2]]
-    tablePrivateDnsZoneIds: [storageZoneIds[3]]
-    dfsPrivateDnsZoneIds:   [storageZoneIds[4]]
-    webPrivateDnsZoneIds:   [storageZoneIds[5]]
+    blobPrivateDnsZoneIds:  [resourceId(dnsSubForId, effectiveDnsRg, 'Microsoft.Network/privateDnsZones', storagePrivateDnsZoneNames[0])]
+    filePrivateDnsZoneIds:  [resourceId(dnsSubForId, effectiveDnsRg, 'Microsoft.Network/privateDnsZones', storagePrivateDnsZoneNames[1])]
+    queuePrivateDnsZoneIds: [resourceId(dnsSubForId, effectiveDnsRg, 'Microsoft.Network/privateDnsZones', storagePrivateDnsZoneNames[2])]
+    tablePrivateDnsZoneIds: [resourceId(dnsSubForId, effectiveDnsRg, 'Microsoft.Network/privateDnsZones', storagePrivateDnsZoneNames[3])]
+    dfsPrivateDnsZoneIds:   [resourceId(dnsSubForId, effectiveDnsRg, 'Microsoft.Network/privateDnsZones', storagePrivateDnsZoneNames[4])]
+    webPrivateDnsZoneIds:   [resourceId(dnsSubForId, effectiveDnsRg, 'Microsoft.Network/privateDnsZones', storagePrivateDnsZoneNames[5])]
   }
 }
 
@@ -315,7 +318,7 @@ module cognitive '../../../../iac-modules/bicep/cognitive_account/v1/cognitive_a
     networkAclsIpRules: allowedIps
 
     subnetId: snetCognitive.id
-    privateDnsZoneIds: [for i in range(0, length(cognitivePrivateDnsZoneNames)): cognitiveZoneIds[i]]
+    privateDnsZoneIds: [for zone in cognitivePrivateDnsZoneNames: resourceId(dnsSubForId, effectiveDnsRg, 'Microsoft.Network/privateDnsZones', zone)]
 
     agentSubnetId: snetAgent.id
   }
