@@ -198,8 +198,8 @@ var allowedIps = union(empty(deployerIp) ? [] : [deployerIp], allowedIpsExtra)
 // Existing base-stack resources (looked up by name in `effectiveBaseRg`;
 // created by base main.bicep). Subnet lookups inherit their RG scope from
 // the parent VNet, so only the VNet needs an explicit `scope:`. DNS zone
-// IDs are constructed directly above via 4-arg `resourceId()` -- see the
-// `dnsSubForId` comment for the reason.
+// IDs are constructed above via `dnsZoneIdPrefix` string interpolation --
+// see the `dnsSubForId` comment for the reason.
 // ----------------------------------------------------------------------------
 
 resource vnet 'Microsoft.Network/virtualNetworks@2024-05-01' existing = {
