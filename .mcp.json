@@ -1,0 +1,15 @@
+{
+	"mcpServers": {
+		"colors-mcp-server": {
+			"type": "http",
+			"url": "https://apim-mcp-dev-centralus.azure-api.net/colors-mcp/mcp",
+			"tools": [
+				"*"
+			],
+			"headers": {
+				"Ocp-Apim-Subscription-Key": "XXXXXXXXXXXXXXXXXXX",
+				"Ocp-Apim-Trace": "true"
+			}
+		}
+	}
+}
