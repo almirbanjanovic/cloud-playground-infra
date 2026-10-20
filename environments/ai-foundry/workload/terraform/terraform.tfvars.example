@@ -82,6 +82,24 @@
 # cosmos_private_dns_zone_name     = "privatelink.documents.azure.com"
 # search_private_dns_zone_name     = "privatelink.search.windows.net"
 
+# --- 6. Per-service regions (Storage / Cosmos DB / AI Search) ---
+# Storage, Cosmos DB and AI Search can each live in a different region than
+# the Foundry account + VNet (`location`); their private endpoints always stay
+# in `location`. Leave unset to keep a service in `location`. Use programmatic
+# region names. Keep these in this file: the README's Terraform commands don't
+# pass them, so every later plan / apply / destroy reads them from here.
+# Changing one after the first apply REPLACES that service (its data is
+# destroyed) and the project capability host -- see the README first.
+# storage_location   = "eastus2"
+# cosmos_location    = "eastus2"
+# ai_search_location = "eastus2"
+#
+# The derived storage account name is st<base_name><environment><storage region>
+# with hyphens stripped, max 24 chars. With the default base_name/environment,
+# region names longer than 10 characters (e.g. "swedencentral") overflow it,
+# so set an explicit, globally unique name:
+# storage_account_name = "staifoundrydevswc"
+
 # --- Optional: deployer-IP allowlist ---
 # Pin the deployer IP instead of letting the http provider auto-detect
 # it (https://api.ipify.org). Set this if your egress IP is masked by a

@@ -3,6 +3,10 @@
 #--------------------------------------------------------------------------------------------------------------------------------
 locals {
   name = "srch-${var.base_name}-${var.environment}-${var.location}"
+
+  # Private endpoints must sit in the VNet's region, which can differ from the
+  # search service's own region.
+  private_endpoint_location = coalesce(var.private_endpoint_location, var.location)
 }
 
 #--------------------------------------------------------------------------------------------------------------------------------
@@ -51,7 +55,7 @@ module "search_private_endpoint" {
   resource_id                     = azurerm_search_service.this.id
   resource_name                   = local.name
   resource_group_name             = var.resource_group_name
-  location                        = var.location
+  location                        = local.private_endpoint_location
   subnet_id                       = var.subnet_id
   subresource_names               = var.subresource_names
   private_dns_zone_ids            = var.private_dns_zone_ids

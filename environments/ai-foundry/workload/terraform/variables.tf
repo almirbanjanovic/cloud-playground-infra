@@ -39,9 +39,61 @@ variable "environment" {
 }
 
 variable "location" {
-  description = "Azure region for the workload resources. Must match the base stack. Default `westus3` is on Microsoft's list of Foundry Agent Service regions that support the private-networking Standard Setup, has 3 availability zones, and has broad Azure OpenAI model coverage. If you change this, change it in both stacks and verify the target region is on https://learn.microsoft.com/azure/ai-foundry/agents/concepts/limits-quotas-regions#supported-regions."
+  description = "Azure region for the Foundry account and all 9 private endpoints. Must be the base stack's VNet region. Default `westus3` is on Microsoft's list of Foundry Agent Service regions that support the private-networking Standard Setup, has 3 availability zones, and has broad Azure OpenAI model coverage. If you change this, change it in both stacks and verify the target region is on https://learn.microsoft.com/azure/ai-foundry/agents/concepts/limits-quotas-regions#supported-regions. Storage, Cosmos DB and AI Search default to this region; override them with `storage_location` / `cosmos_location` / `ai_search_location`."
   type        = string
   default     = "westus3"
+}
+
+# --- Per-service regions (Storage / Cosmos DB / AI Search) ---
+#
+# Storage, Cosmos DB and AI Search can each live in a different region than the
+# Foundry account + VNet; their private endpoints always stay in `location`.
+# Keep these in terraform.tfvars so every plan / apply / destroy sees the same
+# values -- changing one after the first apply replaces that service (its data
+# is destroyed) and the project capability host.
+
+variable "storage_location" {
+  description = "Azure region for the Storage account. Null/empty (default) = `location`. Programmatic region name, e.g. `eastus2`."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.storage_location == null || var.storage_location == "" || can(regex("^[a-z][a-z0-9]*$", var.storage_location))
+    error_message = "storage_location must be a programmatic Azure region name such as \"eastus2\" (lowercase letters and digits, no spaces), or null/empty to use `location`."
+  }
+}
+
+variable "cosmos_location" {
+  description = "Azure region for the Cosmos DB account. Null/empty (default) = `location`. Programmatic region name, e.g. `eastus2`."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.cosmos_location == null || var.cosmos_location == "" || can(regex("^[a-z][a-z0-9]*$", var.cosmos_location))
+    error_message = "cosmos_location must be a programmatic Azure region name such as \"eastus2\" (lowercase letters and digits, no spaces), or null/empty to use `location`."
+  }
+}
+
+variable "ai_search_location" {
+  description = "Azure region for the AI Search service. Null/empty (default) = `location`. Programmatic region name, e.g. `eastus2`."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.ai_search_location == null || var.ai_search_location == "" || can(regex("^[a-z][a-z0-9]*$", var.ai_search_location))
+    error_message = "ai_search_location must be a programmatic Azure region name such as \"eastus2\" (lowercase letters and digits, no spaces), or null/empty to use `location`."
+  }
+}
+
+variable "storage_account_name" {
+  description = "Storage account name override (globally unique, 3-24 lowercase letters/digits). Null/empty (default) = convention `st<base_name><environment><storage region>` with hyphens stripped. Set it when the derived name exceeds 24 characters (long region names such as `swedencentral` do) or collides globally."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.storage_account_name == null || var.storage_account_name == "" || can(regex("^[a-z0-9]{3,24}$", var.storage_account_name))
+    error_message = "storage_account_name must be 3-24 lowercase letters and digits, or null/empty to use the derived name."
+  }
 }
 
 # --- Optional overrides for individual data-source names ---

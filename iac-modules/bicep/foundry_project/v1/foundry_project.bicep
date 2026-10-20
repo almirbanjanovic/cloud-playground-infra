@@ -57,6 +57,15 @@ param aiSearchName string
 @description('AI Search endpoint (e.g. https://<name>.search.windows.net).')
 param aiSearchEndpoint string
 
+@description('Region of the Storage account, recorded in the storage connection metadata. Blank (default) = `location`. Pass the exact value the account was created with.')
+param storageLocation string = ''
+
+@description('Region of the Cosmos DB account, recorded in the Cosmos connection metadata. Blank (default) = `location`. Pass the exact value the account was created with.')
+param cosmosLocation string = ''
+
+@description('Region of the AI Search service, recorded in the AI Search connection metadata. Blank (default) = `location`. Pass the exact value the service was created with.')
+param aiSearchLocation string = ''
+
 @description('Create the account + project capability hosts (Foundry Agent Service Standard Setup). Set false to defer.')
 param enableCapabilityHost bool = true
 
@@ -70,6 +79,14 @@ param tags object = {}
 var derivedProjectName = 'proj-${baseName}-${environment}-${location}'
 var effectiveProjectName = empty(projectName) ? derivedProjectName : projectName
 var effectiveDisplayName = empty(displayName) ? effectiveProjectName : displayName
+
+// Each connection records its service's own region (the services may live
+// outside the project's region). Use the caller's values rather than the
+// resources' `.location`: Cosmos DB reports a display name such as "West US 3",
+// which would rewrite the metadata of existing deployments.
+var storageConnectionLocation  = empty(storageLocation) ? location : storageLocation
+var cosmosConnectionLocation   = empty(cosmosLocation) ? location : cosmosLocation
+var aiSearchConnectionLocation = empty(aiSearchLocation) ? location : aiSearchLocation
 
 // Cosmos SQL built-in "Data Contributor" role definition ID (same across all accounts).
 var cosmosBuiltInDataContributorRoleDefinitionId = '00000000-0000-0000-0000-000000000002'
@@ -137,7 +154,7 @@ resource connStorage 'Microsoft.CognitiveServices/accounts/connections@2025-06-0
     metadata: {
       ApiType: 'Azure'
       ResourceId: storageAccount.id
-      Location: location
+      Location: storageConnectionLocation
     }
   }
 }
@@ -153,7 +170,7 @@ resource connCosmos 'Microsoft.CognitiveServices/accounts/connections@2025-06-01
     metadata: {
       ApiType: 'Azure'
       ResourceId: cosmosAccount.id
-      Location: location
+      Location: cosmosConnectionLocation
     }
   }
 }
@@ -169,7 +186,7 @@ resource connSearch 'Microsoft.CognitiveServices/accounts/connections@2025-06-01
     metadata: {
       ApiType: 'Azure'
       ResourceId: searchService.id
-      Location: location
+      Location: aiSearchConnectionLocation
     }
   }
 }

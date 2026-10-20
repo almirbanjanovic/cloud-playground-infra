@@ -13,8 +13,11 @@ param baseName string
 @description('Environment suffix (e.g. "dev").')
 param environment string
 
-@description('Azure location.')
+@description('Azure region for the storage account. Its private endpoints use `privateEndpointLocation` when that is set.')
 param location string = resourceGroup().location
+
+@description('Azure region for the private endpoints. Private endpoints must be in the VNet\'s region, which can differ from the storage account\'s region (`location`). Blank (default) = `location`.')
+param privateEndpointLocation string = ''
 
 @description('Optional suffix appended to the derived storage account name (for uniqueness in shared subs).')
 param suffix string = ''
@@ -73,6 +76,10 @@ param customName string = ''
 // uses. Anything more exotic: pass `customName`.
 var derivedAccountName = replace(toLower('st${baseName}${environment}${location}${suffix}'), '-', '')
 var accountName = empty(customName) ? derivedAccountName : customName
+
+// Private endpoints must sit in the VNet's region, which can differ from the
+// account's own region.
+var peLocation = empty(privateEndpointLocation) ? location : privateEndpointLocation
 
 // ------------------------------------------------------------------
 // Storage account
@@ -166,7 +173,7 @@ module pe_blob '../../private_endpoint/v1/private_endpoint.bicep' = if (!empty(b
   name: take('pe-${accountName}-blob', 64)
   params: {
     name: 'pe-${accountName}-blob'
-    location: location
+    location: peLocation
     targetResourceId: storage.id
     subresourceNames: ['blob']
     subnetId: subnetId
@@ -179,7 +186,7 @@ module pe_file '../../private_endpoint/v1/private_endpoint.bicep' = if (!empty(f
   name: take('pe-${accountName}-file', 64)
   params: {
     name: 'pe-${accountName}-file'
-    location: location
+    location: peLocation
     targetResourceId: storage.id
     subresourceNames: ['file']
     subnetId: subnetId
@@ -193,7 +200,7 @@ module pe_queue '../../private_endpoint/v1/private_endpoint.bicep' = if (!empty(
   name: take('pe-${accountName}-queue', 64)
   params: {
     name: 'pe-${accountName}-queue'
-    location: location
+    location: peLocation
     targetResourceId: storage.id
     subresourceNames: ['queue']
     subnetId: subnetId
@@ -207,7 +214,7 @@ module pe_table '../../private_endpoint/v1/private_endpoint.bicep' = if (!empty(
   name: take('pe-${accountName}-table', 64)
   params: {
     name: 'pe-${accountName}-table'
-    location: location
+    location: peLocation
     targetResourceId: storage.id
     subresourceNames: ['table']
     subnetId: subnetId
@@ -221,7 +228,7 @@ module pe_dfs '../../private_endpoint/v1/private_endpoint.bicep' = if (!empty(df
   name: take('pe-${accountName}-dfs', 64)
   params: {
     name: 'pe-${accountName}-dfs'
-    location: location
+    location: peLocation
     targetResourceId: storage.id
     subresourceNames: ['dfs']
     subnetId: subnetId
@@ -235,7 +242,7 @@ module pe_web '../../private_endpoint/v1/private_endpoint.bicep' = if (!empty(we
   name: take('pe-${accountName}-web', 64)
   params: {
     name: 'pe-${accountName}-web'
-    location: location
+    location: peLocation
     targetResourceId: storage.id
     subresourceNames: ['web']
     subnetId: subnetId

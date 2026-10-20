@@ -4,8 +4,8 @@
   "metadata": {
     "_generator": {
       "name": "bicep",
-      "version": "0.45.15.27210",
-      "templateHash": "5509533353827179401"
+      "version": "0.46.1.21595",
+      "templateHash": "15587541348704265743"
     }
   },
   "parameters": {
@@ -25,7 +25,14 @@
       "type": "string",
       "defaultValue": "[resourceGroup().location]",
       "metadata": {
-        "description": "Azure location."
+        "description": "Azure region for the Cosmos DB account and its primary replica. Its private endpoint uses `privateEndpointLocation` when that is set."
+      }
+    },
+    "privateEndpointLocation": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Azure region for the private endpoint. Private endpoints must be in the VNet's region, which can differ from the account's region (`location`). Blank (default) = `location`."
       }
     },
     "kind": {
@@ -119,10 +126,18 @@
       "metadata": {
         "description": "Tags applied to the account and PE."
       }
+    },
+    "customName": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Full Cosmos account name override. When set (non-empty) this wins over the derived `cosmos-<baseName>-<environment>-<location>` convention. Use to resolve global-name collisions or match an existing platform-team naming standard. Empty string (default) triggers the derived-name path."
+      }
     }
   },
   "variables": {
-    "accountName": "[toLower(format('cosmos-{0}-{1}-{2}', parameters('baseName'), parameters('environment'), parameters('location')))]"
+    "accountName": "[if(empty(parameters('customName')), toLower(format('cosmos-{0}-{1}-{2}', parameters('baseName'), parameters('environment'), parameters('location'))), parameters('customName'))]",
+    "peLocation": "[if(empty(parameters('privateEndpointLocation')), parameters('location'), parameters('privateEndpointLocation'))]"
   },
   "resources": [
     {
@@ -178,7 +193,7 @@
             "value": "[format('pe-{0}', variables('accountName'))]"
           },
           "location": {
-            "value": "[parameters('location')]"
+            "value": "[variables('peLocation')]"
           },
           "targetResourceId": {
             "value": "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('accountName'))]"
@@ -204,8 +219,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.45.15.27210",
-              "templateHash": "9524211413905157884"
+              "version": "0.46.1.21595",
+              "templateHash": "16254176186944031612"
             }
           },
           "parameters": {

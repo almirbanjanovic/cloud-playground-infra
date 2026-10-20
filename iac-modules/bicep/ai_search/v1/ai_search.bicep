@@ -12,8 +12,11 @@ param baseName string
 @description('Environment suffix.')
 param environment string
 
-@description('Azure location.')
+@description('Azure region for the search service. Its private endpoint uses `privateEndpointLocation` when that is set.')
 param location string = resourceGroup().location
+
+@description('Azure region for the private endpoint. Private endpoints must be in the VNet\'s region, which can differ from the search service\'s region (`location`). Blank (default) = `location`.')
+param privateEndpointLocation string = ''
 
 @description('Search service SKU.')
 @allowed(['free', 'basic', 'standard', 'standard2', 'standard3', 'storage_optimized_l1', 'storage_optimized_l2'])
@@ -41,6 +44,10 @@ param tags object = {}
 param customName string = ''
 
 var searchName = empty(customName) ? toLower('srch-${baseName}-${environment}-${location}') : customName
+
+// Private endpoints must sit in the VNet's region, which can differ from the
+// search service's own region.
+var peLocation = empty(privateEndpointLocation) ? location : privateEndpointLocation
 
 // Pre-computed IP-rule set (avoids BCP138 -- can't nest for-expressions inside union()).
 var searchIpRules = [for ip in allowedIps: {
@@ -83,7 +90,7 @@ module pe '../../private_endpoint/v1/private_endpoint.bicep' = {
   name: take('pe-${searchName}', 64)
   params: {
     name: 'pe-${searchName}'
-    location: location
+    location: peLocation
     targetResourceId: search.id
     subresourceNames: ['searchService']
     subnetId: subnetId

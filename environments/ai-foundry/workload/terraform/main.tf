@@ -15,6 +15,12 @@
 #     the services from your laptop while still blocking every other
 #     public IP.
 #
+# Regions:
+#   The Foundry account and every private endpoint use `location`, which
+#   must be the VNet's region. Storage, Cosmos DB and AI Search default to
+#   it but can each live elsewhere (`storage_location` / `cosmos_location` /
+#   `ai_search_location`); keep those in terraform.tfvars.
+#
 # Prereqs (owned by the base stack):
 #   - Resource group
 #   - VNet + 5 subnets (agent subnet delegated to
@@ -64,6 +70,12 @@ locals {
   base_name   = var.base_name
   environment = var.environment
   location    = var.location
+
+  # Per-service regions (null/empty = `location`). Private endpoints always use
+  # `local.location`, the VNet's region.
+  storage_location   = coalesce(var.storage_location, var.location)
+  cosmos_location    = coalesce(var.cosmos_location, var.location)
+  ai_search_location = coalesce(var.ai_search_location, var.location)
 
   # RG where base's VNet + DNS zones live. Defaults per CAF landing-zone
   # pattern to the separate networking RG (`var.base_resource_group_name` =
@@ -244,6 +256,15 @@ data "azurerm_private_dns_zone" "search" {
   resource_group_name = local.dns_resource_group_name
 }
 
+# Non-blocking warning when `location` isn't the VNet's region: the Foundry
+# account's agent-subnet injection and every private endpoint need it.
+check "vnet_region_matches_location" {
+  assert {
+    condition     = lower(replace(data.azurerm_virtual_network.this.location, " ", "")) == lower(replace(local.location, " ", ""))
+    error_message = "location (${local.location}) is not the VNet's region (${data.azurerm_virtual_network.this.location}). The Foundry account and all private endpoints must be in the VNet's region; only Storage, Cosmos DB and AI Search may differ (storage_location / cosmos_location / ai_search_location)."
+  }
+}
+
 #----------------------------------------------------------------
 # 3. Data plane — Storage, Cosmos DB, AI Search
 #
@@ -262,9 +283,13 @@ module "storage" {
 
   base_name           = local.base_name
   environment         = local.environment
-  location            = local.location
+  location            = local.storage_location
   resource_group_name = var.resource_group_name
   tags                = local.tags
+
+  # Private endpoints stay in the VNet's region even when the account lives elsewhere.
+  private_endpoint_location = local.location
+  custom_name               = var.storage_account_name == null ? "" : var.storage_account_name
 
   storage_account_tier             = "Standard"
   storage_account_replication_type = "LRS"
@@ -291,9 +316,11 @@ module "cosmos_db" {
 
   base_name           = local.base_name
   environment         = local.environment
-  location            = local.location
+  location            = local.cosmos_location
   resource_group_name = var.resource_group_name
   tags                = local.tags
+
+  private_endpoint_location = local.location
 
   public_network_access_enabled = var.enable_public_network_access
   ip_range_filter               = local.allowed_ips
@@ -309,9 +336,11 @@ module "ai_search" {
 
   base_name           = local.base_name
   environment         = local.environment
-  location            = local.location
+  location            = local.ai_search_location
   resource_group_name = var.resource_group_name
   tags                = local.tags
+
+  private_endpoint_location = local.location
 
   search_sku                           = "standard"
   search_public_network_access_enabled = var.enable_public_network_access
@@ -403,6 +432,12 @@ module "foundry_project" {
 
   ai_search_id       = module.ai_search.id
   ai_search_endpoint = module.ai_search.search_service_url
+
+  # The same values the services were created with: any change to a
+  # connection's metadata replaces the project capability host.
+  storage_location   = local.storage_location
+  cosmos_db_location = local.cosmos_location
+  ai_search_location = local.ai_search_location
 
   # The BYO services' outputs (.id, .endpoint) become available as soon
   # as the service resource itself is created, NOT after the private

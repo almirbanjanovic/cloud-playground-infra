@@ -14,8 +14,14 @@ variable "environment" {
 }
 
 variable "location" {
-  description = "Azure location for the Cosmos DB account and its primary geo replica."
+  description = "Azure location for the Cosmos DB account and its primary geo replica. Its private endpoint uses `private_endpoint_location` when that is set."
   type        = string
+}
+
+variable "private_endpoint_location" {
+  description = "Azure region for the private endpoint. Private endpoints must be in the VNet's region, which can differ from the account's region (`location`). Null (default) = `location`."
+  type        = string
+  default     = null
 }
 
 variable "resource_group_name" {

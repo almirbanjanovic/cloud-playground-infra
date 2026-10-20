@@ -12,8 +12,11 @@ param baseName string
 @description('Environment suffix.')
 param environment string
 
-@description('Azure location.')
+@description('Azure region for the Cosmos DB account and its primary replica. Its private endpoint uses `privateEndpointLocation` when that is set.')
 param location string = resourceGroup().location
+
+@description('Azure region for the private endpoint. Private endpoints must be in the VNet\'s region, which can differ from the account\'s region (`location`). Blank (default) = `location`.')
+param privateEndpointLocation string = ''
 
 @description('Cosmos DB API kind. Only SQL/NoSQL is exercised by this module today; MongoDB and other APIs need different subresource names and connection strings.')
 @allowed(['GlobalDocumentDB'])
@@ -58,6 +61,10 @@ param customName string = ''
 
 var accountName = empty(customName) ? toLower('cosmos-${baseName}-${environment}-${location}') : customName
 
+// Private endpoints must sit in the VNet's region, which can differ from the
+// account's own region.
+var peLocation = empty(privateEndpointLocation) ? location : privateEndpointLocation
+
 resource cosmos 'Microsoft.DocumentDB/databaseAccounts@2024-11-15' = {
   name: accountName
   location: location
@@ -94,7 +101,7 @@ module pe '../../private_endpoint/v1/private_endpoint.bicep' = {
   name: take('pe-${accountName}', 64)
   params: {
     name: 'pe-${accountName}'
-    location: location
+    location: peLocation
     targetResourceId: cosmos.id
     subresourceNames: [subresourceName]
     subnetId: subnetId

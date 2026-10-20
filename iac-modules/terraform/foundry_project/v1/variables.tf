@@ -42,12 +42,13 @@ variable "display_name" {
 }
 
 #--------------------------------------------------------------------------------------------------------------------------------
-# BYO stateful stack — leave any of these null to skip that connection.
+# BYO stateful stack — with enable_capability_host = false, leave any of these
+# null to skip that connection (the capability host needs all three).
 #--------------------------------------------------------------------------------------------------------------------------------
 
 variable "storage_account_id" {
   type        = string
-  description = "Resource ID of the BYO Storage account for Foundry agent files. Null to skip the storage connection."
+  description = "Resource ID of the BYO Storage account for Foundry agent files. Null skips the storage connection; that's only allowed with enable_capability_host = false."
   default     = null
 }
 
@@ -59,7 +60,7 @@ variable "storage_blob_endpoint" {
 
 variable "cosmos_db_account_id" {
   type        = string
-  description = "Resource ID of the BYO Cosmos DB account for Foundry agent thread state. Null to skip."
+  description = "Resource ID of the BYO Cosmos DB account for Foundry agent thread state. Null skips it; that's only allowed with enable_capability_host = false."
   default     = null
 }
 
@@ -71,13 +72,37 @@ variable "cosmos_db_document_endpoint" {
 
 variable "ai_search_id" {
   type        = string
-  description = "Resource ID of the BYO AI Search service for Foundry agent vector data. Null to skip."
+  description = "Resource ID of the BYO AI Search service for Foundry agent vector data. Null skips it; that's only allowed with enable_capability_host = false."
   default     = null
 }
 
 variable "ai_search_endpoint" {
   type        = string
   description = "AI Search endpoint URL, e.g. https://<name>.search.windows.net. Required when ai_search_id is set."
+  default     = null
+}
+
+#--------------------------------------------------------------------------------------------------------------------------------
+# Regions of the BYO services, recorded in each connection's metadata. The services may live outside the project's
+# region. Pass the exact values the services were created with: any change to a connection replaces the project
+# capability host (see `replace_triggered_by` in main.tf). Null = `location`.
+#--------------------------------------------------------------------------------------------------------------------------------
+
+variable "storage_location" {
+  type        = string
+  description = "Region of the BYO Storage account. Null (default) = `location`."
+  default     = null
+}
+
+variable "cosmos_db_location" {
+  type        = string
+  description = "Region of the BYO Cosmos DB account. Null (default) = `location`."
+  default     = null
+}
+
+variable "ai_search_location" {
+  type        = string
+  description = "Region of the BYO AI Search service. Null (default) = `location`."
   default     = null
 }
 

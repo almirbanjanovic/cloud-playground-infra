@@ -4,8 +4,8 @@
   "metadata": {
     "_generator": {
       "name": "bicep",
-      "version": "0.45.15.27210",
-      "templateHash": "2946639412848931861"
+      "version": "0.46.1.21595",
+      "templateHash": "6818012217181530871"
     }
   },
   "parameters": {
@@ -25,7 +25,14 @@
       "type": "string",
       "defaultValue": "[resourceGroup().location]",
       "metadata": {
-        "description": "Azure location."
+        "description": "Azure region for the storage account. Its private endpoints use `privateEndpointLocation` when that is set."
+      }
+    },
+    "privateEndpointLocation": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Azure region for the private endpoints. Private endpoints must be in the VNet's region, which can differ from the storage account's region (`location`). Blank (default) = `location`."
       }
     },
     "suffix": {
@@ -148,7 +155,8 @@
   },
   "variables": {
     "derivedAccountName": "[replace(toLower(format('st{0}{1}{2}{3}', parameters('baseName'), parameters('environment'), parameters('location'), parameters('suffix'))), '-', '')]",
-    "accountName": "[if(empty(parameters('customName')), variables('derivedAccountName'), parameters('customName'))]"
+    "accountName": "[if(empty(parameters('customName')), variables('derivedAccountName'), parameters('customName'))]",
+    "peLocation": "[if(empty(parameters('privateEndpointLocation')), parameters('location'), parameters('privateEndpointLocation'))]"
   },
   "resources": [
     {
@@ -227,7 +235,7 @@
             "value": "[format('pe-{0}-blob', variables('accountName'))]"
           },
           "location": {
-            "value": "[parameters('location')]"
+            "value": "[variables('peLocation')]"
           },
           "targetResourceId": {
             "value": "[resourceId('Microsoft.Storage/storageAccounts', variables('accountName'))]"
@@ -253,8 +261,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.45.15.27210",
-              "templateHash": "9524211413905157884"
+              "version": "0.46.1.21595",
+              "templateHash": "16254176186944031612"
             }
           },
           "parameters": {
@@ -387,7 +395,7 @@
             "value": "[format('pe-{0}-file', variables('accountName'))]"
           },
           "location": {
-            "value": "[parameters('location')]"
+            "value": "[variables('peLocation')]"
           },
           "targetResourceId": {
             "value": "[resourceId('Microsoft.Storage/storageAccounts', variables('accountName'))]"
@@ -413,8 +421,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.45.15.27210",
-              "templateHash": "9524211413905157884"
+              "version": "0.46.1.21595",
+              "templateHash": "16254176186944031612"
             }
           },
           "parameters": {
@@ -548,7 +556,7 @@
             "value": "[format('pe-{0}-queue', variables('accountName'))]"
           },
           "location": {
-            "value": "[parameters('location')]"
+            "value": "[variables('peLocation')]"
           },
           "targetResourceId": {
             "value": "[resourceId('Microsoft.Storage/storageAccounts', variables('accountName'))]"
@@ -574,8 +582,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.45.15.27210",
-              "templateHash": "9524211413905157884"
+              "version": "0.46.1.21595",
+              "templateHash": "16254176186944031612"
             }
           },
           "parameters": {
@@ -709,7 +717,7 @@
             "value": "[format('pe-{0}-table', variables('accountName'))]"
           },
           "location": {
-            "value": "[parameters('location')]"
+            "value": "[variables('peLocation')]"
           },
           "targetResourceId": {
             "value": "[resourceId('Microsoft.Storage/storageAccounts', variables('accountName'))]"
@@ -735,8 +743,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.45.15.27210",
-              "templateHash": "9524211413905157884"
+              "version": "0.46.1.21595",
+              "templateHash": "16254176186944031612"
             }
           },
           "parameters": {
@@ -870,7 +878,7 @@
             "value": "[format('pe-{0}-dfs', variables('accountName'))]"
           },
           "location": {
-            "value": "[parameters('location')]"
+            "value": "[variables('peLocation')]"
           },
           "targetResourceId": {
             "value": "[resourceId('Microsoft.Storage/storageAccounts', variables('accountName'))]"
@@ -896,8 +904,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.45.15.27210",
-              "templateHash": "9524211413905157884"
+              "version": "0.46.1.21595",
+              "templateHash": "16254176186944031612"
             }
           },
           "parameters": {
@@ -1031,7 +1039,7 @@
             "value": "[format('pe-{0}-web', variables('accountName'))]"
           },
           "location": {
-            "value": "[parameters('location')]"
+            "value": "[variables('peLocation')]"
           },
           "targetResourceId": {
             "value": "[resourceId('Microsoft.Storage/storageAccounts', variables('accountName'))]"
@@ -1057,8 +1065,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.45.15.27210",
-              "templateHash": "9524211413905157884"
+              "version": "0.46.1.21595",
+              "templateHash": "16254176186944031612"
             }
           },
           "parameters": {

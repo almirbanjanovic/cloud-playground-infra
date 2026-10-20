@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.46.1.21595",
-      "templateHash": "18017267448376123070"
+      "templateHash": "1167657415709322023"
     }
   },
   "parameters": {
@@ -27,7 +27,28 @@
       "type": "string",
       "defaultValue": "westus3",
       "metadata": {
-        "description": "Azure region for the workload. Must match the base stack; default westus3 supports Foundry Agent Service private networking."
+        "description": "Azure region for the Foundry account and all 9 private endpoints. Must be the base stack's VNet region (agent-subnet injection and private endpoints require it); default westus3 supports Foundry Agent Service private networking. Storage, Cosmos DB and AI Search default to this region; override them with `storageLocation` / `cosmosLocation` / `aiSearchLocation`."
+      }
+    },
+    "storageLocation": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Azure region for the Storage account. Blank (default) = `location`. Storage, Cosmos DB and AI Search can each live in a different region than the Foundry account and VNet; their private endpoints stay in `location`. Use the programmatic region name (e.g. `eastus2`). A deployed service's region can't change in place -- see the README before changing it."
+      }
+    },
+    "cosmosLocation": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Azure region for the Cosmos DB account. Blank (default) = `location`. Same rules as `storageLocation`."
+      }
+    },
+    "aiSearchLocation": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Azure region for the AI Search service. Blank (default) = `location`. Same rules as `storageLocation`."
       }
     },
     "baseResourceGroupName": {
@@ -97,7 +118,7 @@
       "type": "string",
       "defaultValue": "",
       "metadata": {
-        "description": "Storage account name (globally unique, 3-24 chars, lowercase alphanumeric only). Blank = convention `st<baseName><environment><location>` (hyphens stripped). Override when the derived name collides globally or exceeds 24 chars."
+        "description": "Storage account name (globally unique, 3-24 chars, lowercase alphanumeric only). Blank = convention `st<baseName><environment><storage region>` (hyphens stripped), where the storage region is `storageLocation` (or `location` when blank). Override when the derived name collides globally or exceeds 24 chars (long region names such as `swedencentral` do)."
       }
     },
     "cognitiveAccountName": {
@@ -118,14 +139,14 @@
       "type": "string",
       "defaultValue": "",
       "metadata": {
-        "description": "Cosmos DB account name (globally unique, 3-44 chars, lowercase alphanumeric + hyphens). Blank = convention `cosmos-<baseName>-<environment>-<location>`."
+        "description": "Cosmos DB account name (globally unique, 3-44 chars, lowercase alphanumeric + hyphens). Blank = convention `cosmos-<baseName>-<environment>-<cosmos region>`, where the Cosmos region is `cosmosLocation` (or `location` when blank)."
       }
     },
     "aiSearchName": {
       "type": "string",
       "defaultValue": "",
       "metadata": {
-        "description": "AI Search service name (globally unique, 2-60 chars, lowercase alphanumeric + hyphens). Blank = convention `srch-<baseName>-<environment>-<location>`."
+        "description": "AI Search service name (globally unique, 2-60 chars, lowercase alphanumeric + hyphens). Blank = convention `srch-<baseName>-<environment>-<search region>`, where the search region is `aiSearchLocation` (or `location` when blank)."
       }
     },
     "cognitivePrivateDnsZoneNames": {
@@ -213,6 +234,9 @@
     "effectiveSearchSubnetName": "[if(empty(parameters('subnetNameSearchPep')), format('snet-search-{0}-{1}', parameters('baseName'), parameters('environment')), parameters('subnetNameSearchPep'))]",
     "effectiveAgentSubnetName": "[if(empty(parameters('subnetNameAgent')), format('snet-agent-{0}-{1}', parameters('baseName'), parameters('environment')), parameters('subnetNameAgent'))]",
     "effectiveCognitiveSubdomain": "[if(empty(parameters('cognitiveCustomSubdomainName')), format('cog-acc-{0}-{1}-{2}', parameters('baseName'), parameters('environment'), parameters('location')), parameters('cognitiveCustomSubdomainName'))]",
+    "effectiveStorageLocation": "[if(empty(parameters('storageLocation')), parameters('location'), parameters('storageLocation'))]",
+    "effectiveCosmosLocation": "[if(empty(parameters('cosmosLocation')), parameters('location'), parameters('cosmosLocation'))]",
+    "effectiveAiSearchLocation": "[if(empty(parameters('aiSearchLocation')), parameters('location'), parameters('aiSearchLocation'))]",
     "effectiveBaseRg": "[if(empty(parameters('baseResourceGroupName')), resourceGroup().name, parameters('baseResourceGroupName'))]",
     "effectiveDnsRg": "[if(empty(parameters('dnsResourceGroupName')), variables('effectiveBaseRg'), parameters('dnsResourceGroupName'))]",
     "dnsSubForId": "[if(empty(parameters('dnsSubscriptionId')), subscription().subscriptionId, parameters('dnsSubscriptionId'))]",
@@ -236,6 +260,9 @@
             "value": "[parameters('environment')]"
           },
           "location": {
+            "value": "[variables('effectiveStorageLocation')]"
+          },
+          "privateEndpointLocation": {
             "value": "[parameters('location')]"
           },
           "tags": {
@@ -294,7 +321,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.46.1.21595",
-              "templateHash": "17911350950525446212"
+              "templateHash": "6818012217181530871"
             }
           },
           "parameters": {
@@ -314,7 +341,14 @@
               "type": "string",
               "defaultValue": "[resourceGroup().location]",
               "metadata": {
-                "description": "Azure location."
+                "description": "Azure region for the storage account. Its private endpoints use `privateEndpointLocation` when that is set."
+              }
+            },
+            "privateEndpointLocation": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Azure region for the private endpoints. Private endpoints must be in the VNet's region, which can differ from the storage account's region (`location`). Blank (default) = `location`."
               }
             },
             "suffix": {
@@ -437,7 +471,8 @@
           },
           "variables": {
             "derivedAccountName": "[replace(toLower(format('st{0}{1}{2}{3}', parameters('baseName'), parameters('environment'), parameters('location'), parameters('suffix'))), '-', '')]",
-            "accountName": "[if(empty(parameters('customName')), variables('derivedAccountName'), parameters('customName'))]"
+            "accountName": "[if(empty(parameters('customName')), variables('derivedAccountName'), parameters('customName'))]",
+            "peLocation": "[if(empty(parameters('privateEndpointLocation')), parameters('location'), parameters('privateEndpointLocation'))]"
           },
           "resources": [
             {
@@ -516,7 +551,7 @@
                     "value": "[format('pe-{0}-blob', variables('accountName'))]"
                   },
                   "location": {
-                    "value": "[parameters('location')]"
+                    "value": "[variables('peLocation')]"
                   },
                   "targetResourceId": {
                     "value": "[resourceId('Microsoft.Storage/storageAccounts', variables('accountName'))]"
@@ -676,7 +711,7 @@
                     "value": "[format('pe-{0}-file', variables('accountName'))]"
                   },
                   "location": {
-                    "value": "[parameters('location')]"
+                    "value": "[variables('peLocation')]"
                   },
                   "targetResourceId": {
                     "value": "[resourceId('Microsoft.Storage/storageAccounts', variables('accountName'))]"
@@ -837,7 +872,7 @@
                     "value": "[format('pe-{0}-queue', variables('accountName'))]"
                   },
                   "location": {
-                    "value": "[parameters('location')]"
+                    "value": "[variables('peLocation')]"
                   },
                   "targetResourceId": {
                     "value": "[resourceId('Microsoft.Storage/storageAccounts', variables('accountName'))]"
@@ -998,7 +1033,7 @@
                     "value": "[format('pe-{0}-table', variables('accountName'))]"
                   },
                   "location": {
-                    "value": "[parameters('location')]"
+                    "value": "[variables('peLocation')]"
                   },
                   "targetResourceId": {
                     "value": "[resourceId('Microsoft.Storage/storageAccounts', variables('accountName'))]"
@@ -1159,7 +1194,7 @@
                     "value": "[format('pe-{0}-dfs', variables('accountName'))]"
                   },
                   "location": {
-                    "value": "[parameters('location')]"
+                    "value": "[variables('peLocation')]"
                   },
                   "targetResourceId": {
                     "value": "[resourceId('Microsoft.Storage/storageAccounts', variables('accountName'))]"
@@ -1320,7 +1355,7 @@
                     "value": "[format('pe-{0}-web', variables('accountName'))]"
                   },
                   "location": {
-                    "value": "[parameters('location')]"
+                    "value": "[variables('peLocation')]"
                   },
                   "targetResourceId": {
                     "value": "[resourceId('Microsoft.Storage/storageAccounts', variables('accountName'))]"
@@ -1505,6 +1540,9 @@
             "value": "[parameters('environment')]"
           },
           "location": {
+            "value": "[variables('effectiveCosmosLocation')]"
+          },
+          "privateEndpointLocation": {
             "value": "[parameters('location')]"
           },
           "tags": {
@@ -1535,7 +1573,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.46.1.21595",
-              "templateHash": "9860588630819671183"
+              "templateHash": "15587541348704265743"
             }
           },
           "parameters": {
@@ -1555,7 +1593,14 @@
               "type": "string",
               "defaultValue": "[resourceGroup().location]",
               "metadata": {
-                "description": "Azure location."
+                "description": "Azure region for the Cosmos DB account and its primary replica. Its private endpoint uses `privateEndpointLocation` when that is set."
+              }
+            },
+            "privateEndpointLocation": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Azure region for the private endpoint. Private endpoints must be in the VNet's region, which can differ from the account's region (`location`). Blank (default) = `location`."
               }
             },
             "kind": {
@@ -1659,7 +1704,8 @@
             }
           },
           "variables": {
-            "accountName": "[if(empty(parameters('customName')), toLower(format('cosmos-{0}-{1}-{2}', parameters('baseName'), parameters('environment'), parameters('location'))), parameters('customName'))]"
+            "accountName": "[if(empty(parameters('customName')), toLower(format('cosmos-{0}-{1}-{2}', parameters('baseName'), parameters('environment'), parameters('location'))), parameters('customName'))]",
+            "peLocation": "[if(empty(parameters('privateEndpointLocation')), parameters('location'), parameters('privateEndpointLocation'))]"
           },
           "resources": [
             {
@@ -1715,7 +1761,7 @@
                     "value": "[format('pe-{0}', variables('accountName'))]"
                   },
                   "location": {
-                    "value": "[parameters('location')]"
+                    "value": "[variables('peLocation')]"
                   },
                   "targetResourceId": {
                     "value": "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('accountName'))]"
@@ -1899,6 +1945,9 @@
             "value": "[parameters('environment')]"
           },
           "location": {
+            "value": "[variables('effectiveAiSearchLocation')]"
+          },
+          "privateEndpointLocation": {
             "value": "[parameters('location')]"
           },
           "tags": {
@@ -1932,7 +1981,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.46.1.21595",
-              "templateHash": "10454710316007934562"
+              "templateHash": "14275842121922356052"
             }
           },
           "parameters": {
@@ -1952,7 +2001,14 @@
               "type": "string",
               "defaultValue": "[resourceGroup().location]",
               "metadata": {
-                "description": "Azure location."
+                "description": "Azure region for the search service. Its private endpoint uses `privateEndpointLocation` when that is set."
+              }
+            },
+            "privateEndpointLocation": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Azure region for the private endpoint. Private endpoints must be in the VNet's region, which can differ from the search service's region (`location`). Blank (default) = `location`."
               }
             },
             "sku": {
@@ -2029,7 +2085,8 @@
                 }
               }
             ],
-            "searchName": "[if(empty(parameters('customName')), toLower(format('srch-{0}-{1}-{2}', parameters('baseName'), parameters('environment'), parameters('location'))), parameters('customName'))]"
+            "searchName": "[if(empty(parameters('customName')), toLower(format('srch-{0}-{1}-{2}', parameters('baseName'), parameters('environment'), parameters('location'))), parameters('customName'))]",
+            "peLocation": "[if(empty(parameters('privateEndpointLocation')), parameters('location'), parameters('privateEndpointLocation'))]"
           },
           "resources": [
             {
@@ -2060,7 +2117,7 @@
                     "value": "[format('pe-{0}', variables('searchName'))]"
                   },
                   "location": {
-                    "value": "[parameters('location')]"
+                    "value": "[variables('peLocation')]"
                   },
                   "targetResourceId": {
                     "value": "[resourceId('Microsoft.Search/searchServices', variables('searchName'))]"
@@ -2678,6 +2735,15 @@
           "aiSearchEndpoint": {
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'deploy-search'), '2025-04-01').outputs.endpoint.value]"
           },
+          "storageLocation": {
+            "value": "[variables('effectiveStorageLocation')]"
+          },
+          "cosmosLocation": {
+            "value": "[variables('effectiveCosmosLocation')]"
+          },
+          "aiSearchLocation": {
+            "value": "[variables('effectiveAiSearchLocation')]"
+          },
           "enableCapabilityHost": {
             "value": true
           }
@@ -2689,7 +2755,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.46.1.21595",
-              "templateHash": "6278418782036260379"
+              "templateHash": "13660294930060784908"
             }
           },
           "parameters": {
@@ -2775,6 +2841,27 @@
                 "description": "AI Search endpoint (e.g. https://<name>.search.windows.net)."
               }
             },
+            "storageLocation": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Region of the Storage account, recorded in the storage connection metadata. Blank (default) = `location`. Pass the exact value the account was created with."
+              }
+            },
+            "cosmosLocation": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Region of the Cosmos DB account, recorded in the Cosmos connection metadata. Blank (default) = `location`. Pass the exact value the account was created with."
+              }
+            },
+            "aiSearchLocation": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Region of the AI Search service, recorded in the AI Search connection metadata. Blank (default) = `location`. Pass the exact value the service was created with."
+              }
+            },
             "enableCapabilityHost": {
               "type": "bool",
               "defaultValue": true,
@@ -2794,6 +2881,9 @@
             "derivedProjectName": "[format('proj-{0}-{1}-{2}', parameters('baseName'), parameters('environment'), parameters('location'))]",
             "effectiveProjectName": "[if(empty(parameters('projectName')), variables('derivedProjectName'), parameters('projectName'))]",
             "effectiveDisplayName": "[if(empty(parameters('displayName')), variables('effectiveProjectName'), parameters('displayName'))]",
+            "storageConnectionLocation": "[if(empty(parameters('storageLocation')), parameters('location'), parameters('storageLocation'))]",
+            "cosmosConnectionLocation": "[if(empty(parameters('cosmosLocation')), parameters('location'), parameters('cosmosLocation'))]",
+            "aiSearchConnectionLocation": "[if(empty(parameters('aiSearchLocation')), parameters('location'), parameters('aiSearchLocation'))]",
             "cosmosBuiltInDataContributorRoleDefinitionId": "00000000-0000-0000-0000-000000000002",
             "roleIds": {
               "cosmosDbOperator": "230815da-be43-4aae-9cb4-875f7bd000aa",
@@ -2831,7 +2921,7 @@
                 "metadata": {
                   "ApiType": "Azure",
                   "ResourceId": "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]",
-                  "Location": "[parameters('location')]"
+                  "Location": "[variables('storageConnectionLocation')]"
                 }
               }
             },
@@ -2847,7 +2937,7 @@
                 "metadata": {
                   "ApiType": "Azure",
                   "ResourceId": "[resourceId('Microsoft.DocumentDB/databaseAccounts', parameters('cosmosAccountName'))]",
-                  "Location": "[parameters('location')]"
+                  "Location": "[variables('cosmosConnectionLocation')]"
                 }
               }
             },
@@ -2863,7 +2953,7 @@
                 "metadata": {
                   "ApiType": "Azure",
                   "ResourceId": "[resourceId('Microsoft.Search/searchServices', parameters('aiSearchName'))]",
-                  "Location": "[parameters('location')]"
+                  "Location": "[variables('aiSearchConnectionLocation')]"
                 }
               }
             },
@@ -3042,6 +3132,18 @@
     "aiSearchName": {
       "type": "string",
       "value": "[reference(resourceId('Microsoft.Resources/deployments', 'deploy-search'), '2025-04-01').outputs.name.value]"
+    },
+    "storageLocation": {
+      "type": "string",
+      "value": "[variables('effectiveStorageLocation')]"
+    },
+    "cosmosLocation": {
+      "type": "string",
+      "value": "[variables('effectiveCosmosLocation')]"
+    },
+    "aiSearchLocation": {
+      "type": "string",
+      "value": "[variables('effectiveAiSearchLocation')]"
     },
     "cognitiveAccountName": {
       "type": "string",

@@ -70,6 +70,15 @@ locals {
   # /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.DocumentDB/databaseAccounts/{acct}).
   cosmos_rg_name      = var.cosmos_db_account_id == null ? null : split("/", var.cosmos_db_account_id)[4]
   cosmos_account_name = var.cosmos_db_account_id == null ? null : split("/", var.cosmos_db_account_id)[8]
+
+  # Which BYO services to wire up. `count` must be known at plan time, but the
+  # service IDs aren't known until apply on a first deploy or when a service is
+  # replaced (e.g. moved to another region), so their null-ness can't decide it.
+  # The capability host requires all three services (see its precondition), so
+  # when it's enabled the flag decides; otherwise fall back to the IDs passed in.
+  storage_enabled   = var.enable_capability_host ? true : var.storage_account_id != null
+  cosmos_db_enabled = var.enable_capability_host ? true : var.cosmos_db_account_id != null
+  ai_search_enabled = var.enable_capability_host ? true : var.ai_search_id != null
 }
 
 #--------------------------------------------------------------------------------------------------------------------------------
@@ -110,7 +119,7 @@ resource "azurerm_cognitive_account_project" "this" {
 # with the project's MI — no secrets in state.
 #--------------------------------------------------------------------------------------------------------------------------------
 resource "azurerm_cognitive_account_connection_entra_id" "storage" {
-  count                = var.storage_account_id == null ? 0 : 1
+  count                = local.storage_enabled ? 1 : 0
   name                 = "conn-storage"
   cognitive_account_id = var.cognitive_account_id
   category             = "AzureStorageAccount"
@@ -119,12 +128,12 @@ resource "azurerm_cognitive_account_connection_entra_id" "storage" {
   metadata = {
     ApiType    = "Azure"
     ResourceId = var.storage_account_id
-    Location   = var.location
+    Location   = coalesce(var.storage_location, var.location)
   }
 }
 
 resource "azurerm_cognitive_account_connection_entra_id" "cosmos" {
-  count                = var.cosmos_db_account_id == null ? 0 : 1
+  count                = local.cosmos_db_enabled ? 1 : 0
   name                 = "conn-cosmos"
   cognitive_account_id = var.cognitive_account_id
   category             = "CosmosDb"
@@ -133,12 +142,12 @@ resource "azurerm_cognitive_account_connection_entra_id" "cosmos" {
   metadata = {
     ApiType    = "Azure"
     ResourceId = var.cosmos_db_account_id
-    Location   = var.location
+    Location   = coalesce(var.cosmos_db_location, var.location)
   }
 }
 
 resource "azurerm_cognitive_account_connection_entra_id" "search" {
-  count                = var.ai_search_id == null ? 0 : 1
+  count                = local.ai_search_enabled ? 1 : 0
   name                 = "conn-aisearch"
   cognitive_account_id = var.cognitive_account_id
   category             = "CognitiveSearch"
@@ -147,7 +156,7 @@ resource "azurerm_cognitive_account_connection_entra_id" "search" {
   metadata = {
     ApiType    = "Azure"
     ResourceId = var.ai_search_id
-    Location   = var.location
+    Location   = coalesce(var.ai_search_location, var.location)
   }
 }
 
@@ -156,7 +165,7 @@ resource "azurerm_cognitive_account_connection_entra_id" "search" {
 # See the RBAC roster at the top of this file for what each role is for.
 #--------------------------------------------------------------------------------------------------------------------------------
 resource "azurerm_role_assignment" "project_cosmos_operator" {
-  count                = var.enable_capability_host && var.cosmos_db_account_id != null ? 1 : 0
+  count                = var.enable_capability_host && local.cosmos_db_enabled ? 1 : 0
   scope                = var.cosmos_db_account_id
   role_definition_name = "Cosmos DB Operator"
   principal_id         = azurerm_cognitive_account_project.this.identity[0].principal_id
@@ -164,7 +173,7 @@ resource "azurerm_role_assignment" "project_cosmos_operator" {
 }
 
 resource "azurerm_role_assignment" "project_storage_account_contributor" {
-  count                = var.enable_capability_host && var.storage_account_id != null ? 1 : 0
+  count                = var.enable_capability_host && local.storage_enabled ? 1 : 0
   scope                = var.storage_account_id
   role_definition_name = "Storage Account Contributor"
   principal_id         = azurerm_cognitive_account_project.this.identity[0].principal_id
@@ -179,7 +188,7 @@ resource "azurerm_role_assignment" "project_storage_account_contributor" {
 # system for data-plane access.
 #--------------------------------------------------------------------------------------------------------------------------------
 resource "azurerm_role_assignment" "project_search_index_contributor" {
-  count                = var.enable_capability_host && var.ai_search_id != null ? 1 : 0
+  count                = var.enable_capability_host && local.ai_search_enabled ? 1 : 0
   scope                = var.ai_search_id
   role_definition_name = "Search Index Data Contributor"
   principal_id         = azurerm_cognitive_account_project.this.identity[0].principal_id
@@ -187,7 +196,7 @@ resource "azurerm_role_assignment" "project_search_index_contributor" {
 }
 
 resource "azurerm_role_assignment" "project_search_service_contributor" {
-  count                = var.enable_capability_host && var.ai_search_id != null ? 1 : 0
+  count                = var.enable_capability_host && local.ai_search_enabled ? 1 : 0
   scope                = var.ai_search_id
   role_definition_name = "Search Service Contributor"
   principal_id         = azurerm_cognitive_account_project.this.identity[0].principal_id
@@ -195,7 +204,7 @@ resource "azurerm_role_assignment" "project_search_service_contributor" {
 }
 
 resource "azurerm_role_assignment" "project_storage_blob_data_contributor" {
-  count                = var.enable_capability_host && var.storage_account_id != null ? 1 : 0
+  count                = var.enable_capability_host && local.storage_enabled ? 1 : 0
   scope                = var.storage_account_id
   role_definition_name = "Storage Blob Data Contributor"
   principal_id         = azurerm_cognitive_account_project.this.identity[0].principal_id
@@ -204,7 +213,7 @@ resource "azurerm_role_assignment" "project_storage_blob_data_contributor" {
 
 # Owner (not Contributor) is required per Microsoft's Standard Setup docs -- missing this = runtime 403 on agent file I/O. See header roster.
 resource "azurerm_role_assignment" "project_storage_blob_data_owner" {
-  count                = var.enable_capability_host && var.storage_account_id != null ? 1 : 0
+  count                = var.enable_capability_host && local.storage_enabled ? 1 : 0
   scope                = var.storage_account_id
   role_definition_name = "Storage Blob Data Owner"
   principal_id         = azurerm_cognitive_account_project.this.identity[0].principal_id
@@ -212,7 +221,7 @@ resource "azurerm_role_assignment" "project_storage_blob_data_owner" {
 }
 
 resource "azurerm_cosmosdb_sql_role_assignment" "project_cosmos_data_contributor" {
-  count               = var.enable_capability_host && var.cosmos_db_account_id != null ? 1 : 0
+  count               = var.enable_capability_host && local.cosmos_db_enabled ? 1 : 0
   resource_group_name = local.cosmos_rg_name
   account_name        = local.cosmos_account_name
   role_definition_id  = "${var.cosmos_db_account_id}/sqlRoleDefinitions/00000000-0000-0000-0000-000000000002"
@@ -333,9 +342,9 @@ resource "azapi_resource" "capability_host" {
   # schema for this API version does not accept it here.
   body = {
     properties = {
-      storageConnections       = var.storage_account_id == null ? [] : [azurerm_cognitive_account_connection_entra_id.storage[0].name]
-      threadStorageConnections = var.cosmos_db_account_id == null ? [] : [azurerm_cognitive_account_connection_entra_id.cosmos[0].name]
-      vectorStoreConnections   = var.ai_search_id == null ? [] : [azurerm_cognitive_account_connection_entra_id.search[0].name]
+      storageConnections       = local.storage_enabled ? [azurerm_cognitive_account_connection_entra_id.storage[0].name] : []
+      threadStorageConnections = local.cosmos_db_enabled ? [azurerm_cognitive_account_connection_entra_id.cosmos[0].name] : []
+      vectorStoreConnections   = local.ai_search_enabled ? [azurerm_cognitive_account_connection_entra_id.search[0].name] : []
       # NOTE: `customerSubnet` is NOT a valid property on the PROJECT capability
       # host schema. The subnet is recorded on the parent Cognitive account via
       # `networkInjections.scenario='agent'`, and the platform-provisioned

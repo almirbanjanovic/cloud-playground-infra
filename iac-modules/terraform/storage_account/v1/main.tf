@@ -14,6 +14,10 @@
 locals {
   derived_name = replace(lower("st${var.base_name}${var.environment}${var.location}${var.suffix != "" ? "${var.suffix}" : ""}"), "-", "")
   name         = var.custom_name != "" ? var.custom_name : local.derived_name
+
+  # Private endpoints must sit in the VNet's region, which can differ from the
+  # account's own region.
+  private_endpoint_location = coalesce(var.private_endpoint_location, var.location)
 }
 
 resource "azurerm_storage_account" "this" {
@@ -129,7 +133,7 @@ module "blob_private_endpoint" {
   resource_id                     = azurerm_storage_account.this.id
   resource_name                   = "${local.name}-blob"
   resource_group_name             = var.resource_group_name
-  location                        = var.location
+  location                        = local.private_endpoint_location
   subnet_id                       = var.subnet_id
   subresource_names               = var.blob_subresource_names
   private_dns_zone_ids            = var.blob_private_dns_zone_ids
@@ -151,7 +155,7 @@ module "table_private_endpoint" {
   resource_id                     = azurerm_storage_account.this.id
   resource_name                   = "${local.name}-table"
   resource_group_name             = var.resource_group_name
-  location                        = var.location
+  location                        = local.private_endpoint_location
   subnet_id                       = var.subnet_id
   subresource_names               = var.table_subresource_names
   private_dns_zone_ids            = var.table_private_dns_zone_ids
@@ -176,7 +180,7 @@ module "queue_private_endpoint" {
   resource_id                     = azurerm_storage_account.this.id
   resource_name                   = "${local.name}-queue"
   resource_group_name             = var.resource_group_name
-  location                        = var.location
+  location                        = local.private_endpoint_location
   subnet_id                       = var.subnet_id
   subresource_names               = var.queue_subresource_names
   private_dns_zone_ids            = var.queue_private_dns_zone_ids
@@ -201,7 +205,7 @@ module "file_private_endpoint" {
   resource_id                     = azurerm_storage_account.this.id
   resource_name                   = "${local.name}-file"
   resource_group_name             = var.resource_group_name
-  location                        = var.location
+  location                        = local.private_endpoint_location
   subnet_id                       = var.subnet_id
   subresource_names               = var.file_subresource_names
   private_dns_zone_ids            = var.file_private_dns_zone_ids
@@ -226,7 +230,7 @@ module "azure_data_lake_file_system_private_endpoint" {
   resource_id                     = azurerm_storage_account.this.id
   resource_name                   = "${local.name}-dfs"
   resource_group_name             = var.resource_group_name
-  location                        = var.location
+  location                        = local.private_endpoint_location
   subnet_id                       = var.subnet_id
   subresource_names               = var.dfs_subresource_names
   private_dns_zone_ids            = var.dfs_private_dns_zone_ids
@@ -251,7 +255,7 @@ module "web_private_endpoint" {
   resource_id                     = azurerm_storage_account.this.id
   resource_name                   = "${local.name}-web"
   resource_group_name             = var.resource_group_name
-  location                        = var.location
+  location                        = local.private_endpoint_location
   subnet_id                       = var.subnet_id
   subresource_names               = var.web_subresource_names
   private_dns_zone_ids            = var.web_private_dns_zone_ids

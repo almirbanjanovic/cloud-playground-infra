@@ -4,8 +4,8 @@
   "metadata": {
     "_generator": {
       "name": "bicep",
-      "version": "0.45.15.27210",
-      "templateHash": "5944951463435232826"
+      "version": "0.46.1.21595",
+      "templateHash": "13660294930060784908"
     }
   },
   "parameters": {
@@ -91,6 +91,27 @@
         "description": "AI Search endpoint (e.g. https://<name>.search.windows.net)."
       }
     },
+    "storageLocation": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Region of the Storage account, recorded in the storage connection metadata. Blank (default) = `location`. Pass the exact value the account was created with."
+      }
+    },
+    "cosmosLocation": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Region of the Cosmos DB account, recorded in the Cosmos connection metadata. Blank (default) = `location`. Pass the exact value the account was created with."
+      }
+    },
+    "aiSearchLocation": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Region of the AI Search service, recorded in the AI Search connection metadata. Blank (default) = `location`. Pass the exact value the service was created with."
+      }
+    },
     "enableCapabilityHost": {
       "type": "bool",
       "defaultValue": true,
@@ -110,6 +131,9 @@
     "derivedProjectName": "[format('proj-{0}-{1}-{2}', parameters('baseName'), parameters('environment'), parameters('location'))]",
     "effectiveProjectName": "[if(empty(parameters('projectName')), variables('derivedProjectName'), parameters('projectName'))]",
     "effectiveDisplayName": "[if(empty(parameters('displayName')), variables('effectiveProjectName'), parameters('displayName'))]",
+    "storageConnectionLocation": "[if(empty(parameters('storageLocation')), parameters('location'), parameters('storageLocation'))]",
+    "cosmosConnectionLocation": "[if(empty(parameters('cosmosLocation')), parameters('location'), parameters('cosmosLocation'))]",
+    "aiSearchConnectionLocation": "[if(empty(parameters('aiSearchLocation')), parameters('location'), parameters('aiSearchLocation'))]",
     "cosmosBuiltInDataContributorRoleDefinitionId": "00000000-0000-0000-0000-000000000002",
     "roleIds": {
       "cosmosDbOperator": "230815da-be43-4aae-9cb4-875f7bd000aa",
@@ -147,7 +171,7 @@
         "metadata": {
           "ApiType": "Azure",
           "ResourceId": "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]",
-          "Location": "[parameters('location')]"
+          "Location": "[variables('storageConnectionLocation')]"
         }
       }
     },
@@ -163,7 +187,7 @@
         "metadata": {
           "ApiType": "Azure",
           "ResourceId": "[resourceId('Microsoft.DocumentDB/databaseAccounts', parameters('cosmosAccountName'))]",
-          "Location": "[parameters('location')]"
+          "Location": "[variables('cosmosConnectionLocation')]"
         }
       }
     },
@@ -179,7 +203,7 @@
         "metadata": {
           "ApiType": "Azure",
           "ResourceId": "[resourceId('Microsoft.Search/searchServices', parameters('aiSearchName'))]",
-          "Location": "[parameters('location')]"
+          "Location": "[variables('aiSearchConnectionLocation')]"
         }
       }
     },

@@ -9,7 +9,7 @@ Infrastructure-as-Code for cloud playground environments.
   - `terraform-init-backend.yaml`, `terraform-plan.yaml`, `terraform-apply.yaml`, `terraform-plan-approve-apply.yaml`
   - `test-oidc.yaml`
 - `environments/` — one folder per playground lab. Each has its own IaC (Bicep and/or Terraform) and its own `README.md`.
-  - `ai-foundry/` — Foundry Agent Service private-networking lab with **manual** deployment (Bicep OR Terraform). Sub-divided into `base/` (VNet + DNS zones) and `workload/` (Foundry + BYO Storage/Cosmos/AI Search).
+  - `ai-foundry/` — Foundry Agent Service private-networking lab with **manual** deployment (Bicep OR Terraform). Sub-divided into `base/` (VNet + DNS zones) and `workload/` (Foundry + BYO Storage/Cosmos/AI Search, each optionally in its own region).
   - `apim-lab/` — general APIM learning environment (Bicep + Terraform).
   - `apim-mcp/` — APIM integrated with Model Context Protocol (Terraform).
   - `backend-pool-load-balancing/` — APIM backend pool load balancing demo (Bicep).

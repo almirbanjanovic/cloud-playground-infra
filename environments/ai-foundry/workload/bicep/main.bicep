@@ -16,6 +16,10 @@
 //
 // Peer of `environments/ai-foundry/workload/terraform/`. Creates:
 //   - Storage (6 PEs), Cosmos DB (1 PE), AI Search (1 PE), Foundry account (1 PE)
+//   - Storage, Cosmos DB and AI Search can each live in their own region
+//     (`storageLocation` / `cosmosLocation` / `aiSearchLocation`; blank =
+//     `location`). The Foundry account and all 9 PEs stay in `location`,
+//     which must be the VNet's region.
 //   - All 4 services have publicNetworkAccess=Enabled + default-deny firewall
 //     with the deployer's IP pinned in the allowlist. The agent runtime
 //     inside the VNet reaches them through their private endpoints.
@@ -38,8 +42,17 @@ param baseName string = 'ai-foundry'
 @description('Environment suffix (e.g. dev / prod). Must match the base stack.')
 param environment string = 'dev'
 
-@description('Azure region for the workload. Must match the base stack; default westus3 supports Foundry Agent Service private networking.')
+@description('Azure region for the Foundry account and all 9 private endpoints. Must be the base stack\'s VNet region (agent-subnet injection and private endpoints require it); default westus3 supports Foundry Agent Service private networking. Storage, Cosmos DB and AI Search default to this region; override them with `storageLocation` / `cosmosLocation` / `aiSearchLocation`.')
 param location string = 'westus3'
+
+@description('Azure region for the Storage account. Blank (default) = `location`. Storage, Cosmos DB and AI Search can each live in a different region than the Foundry account and VNet; their private endpoints stay in `location`. Use the programmatic region name (e.g. `eastus2`). A deployed service\'s region can\'t change in place -- see the README before changing it.')
+param storageLocation string = ''
+
+@description('Azure region for the Cosmos DB account. Blank (default) = `location`. Same rules as `storageLocation`.')
+param cosmosLocation string = ''
+
+@description('Azure region for the AI Search service. Blank (default) = `location`. Same rules as `storageLocation`.')
+param aiSearchLocation string = ''
 
 // --- Base-stack lookup RG (defaults to the CAF-pattern networking RG) ---
 
@@ -72,7 +85,7 @@ param subnetNameSearchPep string = ''
 @description('Agent (delegated) subnet name. Blank = convention.')
 param subnetNameAgent string = ''
 
-@description('Storage account name (globally unique, 3-24 chars, lowercase alphanumeric only). Blank = convention `st<baseName><environment><location>` (hyphens stripped). Override when the derived name collides globally or exceeds 24 chars.')
+@description('Storage account name (globally unique, 3-24 chars, lowercase alphanumeric only). Blank = convention `st<baseName><environment><storage region>` (hyphens stripped), where the storage region is `storageLocation` (or `location` when blank). Override when the derived name collides globally or exceeds 24 chars (long region names such as `swedencentral` do).')
 param storageAccountName string = ''
 
 @description('Foundry / Cognitive AIServices account resource name (RG-scoped uniqueness). Blank = convention `ais-<baseName>-<environment>-<location>`.')
@@ -81,10 +94,10 @@ param cognitiveAccountName string = ''
 @description('Custom subdomain for the Foundry / Cognitive AIServices account (globally unique DNS prefix -- separate from `cognitiveAccountName`). Blank = convention `cog-acc-<baseName>-<environment>-<location>`.')
 param cognitiveCustomSubdomainName string = ''
 
-@description('Cosmos DB account name (globally unique, 3-44 chars, lowercase alphanumeric + hyphens). Blank = convention `cosmos-<baseName>-<environment>-<location>`.')
+@description('Cosmos DB account name (globally unique, 3-44 chars, lowercase alphanumeric + hyphens). Blank = convention `cosmos-<baseName>-<environment>-<cosmos region>`, where the Cosmos region is `cosmosLocation` (or `location` when blank).')
 param cosmosAccountName string = ''
 
-@description('AI Search service name (globally unique, 2-60 chars, lowercase alphanumeric + hyphens). Blank = convention `srch-<baseName>-<environment>-<location>`.')
+@description('AI Search service name (globally unique, 2-60 chars, lowercase alphanumeric + hyphens). Blank = convention `srch-<baseName>-<environment>-<search region>`, where the search region is `aiSearchLocation` (or `location` when blank).')
 param aiSearchName string = ''
 
 // --- DNS zone name overrides (defaults are the required Standard Setup set) ---
@@ -146,6 +159,12 @@ var effectiveCosmosSubnetName    = empty(subnetNameCosmosPep)    ? 'snet-cosmos-
 var effectiveSearchSubnetName    = empty(subnetNameSearchPep)    ? 'snet-search-${baseName}-${environment}'    : subnetNameSearchPep
 var effectiveAgentSubnetName     = empty(subnetNameAgent)        ? 'snet-agent-${baseName}-${environment}'     : subnetNameAgent
 var effectiveCognitiveSubdomain  = empty(cognitiveCustomSubdomainName) ? 'cog-acc-${baseName}-${environment}-${location}' : cognitiveCustomSubdomainName
+
+// Per-service regions. Storage / Cosmos DB / AI Search may live outside the
+// Foundry + VNet region; their private endpoints always stay in `location`.
+var effectiveStorageLocation  = empty(storageLocation) ? location : storageLocation
+var effectiveCosmosLocation   = empty(cosmosLocation) ? location : cosmosLocation
+var effectiveAiSearchLocation = empty(aiSearchLocation) ? location : aiSearchLocation
 
 // Base-stack RG for `existing` lookups below. The default is the networking
 // RG per the CAF landing-zone split (base + workload in separate RGs); set
@@ -240,7 +259,8 @@ module storage '../../../../iac-modules/bicep/storage_account/v1/storage_account
   params: {
     baseName: baseName
     environment: environment
-    location: location
+    location: effectiveStorageLocation
+    privateEndpointLocation: location
     tags: tags
 
     customName: storageAccountName
@@ -265,7 +285,8 @@ module cosmos '../../../../iac-modules/bicep/cosmos_db/v1/cosmos_db.bicep' = {
   params: {
     baseName: baseName
     environment: environment
-    location: location
+    location: effectiveCosmosLocation
+    privateEndpointLocation: location
     tags: tags
 
     customName: cosmosAccountName
@@ -283,7 +304,8 @@ module search '../../../../iac-modules/bicep/ai_search/v1/ai_search.bicep' = {
   params: {
     baseName: baseName
     environment: environment
-    location: location
+    location: effectiveAiSearchLocation
+    privateEndpointLocation: location
     tags: tags
 
     customName: aiSearchName
@@ -351,6 +373,10 @@ module foundryProject '../../../../iac-modules/bicep/foundry_project/v1/foundry_
     aiSearchName: search.outputs.name
     aiSearchEndpoint: search.outputs.endpoint
 
+    storageLocation: effectiveStorageLocation
+    cosmosLocation: effectiveCosmosLocation
+    aiSearchLocation: effectiveAiSearchLocation
+
     enableCapabilityHost: true
   }
 }
@@ -362,5 +388,8 @@ module foundryProject '../../../../iac-modules/bicep/foundry_project/v1/foundry_
 output storageAccountName string = storage.outputs.name
 output cosmosAccountName string = cosmos.outputs.name
 output aiSearchName string = search.outputs.name
+output storageLocation string = effectiveStorageLocation
+output cosmosLocation string = effectiveCosmosLocation
+output aiSearchLocation string = effectiveAiSearchLocation
 output cognitiveAccountName string = cognitive.outputs.name
 output foundryProjectEndpoint string = foundryProject.outputs.foundryProjectEndpoint

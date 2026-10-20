@@ -13,8 +13,14 @@ variable "environment" {
 }
 
 variable "location" {
-  description = "Azure location"
+  description = "Azure region for the storage account. Its private endpoints use `private_endpoint_location` when that is set."
   type        = string
+}
+
+variable "private_endpoint_location" {
+  description = "Azure region for the private endpoints. Private endpoints must be in the VNet's region, which can differ from the storage account's region (`location`). Null (default) = `location`."
+  type        = string
+  default     = null
 }
 
 variable "resource_group_name" {
