@@ -1,2186 +1,922 @@
 # AI Foundry Private Networking Lab
 
-Foundry Agent Service with a **BYO stateful stack** — Storage, Cosmos DB, and AI Search stay in your subscription, wired to Foundry via managed-identity connections + capability hosts, over a fully-private VNet.
+Foundry Agent Service in Standard Setup on a private network. Your own Storage account, Cosmos DB, and AI Search hold the agent data, and Foundry reaches them through private endpoints and managed-identity connections.
 
-This lab follows the [Cloud Adoption Framework (CAF) landing-zone pattern](https://learn.microsoft.com/azure/cloud-adoption-framework/ready/landing-zone/design-area/network-topology-and-connectivity) for network topology: **networking / platform resources live in a dedicated networking RG**, and **workload data-plane resources live in a separate per-workload RG**. This mirrors production CAF landing zones where a central platform team owns and manages shared networking (VNets, private DNS zones, subnets), and application teams deploy their workloads cross-RG on top of it.
+The layout follows the [Cloud Adoption Framework landing-zone pattern](https://learn.microsoft.com/azure/cloud-adoption-framework/ready/landing-zone/design-area/network-topology-and-connectivity). Networking (VNet, subnets, private DNS zones) lives in one resource group and the workload in another, the way a platform team and an application team split ownership.
 
-Two implementations of the same architecture, side-by-side:
+The same architecture is implemented twice. Pick one path. Don't run both against the same resource groups, because they use the same resource names.
 
-- **Path A — Bicep** in [`base/bicep/`](base/bicep/) + [`workload/bicep/`](workload/bicep/). No state to manage; ARM tracks deployment history natively.
-- **Path B — Terraform** in [`base/terraform/`](base/terraform/) + [`workload/terraform/`](workload/terraform/). Uses a remote `azurerm` backend; the state Storage Account itself is bootstrapped with `az`, then imported so Terraform manages it (including adding its Private Endpoint) from there.
+| Path | Code | State |
+|---|---|---|
+| [Path A — Bicep](#path-a--bicep) | [`base/bicep/`](base/bicep/), [`workload/bicep/`](workload/bicep/) | None; ARM keeps the deployment history |
+| [Path B — Terraform](#path-b--terraform) | [`base/terraform/`](base/terraform/), [`workload/terraform/`](workload/terraform/) | Remote `azurerm` backend in a Storage account that `az` creates and Terraform then manages |
 
-Pick one path. Don't mix Path A + Path B against the same RGs — the two paths use identical naming conventions and would fight over resource names.
+Every command is PowerShell 7. Multi-line blocks are wrapped in `. { … }`, so each one pastes and runs as a single unit and its variables stay in your session.
 
-## Table of contents
+## Contents
 
 - [Architecture](#architecture)
-  - [DNS zones + Private Endpoints](#dns-zones--private-endpoints)
 - [Prerequisites](#prerequisites)
-- [Deployment topology: public path vs private path](#deployment-topology-public-path-vs-private-path)
-- [Bringing your own base networking](#bringing-your-own-base-networking)
-- [Placing Storage, Cosmos DB, and AI Search in other regions](#placing-storage-cosmos-db-and-ai-search-in-other-regions)
-  - [Moving a deployed service to another region](#moving-a-deployed-service-to-another-region)
+- [Before you deploy](#before-you-deploy): public or private path, regions, existing networking
+- [Session helpers](#session-helpers)
 - [Path A — Bicep](#path-a--bicep)
-  - [Step 1. Sign in, create the RG, register Resource Providers](#step-1-sign-in-create-the-rg-register-resource-providers-3-min)
-  - [Step 2. Deploy the base stack](#step-2-deploy-the-base-stack-4-min)
-  - [Step 3. Deploy the workload stack](#step-3-deploy-the-workload-stack-1520-min)
-  - [Step 4. Full inventory](#step-4-full-inventory-across-both-rgs)
 - [Path B — Terraform](#path-b--terraform)
-  - [Step 1. Sign in, create the RG, register Resource Providers, grant blob data access](#step-1-sign-in-create-the-rg-register-resource-providers-grant-blob-data-access-3-min)
-  - [Step 2. Bootstrap the Terraform-state Storage Account](#step-2-bootstrap-the-terraform-state-storage-account-2-min)
-  - [Step 3. Init base with the remote backend + import the bootstrapped SA](#step-3-init-base-with-the-remote-backend--import-the-bootstrapped-sa-2-min)
-  - [Step 4. Apply base](#step-4-apply-base-5-min)
-  - [Step 5. Init workload with remote backend + apply](#step-5-init-workload-with-remote-backend--apply-1520-min)
-  - [Step 6. Full inventory](#step-6-full-inventory-across-both-rgs)
-- [Redeploy](#redeploy)
-  - [Path A — Bicep](#path-a--bicep-1)
-  - [Path B — Terraform](#path-b--terraform-1)
-- [Part C — Harden: remove deployer IP and close public endpoints](#part-c--harden-remove-deployer-ip-and-close-public-endpoints)
-  - [Part C1 — Strip deployer IP and any extra allowlisted IPs](#part-c1--strip-deployer-ip-and-any-extra-allowlisted-ips-public-path-only)
-  - [Part C2 — Optionally disable public endpoints entirely](#part-c2--optionally-disable-public-endpoints-entirely-zero-trust)
-  - [Un-harden (before your next deploy)](#un-harden-before-your-next-deploy)
+- [Verify the deployment](#verify-the-deployment)
+- [After you deploy](#after-you-deploy): new terminal, redeploy, move a service, harden
 - [Tear down](#tear-down)
-  - [Path A — Bicep](#path-a--bicep-2)
-  - [Path B — Terraform](#path-b--terraform-2)
-- [RBAC roster (workload)](#rbac-roster-workload)
-  - [Verify the project MI RBAC](#verify-the-project-mi-rbac)
+- [RBAC roster](#rbac-roster)
 - [Troubleshooting](#troubleshooting)
-  - [Deleting an AI Foundry subnet blocked by `legionservicelink`](#deleting-an-ai-foundry-subnet-blocked-by-legionservicelink)
 - [References](#references)
 
 ## Architecture
 
 ![AI Foundry BYO stateful stack — architecture & deployment](assets/architecture.png)
 
-Source: [`assets/architecture.drawio`](assets/architecture.drawio) &nbsp; · &nbsp; PNG: [`assets/architecture.png`](assets/architecture.png)
+Source: [`assets/architecture.drawio`](assets/architecture.drawio). Path B also creates a Terraform-state Storage account, with a blob private endpoint, in the networking resource group. It isn't in the diagram.
 
-The diagram shows the runtime architecture both paths provision. Path B additionally bootstraps a Terraform-state Storage Account with a blob Private Endpoint (a Terraform mechanism, not part of the deployed app), described in Path B Step 2 but omitted from the diagram.
-
-**Base stack (both paths)** — deploys into the **networking RG** (`rg-ai-foundry-network-dev-westus3` by default):
-- 1 VNet (`10.0.0.0/16`) + 5 subnets: 4 private-endpoint subnets + 1 agent subnet delegated to `Microsoft.App/environments`
-- 11 private DNS zones (3 Cognitive + 6 Storage + Cosmos + Search) linked to the VNet
-- No VMs, jumpboxes, CI runners, or NAT gateways
-
-**Base stack (Path B only)** additionally bootstraps (into the networking RG):
-- A **Terraform-state Storage Account** (`sttfs<hash>`) with a blob Private Endpoint, holding a `tfstate` container that both stacks use as their remote-state backend. Path A doesn't need this — ARM tracks its own deployment history.
-
-**Workload stack (both paths)** — deploys into the **workload RG** (`rg-ai-foundry-workload-dev-westus3` by default) and looks up base's VNet + DNS zones cross-RG:
-- Foundry Account (`AIServices` kind, project management enabled, agent-subnet network injection) + Private Endpoint
-- BYO Storage Account (6 PEs: blob/file/queue/table/dfs/web), Cosmos DB (SQL API + 1 PE), AI Search (standard + 1 PE) — each in the Foundry region by default, or in its own region (see [Placing Storage, Cosmos DB, and AI Search in other regions](#placing-storage-cosmos-db-and-ai-search-in-other-regions))
-- Foundry project + 3 Entra-ID connections + all Phase-3 / Phase-5 RBAC + account & project capability hosts
-- All 4 data-plane services default to **public network access enabled** with a **default-deny** firewall + deployer-IP allowlist
-
-Every private-endpoint-bearing service uses the same posture: local (shared-key/API-key) auth **disabled**, SystemAssigned MI, Private Endpoint from the VNet, public endpoint restricted to the deployer's IP (which you can strip in the [hardening step](#part-c--harden-remove-deployer-ip-and-close-public-endpoints)).
-
-### DNS zones + Private Endpoints
-
-The base stack creates **11 private DNS zones**, all VNet-linked, matching the authoritative Microsoft [Private Endpoint DNS zone table](https://learn.microsoft.com/azure/private-link/private-endpoint-dns). Base creates and VNet-links the zones **before** the workload's PEs so `privateDnsZoneGroups` auto-register the PE A-records at creation time.
-
-| Service | Subresource / groupId | Zone (Azure public cloud) |
+| Stack | Resource group (default) | Contents |
 |---|---|---|
-| Foundry Account (`Microsoft.CognitiveServices/accounts`, kind=AIServices) | `account` | `privatelink.cognitiveservices.azure.com` + `privatelink.openai.azure.com` + `privatelink.services.ai.azure.com` (all three are required for Foundry Standard Setup) |
-| Storage Account (`Microsoft.Storage/storageAccounts`) | `blob` / `file` / `queue` / `table` / `dfs` / `web` | `privatelink.<subresource>.core.windows.net` (6 zones) |
-| Cosmos DB (`Microsoft.DocumentDB/databaseAccounts`, SQL API) | `Sql` | `privatelink.documents.azure.com` |
-| AI Search (`Microsoft.Search/searchServices`) | `searchService` | `privatelink.search.windows.net` |
+| Base | `rg-ai-foundry-network-dev-westus3` | VNet `10.0.0.0/16` with 4 private-endpoint subnets and 1 agent subnet delegated to `Microsoft.App/environments`; 11 private DNS zones linked to the VNet |
+| Workload | `rg-ai-foundry-workload-dev-westus3` | Foundry account (`AIServices`, injected into the agent subnet) and project; Storage account, Cosmos DB (NoSQL), and AI Search (`standard`); 9 private endpoints; 3 Entra ID connections, the capability hosts, and the project identity's [role assignments](#rbac-roster) |
 
-> ⚠️ **Sovereign-cloud deploys (Azure Gov / China)** must override `cosmosPrivateDnsZoneName`, `searchPrivateDnsZoneName`, and (Terraform only) `storagePrivateDnsZoneNames` to their cloud-specific values — see the MS DNS zone table's Government / China sections. Bicep derives the storage suffix via `az.environment().suffixes.storage`; the other 3 zone names are hardcoded to commercial-cloud values.
+Every service has key-based auth disabled and uses a system-assigned managed identity. Public network access stays enabled behind a default-deny firewall that allows only your IP, so you can manage the lab from your machine. [Harden](#harden) closes it.
 
-> **On storage PE breadth:** all 6 storage subresource PEs are created for symmetry with Microsoft's general private-endpoint patterns. Foundry Agent Service Standard Setup itself only uses `blob` at runtime — the other 5 (~$35/month total) are belt-and-braces provisioning that lets you later use File Share, Queue-backed Function tools, ADLS Gen2, or Static Web hosting without changing the network topology. To skip the unused 5, pass empty arrays for their `*PrivateDnsZoneIds` params (Bicep) / `*_private_dns_zone_ids` variables (Terraform).
+### DNS zones and private endpoints
 
----
+The base stack creates the zones and links them to the VNet before the workload creates its private endpoints, so each endpoint's DNS record registers automatically. Zone names follow Microsoft's [private endpoint DNS table](https://learn.microsoft.com/azure/private-link/private-endpoint-dns).
+
+| Service | Sub-resource | Private DNS zone |
+|---|---|---|
+| Foundry account | `account` | `privatelink.cognitiveservices.azure.com`, `privatelink.openai.azure.com`, `privatelink.services.ai.azure.com` (all three are required) |
+| Storage account | `blob`, `file`, `queue`, `table`, `dfs`, `web` | `privatelink.<sub-resource>.core.windows.net` (6 zones) |
+| Cosmos DB | `Sql` | `privatelink.documents.azure.com` |
+| AI Search | `searchService` | `privatelink.search.windows.net` |
+
+- **Sovereign clouds (Azure Government, China):** these are Azure public cloud names, and the base stacks create them as listed. Create and link your cloud's zones yourself, attach to them as [existing networking](#existing-byo-networking), and override the zone names for the workload.
+- **Storage endpoints:** Agent Service uses only `blob`. The other 5 endpoints cost about $35 a month. They let File, Queue, Table, ADLS Gen2, or static websites work later without network changes. To drop them, remove their zone IDs from the storage module call in the workload's `main.bicep` or `main.tf`.
 
 ## Prerequisites
 
-- **Windows PowerShell 7+** — all commands below are pwsh. **Keep one session open for the whole deploy** so shell variables persist. If you close and reopen, re-run Step 1 (both paths) and Step 2 (Path B) before continuing.
-- **Azure CLI** ≥ 2.60 ([install](https://learn.microsoft.com/cli/azure/install-azure-cli)).
-- **`az login` with sufficient permissions.** For a first deploy from a fresh subscription, `Owner` at subscription scope is simplest. For least-privilege, the caller needs these at the corresponding scopes — most are standard Contributor, but `Cosmos DB Operator`, `User Access Administrator` / `RBAC Admin`, and `Private DNS Zone Contributor` are special cases:
+- **PowerShell 7+ and a clone of this repo.** Run the commands from inside the clone; they locate files with `git rev-parse --show-toplevel`. Use one terminal for a whole run, because the steps share session variables. For a new terminal, see [New terminal or redeploy](#new-terminal-or-redeploy).
+- **Azure CLI** 2.60+ ([install](https://learn.microsoft.com/cli/azure/install-azure-cli)).
+  - Path A also needs **Bicep** 0.30+ (`az bicep upgrade`).
+  - Path B needs **Terraform** 1.7.5+ ([install](https://developer.hashicorp.com/terraform/install)).
+- **Outbound HTTPS to `api.ipify.org`** to detect your public IP.
+- **Permissions:** `Owner` on the subscription is simplest. For least privilege:
 
-  | Permission | Where | Why |
-  |---|---|---|
-  | Resource creation (Contributor covers this) | Both RGs | Create/update the VNet, subnets, DNS zones, Storage, Cosmos, AI Search, Foundry Account, project, PEs, connections, capability host |
-  | `Microsoft.Authorization/roleAssignments/write` (**User Access Administrator** or **Role Based Access Control Administrator**) | Workload RG | Create the 6 `Microsoft.Authorization/roleAssignments` the workload grants to the project MI on Storage / Cosmos / AI Search |
-  | `Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments/write` (**Cosmos DB Operator** on the Cosmos Account, or Contributor at sub/RG scope) | Workload RG (Cosmos Account) | Create the Cosmos SQL data-plane role assignment for the project MI. This is a Cosmos-native RBAC resource, NOT `Microsoft.Authorization/roleAssignments` — **UAA and RBAC Admin do NOT include it.** |
-  | `Microsoft.Network/privateDnsZones/join/action` (**Private DNS Zone Contributor** or higher) | The RG that owns the 11 private DNS zones (by default the networking RG; may be a separate central connectivity / hub RG if `dnsResourceGroupName` / `dns_resource_group_name` is overridden) | Link the 9 workload PEs' DNS zone groups to the private DNS zones that live outside the workload RG (per the [CAF split-RG topology](#deployment-topology-public-path-vs-private-path) and the [BYO base networking](#bringing-your-own-base-networking) section). Same-RG deployers skip this. |
-
-  RP registration by itself only needs `*/register/action` (Contributor at sub scope is sufficient). Returning deployers with all existing role assignments and DNS zone group links can drop to Contributor for subsequent redeploys.
-- **Terraform** ≥ 1.7.5 ([install](https://developer.hashicorp.com/terraform/install)) — Path B only.
-- **Bicep CLI** ≥ 0.30 (bundled with recent `az`; run `az bicep upgrade` if needed) — Path A only.
-- Outbound HTTPS to `https://api.ipify.org` from your laptop (skip if you're on the [private-path deploy](#deployment-topology-public-path-vs-private-path)).
-
-Each deploy step below **starts with a `Set-Location` (`cd`) into the specific stack directory** — `environments/ai-foundry/base/bicep`, `environments/ai-foundry/base/terraform`, `environments/ai-foundry/workload/bicep`, or `environments/ai-foundry/workload/terraform` — and all Bicep / Terraform commands in that step use short relative paths (`main.bicep`, `.`) from there. If a command errors with `Could not find ...\main.bicep` or Terraform picks up the wrong module, check `Get-Location` — you're in the wrong directory. Sign-in / variable-setup steps and `az` verification commands don't depend on your working directory, so you can run them from anywhere.
-
-Both paths default to region `westus3` and the CAF split-RG layout (Storage, Cosmos DB, and AI Search can optionally go to other regions — see [Placing Storage, Cosmos DB, and AI Search in other regions](#placing-storage-cosmos-db-and-ai-search-in-other-regions)):
-
-| Stack | Default RG name | Contents |
+| Role | Scope | Why |
 |---|---|---|
-| Base (networking) | `rg-ai-foundry-network-dev-westus3` | VNet, subnets, private DNS zones (+ tfstate SA for Path B) |
-| Workload (data plane) | `rg-ai-foundry-workload-dev-westus3` | Foundry, Storage, Cosmos, AI Search + all workload Private Endpoints |
+| Contributor | Subscription. Once the providers are registered, the resource groups the lab creates are enough. | Register resource providers and create every resource |
+| User Access Administrator or Role Based Access Control Administrator | Workload resource group; for Path B also `$RG_NETWORK` | Create the 6 role assignments for the project identity. Path B also gives you a blob role on the Terraform-state account. |
+| Network Contributor, or any role with `Microsoft.Network/virtualNetworks/subnets/join/action` | The VNet's resource group, if you attach to [existing networking](#existing-byo-networking) | Place the private endpoints and the agent runtime in its subnets |
+| Private DNS Zone Contributor | The DNS zones' resource group, if the lab doesn't create it | Link the workload's private endpoints to the zones |
 
----
+The Cosmos DB SQL role assignment is a Cosmos DB resource, not an Azure role assignment. Contributor covers it. The built-in Cosmos DB Operator role and the two RBAC roles above don't.
 
-## Deployment topology: public path vs private path
+## Before you deploy
 
-The workload data-plane services (Storage, Cosmos, AI Search, Foundry) all sit behind Private Endpoints, but their **public endpoints stay `Enabled` by default** with a default-deny firewall + explicit allowlist. The allowlist mostly exists for the **post-deploy** admin / SDK operations you're likely to run from the deployer's machine — opening the Foundry portal, listing Cosmos containers with `az cosmosdb sql container list`, uploading a test blob with `az storage blob upload`, running the Python Foundry SDK, etc. All of those go straight to the service's public FQDN and get blocked by the default-deny firewall unless your IP is on the allowlist.
+### Public path or private path
 
-During the deploy itself, the picture is subtler: the workload's IaC provisions resources like `Microsoft.CognitiveServices/accounts/connections`, `Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments`, and `Microsoft.CognitiveServices/accounts/projects/capabilityHosts`. These are **ARM control-plane** operations — the deployer's `az` session calls `management.azure.com`, and Azure's own RPs then talk to the target services internally (via the `bypass = AzureServices` trusted-services path that all four workload modules set). So the deploy usually succeeds even without an allowlist entry for the deployer. The IP allowlist matters most for what you'll do with the deployment afterward.
+Each service's public endpoint stays enabled behind a default-deny firewall. The deploy works either way, because ARM and the resource providers do the work through the trusted-services bypass. What you do afterwards from your machine is different. The Foundry portal, the SDKs, `az storage blob`, and `az cosmosdb sql` all go to the public endpoint, unless your machine resolves the services to their private endpoints.
 
-Two supported topologies. Both use the same IaC; only the value you pass for `deployerIp` (Bicep) / `deployer_ip` (Terraform) differs.
+| | Public path (default) | Private path |
+|---|---|---|
+| Your machine | On the internet | Reaches the VNet (VPN, ExpressRoute, Bastion, or a runner inside it) and resolves `privatelink.*` through Azure DNS, directly or through a forwarder to `168.63.129.16` |
+| Firewall allowlist | Your public IP | Empty |
+| Path A | `$DEPLOYER_IP` is your IP (the Step 1 default) | Set `$DEPLOYER_IP = ""` |
+| Path B | Terraform detects your IP | Add `-var 'deployer_ip='` to the workload apply |
 
-| Topology | Deployer machine is… | Post-deploy admin traffic | `deployerIp` value | Typical use |
-|---|---|---|---|---|
-| **Public path** (default) | On the public internet (laptop at home, unmanaged network) | Deployer → public FQDN → firewall allowlist → service | Your public IPv4 (auto-detected in Path B via `api.ipify.org`; read from `$env:DEPLOYER_IP` in Path A) | Personal / lab deploys from an unmanaged network |
-| **Private path** | On a corporate network with VPN / ExpressRoute / Bastion into the workload VNet, or on an existing jump box / CI runner already in the VNet | Deployer → public FQDN → **resolves to private IP via the base stack's private DNS zones** → PE → service | `""` (empty string) — skips the allowlist entry | Corporate deploys where the laptop already has private DNS + routing, CI runners inside the VNet |
+Choose the private path only if your machine is on a network connected to the VNet and your platform team confirms that `privatelink.*` resolves through Azure DNS. Client-side DNS checks can mislead (split tunnels, NRPT rules). Otherwise use the public path; switching later is a redeploy. After the deploy, [check](#verify-the-deployment) that the Foundry endpoint resolves privately. [Harden](#harden) once you no longer need access from your machine.
 
-**How the private path works:** the workload service FQDNs resolve through the 11 private DNS zones the base stack VNet-links. When your deployer uses Azure-integrated DNS for those zones — directly (VM in the VNet), via your VPN client's DNS, or via an on-prem forwarder pointed at Azure's virtual server `168.63.129.16` — the FQDNs return the PE's private IP and admin traffic never hits the public endpoint.
+### Regions
 
-**Which path am I on?** Use intent, not DNS parsing (client-side DNS checks miss corporate NRPT / split-tunnel VPN configs and give false answers):
+The Foundry account, the VNet, and all 9 private endpoints share one region, `$LOC` in Step 1 (default `westus3`). Two Microsoft rules require this:
 
-1. Deploying from a jumpbox / CI runner **already inside the workload VNet** → **private path**.
-2. Deploying from a laptop on **corporate VPN / ExpressRoute peered to the workload VNet**, AND your platform team has confirmed `privatelink.*` zones are forwarded to Azure DNS → **private path**.
-3. Anything else (home internet, unmanaged network, unsure) → **public path**.
+- the [Agent Service networking docs](https://learn.microsoft.com/azure/ai-foundry/agents/how-to/virtual-networks#limitations): "The Foundry resource must be deployed in the same region as the virtual network";
+- a [private endpoint](https://learn.microsoft.com/azure/private-link/private-endpoint-overview) must be in its VNet's region.
 
-When unsure, default to the public path — switching to private later is a one-command redeploy with `deployerIp=""` / `-var 'deployer_ip='`. There is no reliable client-side way to prove your DNS is wired for the private path before your first deploy; the accurate verification only works post-deploy, so it lives under Path A Step 3 and Path B Step 5 as "Verify the private path."
+Check that the region is [supported for Agent Service private networking](https://learn.microsoft.com/azure/ai-foundry/agents/concepts/limits-quotas-regions#supported-regions).
 
-**Once the deploy is complete you don't need `deployerIp` any longer.** The agent runtime always uses the Private Endpoints from inside the VNet. Any future deploys either need the IP re-added (public path) or need the deployer machine on the private path. See [Part C — Harden](#part-c--harden-remove-deployer-ip-and-close-public-endpoints) for the post-deploy lockdown that strips the IP and (optionally) fully closes the public endpoints.
+The same docs say "Other Azure resources, such as Azure Cosmos DB, Azure AI Search, and Azure Storage, can be deployed in different regions". That helps when the Foundry region has no capacity for one of them, or a policy pins data elsewhere. Their private endpoints still stay in the VNet's region.
 
----
-
-> ⚠️ **Region rules.** The Foundry Account, the VNet and its subnets, and all 9 workload PEs must share **one** region — `location` (Path A: session var `$LOC`, passed as `-p location=$LOC`; Path B: the `location` variable, default `westus3`). This isn't a lab convention: per [Microsoft's Foundry Agent Service private-networking docs](https://learn.microsoft.com/azure/ai-foundry/agents/how-to/virtual-networks#limitations), "the Foundry resource must be deployed in the same region as the virtual network", and a [Private Endpoint](https://learn.microsoft.com/azure/private-link/private-endpoint-overview) "must be deployed in the same region and subscription as the virtual network". **Storage, Cosmos DB, and AI Search are the exception**: they default to `location` but can each live in another region, reached through their PEs in the VNet — see [Placing Storage, Cosmos DB, and AI Search in other regions](#placing-storage-cosmos-db-and-ai-search-in-other-regions). If you change `location`, change it for **both** stacks, and verify the target region is on Microsoft's [supported-regions list for Foundry Agent Service private networking](https://learn.microsoft.com/azure/ai-foundry/agents/concepts/limits-quotas-regions#supported-regions). The private DNS zones are global, and a resource group's own location is only metadata.
-
----
-
-## Bringing your own base networking
-
-The workload stack looks base resources up **by NAME** (Bicep `existing`, Terraform `data`) — it does NOT read the base stack's outputs or state. That means you can point the workload at ANY pre-existing VNet + subnets + private DNS zones (a shared platform VNet, an ALZ spoke, a run of `base/` with custom names, or a hand-built lab) by overriding the matching parameter / variable. Every override is optional; unset values fall back to the base stack's naming convention. Mix and match as needed.
-
-> **VNet + subnet names, workload resource names, and regions have a preferred override path.** The workload deploy commands (Step 3 for Bicep, Step 5 for Terraform, plus Redeploy / C1 / C2 for each) inject the 6 VNet/subnet vars for both paths, and (Bicep only) 5 additional workload resource-name vars (`$STORAGE_NAME`, `$COGNITIVE_ACCOUNT_NAME`, `$COGNITIVE_SUBDOMAIN`, `$COSMOS_NAME`, `$AI_SEARCH_NAME`) plus the region vars (`$LOC` as `location`, and `$LOC_STORAGE` / `$LOC_COSMOS` / `$LOC_SEARCH`) via `-p` flags. **Bicep also injects `$RG_NETWORK` and `$RG_DNS` from Step 1 as `baseResourceGroupName` / `dnsResourceGroupName`**, so RG overrides go through session vars too. **CLI flags win over `terraform.tfvars`** — editing that file for the 6 VNet/subnet names is silently ignored. Every OTHER override in the table below (DNS zone names, `baseName` / `environment`, and for Terraform also `location`, the three per-service regions, and the Storage account name) is set via CLI `-p` flags (Bicep) or `terraform.tfvars` (Terraform).
-
-| What you want to override | Bicep param | Terraform variable | Default | Where to change |
-|---|---|---|---|---|
-| RG that owns the VNet + subnets | `baseResourceGroupName` | `base_resource_group_name` | `rg-ai-foundry-network-dev-westus3` | **session var `$RG_NETWORK` in Step 1** (Bicep) / `terraform.tfvars` (Terraform) |
-| RG that owns the 11 private DNS zones (if separate from the VNet's RG — classic CAF connectivity / hub RG) | `dnsResourceGroupName` | `dns_resource_group_name` | reuses `baseResourceGroupName` | **session var `$RG_DNS` in Step 1** (Bicep) / `terraform.tfvars` (Terraform) |
-| Subscription that owns the 11 private DNS zones (same tenant only; classic CAF connectivity / hub subscription) | `dnsSubscriptionId` | — (Terraform module derives) | current deploy subscription | **session var `$SUB_DNS` in Step 1** (Bicep) / N/A (Terraform) |
-| VNet name | `vnetName` | `vnet_name` | `vnet-ai-foundry-dev-<$LOC>` | **session var `$VNET_NAME` in Step 1** |
-| Cognitive-PE subnet name | `subnetNameCognitivePep` | `subnet_name_cognitive_pep` | `snet-cognitive-ai-foundry-dev` | **session var `$SUBNET_COGNITIVE_PEP` in Step 1** |
-| Storage-PE subnet name | `subnetNameStoragePep` | `subnet_name_storage_pep` | `snet-storage-ai-foundry-dev` | **session var `$SUBNET_STORAGE_PEP` in Step 1** |
-| Cosmos-PE subnet name | `subnetNameCosmosPep` | `subnet_name_cosmos_pep` | `snet-cosmos-ai-foundry-dev` | **session var `$SUBNET_COSMOS_PEP` in Step 1** |
-| Search-PE subnet name | `subnetNameSearchPep` | `subnet_name_search_pep` | `snet-search-ai-foundry-dev` | **session var `$SUBNET_SEARCH_PEP` in Step 1** |
-| Agent (delegated) subnet name | `subnetNameAgent` | `subnet_name_agent` | `snet-agent-ai-foundry-dev` | **session var `$SUBNET_AGENT` in Step 1** |
-| Storage account name (global; 3-24 chars, lowercase alphanumeric only) | `storageAccountName` | `storage_account_name` | blank → `st<baseName><environment><Storage region>`, hyphens stripped (e.g. `staifoundrydevwestus3`) | **session var `$STORAGE_NAME` in Step 1** (Bicep) / `terraform.tfvars` (Terraform) |
-| Cognitive / AIServices account name (RG-scoped) | `cognitiveAccountName` | — (Terraform module derives) | `ais-ai-foundry-dev-<$LOC>` | **session var `$COGNITIVE_ACCOUNT_NAME` in Step 1** |
-| Foundry custom subdomain (globally-unique DNS prefix — separate from account name above) | `cognitiveCustomSubdomainName` | `cognitive_custom_subdomain_name` | `cog-acc-ai-foundry-dev-<$LOC>` | **session var `$COGNITIVE_SUBDOMAIN` in Step 1** |
-| Cosmos DB account name (global) | `cosmosAccountName` | — (Terraform module derives) | blank → `cosmos-ai-foundry-dev-<Cosmos region>` | **session var `$COSMOS_NAME` in Step 1** |
-| AI Search service name (global) | `aiSearchName` | — (Terraform module derives) | blank → `srch-ai-foundry-dev-<AI Search region>` | **session var `$AI_SEARCH_NAME` in Step 1** |
-| Storage account region | `storageLocation` | `storage_location` | blank / null → `location` | **session var `$LOC_STORAGE` in Step 1** (Bicep) / `terraform.tfvars` (Terraform) |
-| Cosmos DB account region | `cosmosLocation` | `cosmos_location` | blank / null → `location` | **session var `$LOC_COSMOS` in Step 1** (Bicep) / `terraform.tfvars` (Terraform) |
-| AI Search service region | `aiSearchLocation` | `ai_search_location` | blank / null → `location` | **session var `$LOC_SEARCH` in Step 1** (Bicep) / `terraform.tfvars` (Terraform) |
-| 3 Cognitive privatelink DNS zone names | `cognitivePrivateDnsZoneNames` (must be length 3) | `cognitive_private_dns_zone_names` (must be length 3) | `privatelink.{cognitiveservices,openai,services.ai}.azure.com` | Bicep CLI `-p key=value` / Terraform `terraform.tfvars` |
-| 6 Storage privatelink DNS zone names | `storagePrivateDnsZoneNames` (must be length 6) | `storage_private_dns_zone_names` (must be length 6) | `privatelink.{blob,file,queue,table,dfs,web}.core.windows.net` | Bicep CLI `-p key=value` / Terraform `terraform.tfvars` |
-| Cosmos privatelink DNS zone name | `cosmosPrivateDnsZoneName` | `cosmos_private_dns_zone_name` | `privatelink.documents.azure.com` | Bicep CLI `-p key=value` / Terraform `terraform.tfvars` |
-| AI Search privatelink DNS zone name | `searchPrivateDnsZoneName` | `search_private_dns_zone_name` | `privatelink.search.windows.net` | Bicep CLI `-p key=value` / Terraform `terraform.tfvars` |
-| Shift the whole derived-name set at once | `baseName` / `environment` / `location` | `base_name` / `environment` / `location` | `ai-foundry` / `dev` / `westus3` | Bicep: CLI `-p key=value` for `baseName` / `environment`, **session var `$LOC` in Step 1** for `location` / Terraform `terraform.tfvars` |
-
-For Bicep, pass any of the above overrides on the CLI: append `-p key=value` flags to the `az deployment group create` command (e.g. `-p "baseName=mycompany"`).
-
-For Terraform, [`workload/terraform/terraform.tfvars.example`](workload/terraform/terraform.tfvars.example) bundles these overrides as commented examples. Copy it to `terraform.tfvars` (git-ignored) and uncomment what you need.
-
-> **Path B (Terraform) parity gap:** Terraform parameterizes the Storage account name (`storage_account_name` — needed when a long Storage region pushes the derived name past 24 characters) but not yet the other 3 global workload resource names (Cognitive account, Cosmos, AI Search). Terraform-path customers hitting a global-name collision on those must edit the relevant module in `iac-modules/terraform/<service>/v1/main.tf` (or the workload orchestrator at `environments/ai-foundry/workload/terraform/main.tf`) locally. Only the Bicep path exposes overrides for all of these names today.
-
-Constraints that DON'T bend:
-- The 5 subnets must exist on the VNet you point at, with the standard sizes (`/24` is fine) and the agent subnet delegated to `Microsoft.App/environments`.
-- The 11 privatelink DNS zones must be VNet-linked to your VNet BEFORE the workload's Private Endpoints are created, so their A-records auto-register. If your platform team owns the zones, ask them to VNet-link to the target VNet first.
-- The VNet, the Foundry Account, and all 9 workload PEs share one region (`location`); only Storage, Cosmos DB, and AI Search may live elsewhere (see the region rules above).
-- If the DNS zones live in a different RG than the VNet, your `az`/Terraform principal needs `Microsoft.Network/privateDnsZones/join/action` (Private DNS Zone Contributor) on THAT RG — see the least-privilege table under [Prerequisites](#prerequisites).
-
----
-
-## Placing Storage, Cosmos DB, and AI Search in other regions
-
-Per [Microsoft's Foundry Agent Service private-networking docs](https://learn.microsoft.com/azure/ai-foundry/agents/how-to/virtual-networks#limitations): "The Foundry resource must be deployed in the same region as the virtual network (VNet). Other Azure resources, such as Azure Cosmos DB, Azure AI Search, and Azure Storage, can be deployed in different regions." Both paths let you put each of the three BYO data services in its own region — for example when Cosmos DB has no capacity in the Foundry region, or a policy pins data to another region. Their Private Endpoints stay in the VNet's region (`location`): a [Private Endpoint must be in its VNet's region, while the service it connects to can be anywhere](https://learn.microsoft.com/azure/private-link/private-endpoint-overview).
-
-| Service | Path A — Bicep (session var, Step 1) | Path B — Terraform (`terraform.tfvars`) | Default |
+| Service | Path A (Step 1) | Path B (`terraform.tfvars`) | Default |
 |---|---|---|---|
-| Storage account | `$LOC_STORAGE` | `storage_location` | `location` |
-| Cosmos DB account | `$LOC_COSMOS` | `cosmos_location` | `location` |
-| AI Search service | `$LOC_SEARCH` | `ai_search_location` | `location` |
+| Storage | `$LOC_STORAGE` | `storage_location` | `$LOC` |
+| Cosmos DB | `$LOC_COSMOS` | `cosmos_location` | `$LOC` |
+| AI Search | `$LOC_SEARCH` | `ai_search_location` | `$LOC` |
 
-Before you split regions:
+- **Decide before the first workload deploy.** A deployed service can't change region in place, and [moving one](#move-a-service-to-another-region) recreates it empty.
+- **Use programmatic region names** (`eastus2`, not `East US 2`). The [preflight check](#session-helpers) confirms each region offers the service, that your subscription may create Cosmos DB accounts there, and that AI Search quota is left.
+- **Cost and latency.** Agent traffic to a service in another region crosses regions: you pay inter-region data transfer on top of private endpoint charges, plus the extra round trip.
+- **Default names follow each service's region.** They are `st<baseName><environment><region>` (hyphens stripped, 24 characters max), `cosmos-<baseName>-<environment>-<region>`, and `srch-<baseName>-<environment>-<region>`. With the default `ai-foundry` / `dev`, a Storage region longer than 10 characters (for example `swedencentral`) needs an explicit name: `$STORAGE_NAME` (Path A) or `storage_account_name` (Path B).
+- **Path B: keep `workload/terraform/terraform.tfvars`.** Every later plan, apply, and destroy must read the same regions. `terraform output` shows them.
 
-- **Decide before the first workload deploy.** A deployed service's region can't change in place; moving one later recreates it empty — see [Moving a deployed service to another region](#moving-a-deployed-service-to-another-region).
-- **Use programmatic region names** (`eastus2`, not `East US 2`), and check that the region offers what you need — Cosmos DB for NoSQL, AI Search `standard`, StorageV2 — and has capacity.
-- **Cost and latency.** Agent traffic from the VNet crosses regions to reach a remote service. Microsoft calls out the cost implications of cross-region deployments (inter-region data transfer on top of Private Endpoint data processing), and every thread, file, and vector-store call pays the extra round trip.
-- **Names follow each service's region.** Blank names derive from the service's own region: `st<baseName><environment><Storage region>` (hyphens stripped), `cosmos-<baseName>-<environment>-<Cosmos region>`, `srch-<baseName>-<environment>-<AI Search region>`. Storage account names max out at 24 characters, so with the default `ai-foundry` / `dev` a Storage region longer than 10 characters (`swedencentral`, `southcentralus`, …) needs an explicit name: `$STORAGE_NAME` (Bicep) or `storage_account_name` in `terraform.tfvars` (Terraform).
-- **Nothing else moves.** The workload RG stays in `$LOC` (an RG's location is only metadata), and the private DNS zones are global.
-- **Path A (Bicep):** set the variables in [Step 1](#step-1-sign-in-create-the-rg-register-resource-providers-3-min) before the first Step 3 deploy. From then on, `Resolve-DataServiceVars` (run by every workload deploy) reads each deployed service's real region and name back from Azure, so a new terminal or a re-run of Step 1 can't move, rename, or duplicate a service — it stops instead.
-- **Path B (Terraform):** add the keys to `workload/terraform/terraform.tfvars` (copy `terraform.tfvars.example`) before Step 5, and keep the file: the Terraform commands in this README don't pass these values, so every later `plan` / `apply` / `destroy` must read the same ones from it. `terraform output` shows the effective regions and names.
+### Existing (BYO) networking
 
-Verify where everything landed — the Foundry Account and all 9 Private Endpoints in `$LOC`, the three data services in their chosen regions:
+The workload finds the VNet, subnets, and DNS zones **by name**, using Bicep `existing` and Terraform `data` sources. That means it can attach to any network that has them: a platform team's spoke, DNS zones in a hub, or this lab's base stack. To list an existing VNet's names:
 
 ```powershell
-az resource list -g $RG_WORKLOAD --query "[?type=='Microsoft.CognitiveServices/accounts' || type=='Microsoft.Storage/storageAccounts' || type=='Microsoft.DocumentDB/databaseAccounts' || type=='Microsoft.Search/searchServices' || type=='Microsoft.Network/privateEndpoints'].{Name:name, Type:type, Location:location}" -o table
+az network vnet list -g "<vnet-resource-group>" --query "[].{VNet:name, Region:location, Subnets:join(', ', subnets[].name)}" -o table
 ```
 
-### Moving a deployed service to another region
+The network needs:
 
-Moving Storage, Cosmos DB, or AI Search after deployment **recreates it empty**: agent files (Storage), threads (Cosmos DB), and vector stores (AI Search) aren't migrated. The project capability host has to be recreated too, because [capability hosts can't be updated — only deleted and recreated](https://learn.microsoft.com/azure/ai-foundry/agents/concepts/capability-hosts). Export anything you need first.
+- 4 subnets for private endpoints (`/24` is plenty) and 1 subnet delegated to `Microsoft.App/environments` for the agent runtime;
+- the 11 private DNS zones linked to the VNet **before** the workload deploy, so that the endpoints' DNS records register;
+- the VNet in `$LOC`, and in the workload's subscription.
 
-**Path B (Terraform):** set the new region (and, if the derived name gets too long, `storage_account_name`) in `terraform.tfvars`, then run your usual [Step 5 apply](#step-5-init-workload-with-remote-backend--apply-1520-min). Read the plan before you approve it: it destroys the old service, creates the new one (new region and, for derived names, a new name) with its Private Endpoint(s) and role assignments, updates the connection, and replaces the project capability host (via `replace_triggered_by`). The old service's data is gone once you approve. If the apply stops part-way — for example the new region is out of capacity (AI Search reports `InsufficientResourcesAvailable`) — the old service may already be deleted and agents don't work until an apply completes: set another region for that service in `terraform.tfvars` and apply again.
+If the zones are in another resource group, you need Private DNS Zone Contributor there ([Prerequisites](#prerequisites)).
 
-**Path B — unexpected replacement?** If a plan you didn't intend wants to replace a Storage / Cosmos DB / AI Search account or the capability host, a region or name input changed (for example a lost or edited `terraform.tfvars`). Don't approve it; restore the previous values (`terraform output` from the last apply shows them).
+Step 2 creates resource groups only if they're missing, so it doesn't re-tag yours, and [Tear down](#tear-down) marks the steps to skip with existing networking. To attach to existing networking:
 
-**Path A (Bicep):** ARM can't replace a service in place, so you delete the project capability host, deploy the new service under a **new name**, and remove the old one after validating. The steps below move Cosmos DB; for the others use `Storage` / `$LOC_STORAGE` / `$STORAGE_NAME` or `Search` / `$LOC_SEARCH` / `$AI_SEARCH_NAME`. Work in the same terminal as your earlier steps (in a new terminal, re-run [Step 1](#step-1-sign-in-create-the-rg-register-resource-providers-3-min) first).
+- **Path A:** in Step 1, set `$RG_NETWORK` to the VNet's resource group, plus `$RG_DNS`, `$SUB_DNS`, and the names. Skip Step 3 (base). When you tear down, delete only the workload resource group.
+- **Path B:** in Step 1, set `$RG_VNET` to the VNet's resource group, plus `$RG_DNS` and the names. Keep `$RG_NETWORK` as a resource group of your own, because it holds the Terraform-state account. Skip Step 4 (base).
 
-Find the Foundry project:
+| Setting | Path A (Bicep) | Path B (Terraform) | Default |
+|---|---|---|---|
+| VNet's resource group | `$RG_NETWORK` | `$RG_VNET` (`$RG_NETWORK` holds the state account) | `rg-ai-foundry-network-dev-<region>` |
+| Workload resource group | `$RG_WORKLOAD` | Same (Step 1) | `rg-ai-foundry-workload-dev-<region>` |
+| DNS zones' resource group / subscription | `$RG_DNS` / `$SUB_DNS` | `$RG_DNS` (same subscription only) | VNet's resource group / current subscription |
+| VNet and subnet names | `$VNET_NAME`, `$SUBNET_*` | Same (Step 1) | `vnet-ai-foundry-dev-<region>`, `snet-<purpose>-ai-foundry-dev` |
+| Foundry account name / custom subdomain | `$COGNITIVE_ACCOUNT_NAME` / `$COGNITIVE_SUBDOMAIN` | Derived / `cognitive_custom_subdomain_name` | `ais-ai-foundry-dev-<region>` / `cog-acc-ai-foundry-dev-<region>` |
+| Storage, Cosmos DB, AI Search names | `$STORAGE_NAME`, `$COSMOS_NAME`, `$AI_SEARCH_NAME` | `storage_account_name`; Cosmos DB and AI Search are derived | Derived from each service's region |
+| Private DNS zone names | `-p cognitivePrivateDnsZoneNames=…`, `storagePrivateDnsZoneNames`, `cosmosPrivateDnsZoneName`, `searchPrivateDnsZoneName` | `cognitive_private_dns_zone_names`, `storage_private_dns_zone_names`, `cosmos_private_dns_zone_name`, `search_private_dns_zone_name` | Azure public cloud |
+| Naming prefix (derived names, tags) | `-p baseName=… environment=…` | `base_name`, `environment` | `ai-foundry`, `dev` |
 
-```powershell
-$PROJECT_ID = az rest --method get --url "/subscriptions/$(az account show --query id -o tsv)/resourceGroups/$RG_WORKLOAD/providers/Microsoft.CognitiveServices/accounts/$COGNITIVE_ACCOUNT_NAME/projects?api-version=2025-06-01" --query "value[0].id" -o tsv
-```
+- **Path A** passes the Step 1 variables on every deploy. Add anything else as `-p name=value` to the Step 4 command.
+- **Path B** passes the Step 1 variables as `-var` flags, which override `terraform.tfvars`. Put everything else in `workload/terraform/terraform.tfvars`; start from [`terraform.tfvars.example`](workload/terraform/terraform.tfvars.example). Terraform can't override the Foundry account, Cosmos DB, or AI Search names. On a global-name collision, edit the module's derived-name locals.
 
-Delete its capability host (agents in the project stop working until the deploy below recreates it):
+## Session helpers
 
-```powershell
-az rest --method delete --url "$PROJECT_ID/capabilityHosts/default?api-version=2025-06-01"
-```
+Paste this block once per terminal, for either path. It only defines functions; it doesn't call Azure. Each function first checks that `az` is on `$SUBSCRIPTION_ID` from Step 1, so nothing lands in another subscription.
 
-Wait until it's gone — the delete is asynchronous:
+- **`Test-Preflight`** checks the regions before anything is created:
+  - each region offers the Foundry account (`AIServices` `S0`), Container Apps (the agent runtime), Storage, Cosmos DB, and AI Search;
+  - your subscription may create Cosmos DB accounts there;
+  - AI Search `standard` quota is left.
 
-```powershell
-do { Start-Sleep -Seconds 15; az rest --method get --url "$PROJECT_ID/capabilityHosts/default?api-version=2025-06-01" -o none 2>$null } while ($LASTEXITCODE -eq 0)
-```
+  It can't check capacity, because Azure doesn't expose it, so a region can still run out during the deploy ([Troubleshooting](#troubleshooting)).
+- **`Assert-BaseNetwork`** (Path A) stops a base deploy into a resource group that already holds a different VNet.
+- **`Resolve-DataServiceVars`** (Path A) runs before every workload deploy.
+  - It reads the Storage, Cosmos DB, and AI Search accounts the Foundry project actually uses, and puts their names and regions into your session. So a new terminal or a blank Step 1 value can't move, rename, or duplicate a deployed service.
+  - It stops the deploy on any mismatch, ambiguity, or failed `az` call.
 
-Set the new region and a new, globally unique name:
-
-```powershell
-$LOC_COSMOS = "eastus2"; $COSMOS_NAME = "cosmos-ai-foundry-dev-eastus2"
-```
-
-Run your usual [Step 3](#step-3-deploy-the-workload-stack-1520-min) deploy block (Option A or B), changing its first line from `if (Resolve-DataServiceVars) {` to `if (Resolve-DataServiceVars -Migrate Cosmos) {`. In that mode the helper confirms the capability host is gone, keeps your new Cosmos values, still checks Storage and AI Search against Azure, and saves the old account's ID in `$MIGRATION_OLD_RESOURCE_ID`. If the deploy fails creating the new service (for example the region is out of capacity), the old service is untouched but agents stay down: set another region and name, and run the same `-Migrate` deploy again. If it says the move is already deployed, an earlier attempt got through — skip to the clean-up.
-
-Validate your agents (create a thread, upload a file, query a vector store). Then delete the old service's Private Endpoint(s):
-
-```powershell
-az network private-endpoint list -g $RG_WORKLOAD -o json | ConvertFrom-Json | Where-Object { $_.privateLinkServiceConnections.privateLinkServiceId -contains $MIGRATION_OLD_RESOURCE_ID } | ForEach-Object { az network private-endpoint delete --ids $_.id }
-```
-
-And the old service itself:
-
-```powershell
-az resource delete --ids $MIGRATION_OLD_RESOURCE_ID
-```
-
-Lost `$MIGRATION_OLD_RESOURCE_ID` (new terminal)? Run `$null = Resolve-DataServiceVars` — its warning names the unused old service and the `az resource delete` command for it.
-
----
-
-## Path A — Bicep
-
-### Step 1. Sign in, create the RG, register Resource Providers (~3 min)
-
-These are all `az` commands — no working-directory dependency. Run them from anywhere.
-
-Sign in:
+<details>
+<summary><b>Session helpers</b> (expand, then copy the block)</summary>
 
 ```powershell
-az login
-```
-
-Pin the subscription:
-
-```powershell
-az account set --subscription <YOUR_SUBSCRIPTION_ID>
-```
-
-Confirm the active subscription / tenant:
-
-```powershell
-az account show --query "{Subscription:name, Id:id, Tenant:tenantId}" -o table
-```
-
-Set the target region (default `westus3`):
-
-```powershell
-$LOC = "westus3"
-```
-
-Set the base stack's RG name:
-
-```powershell
-$RG_NETWORK = "rg-ai-foundry-network-dev-$LOC"
-```
-
-Set the RG that owns the 11 private DNS zones (defaults to `$RG_NETWORK` for the split-RG topology where base owns both the VNet and the DNS zones; override to a separate central connectivity / hub RG if your platform team consolidated them elsewhere). PowerShell evaluates `$RG_NETWORK` at assignment time — if you change `$RG_NETWORK` later, re-run this line too:
-
-```powershell
-$RG_DNS = $RG_NETWORK
-```
-
-Set the subscription that owns the DNS zones (defaults to the current subscription; override with a hub-sub ID when DNS zones live in a central connectivity / hub subscription — same tenant only, cross-tenant DNS isn't supported). PowerShell captures the current subscription at assignment time — if you later `az account set --subscription <different>`, re-run this line too:
-
-```powershell
-$SUB_DNS = (az account show --query id -o tsv)
-```
-
-Set the workload stack's RG name:
-
-```powershell
-$RG_WORKLOAD = "rg-ai-foundry-workload-dev-$LOC"
-```
-
-Set the workload naming variables that the workload deploy looks up cross-RG on base's VNet. The defaults below match the base stack's naming convention with `baseName=ai-foundry`, `environment=dev`. If you're deploying against a pre-existing VNet with different names (BYO base networking), change any of them before running the workload deploy — see [Bringing your own base networking](#bringing-your-own-base-networking). PowerShell expands `$LOC` at assignment time, so make sure `$LOC` is set BEFORE the `$VNET_NAME` block below — if you change `$LOC` later, re-run the `$VNET_NAME` assignment too.
-
-Set the VNet name:
-
-```powershell
-$VNET_NAME = "vnet-ai-foundry-dev-$LOC"
-```
-
-Set the Cognitive-PE subnet name (Foundry Account Private Endpoint lives here):
-
-```powershell
-$SUBNET_COGNITIVE_PEP = "snet-cognitive-ai-foundry-dev"
-```
-
-Set the Storage-PE subnet name (all 6 Storage subresource Private Endpoints live here):
-
-```powershell
-$SUBNET_STORAGE_PEP = "snet-storage-ai-foundry-dev"
-```
-
-Set the Cosmos-PE subnet name:
-
-```powershell
-$SUBNET_COSMOS_PEP = "snet-cosmos-ai-foundry-dev"
-```
-
-Set the Search-PE subnet name:
-
-```powershell
-$SUBNET_SEARCH_PEP = "snet-search-ai-foundry-dev"
-```
-
-Set the agent subnet name (delegated to `Microsoft.App/environments`; Foundry Agent Service network-injects here):
-
-```powershell
-$SUBNET_AGENT = "snet-agent-ai-foundry-dev"
-```
-
-Set the Storage account name (globally unique, 3-24 chars, lowercase alphanumeric only — no hyphens). Leave it blank to use the module convention `st<baseName><environment><Storage region>` with hyphens stripped (e.g. `staifoundrydevwestus3`); set it only if that name collides globally or exceeds 24 characters (Storage regions longer than 10 characters do). For an existing deployment, `Resolve-DataServiceVars` (below) fills in the deployed name:
-
-```powershell
-$STORAGE_NAME = ""
-```
-
-Set the Cognitive / AIServices account name (RG-scoped uniqueness):
-
-```powershell
-$COGNITIVE_ACCOUNT_NAME = "ais-ai-foundry-dev-$LOC"
-```
-
-Set the Cognitive custom subdomain (globally unique DNS prefix — separate from the account name above):
-
-```powershell
-$COGNITIVE_SUBDOMAIN = "cog-acc-ai-foundry-dev-$LOC"
-```
-
-Set the Cosmos DB account name (globally unique). Leave it blank for `cosmos-ai-foundry-dev-<Cosmos region>`; set it only to resolve a global-name collision:
-
-```powershell
-$COSMOS_NAME = ""
-```
-
-Set the AI Search service name (globally unique). Leave it blank for `srch-ai-foundry-dev-<AI Search region>`; set it only to resolve a global-name collision:
-
-```powershell
-$AI_SEARCH_NAME = ""
-```
-
-Optional — put Storage, Cosmos DB, or AI Search in a different region than `$LOC` (see [Placing Storage, Cosmos DB, and AI Search in other regions](#placing-storage-cosmos-db-and-ai-search-in-other-regions)). Leave a value blank to keep that service in `$LOC`, and use programmatic region names such as `eastus2`. Decide before the first workload deploy: once a service exists, `Resolve-DataServiceVars` reads its region from Azure and stops if these disagree:
-
-```powershell
-$LOC_STORAGE = ""; $LOC_COSMOS = ""; $LOC_SEARCH = ""
-```
-
-Echo them back to verify:
-
-```powershell
-Get-Variable LOC, RG_NETWORK, RG_DNS, SUB_DNS, RG_WORKLOAD, VNET_NAME, SUBNET_COGNITIVE_PEP, SUBNET_STORAGE_PEP, SUBNET_COSMOS_PEP, SUBNET_SEARCH_PEP, SUBNET_AGENT, STORAGE_NAME, COGNITIVE_ACCOUNT_NAME, COGNITIVE_SUBDOMAIN, COSMOS_NAME, AI_SEARCH_NAME, LOC_STORAGE, LOC_COSMOS, LOC_SEARCH | Format-Table -AutoSize Name, Value
-```
-
-Create the networking RG:
-
-```powershell
-az group create -n $RG_NETWORK  -l $LOC --tags environment=dev workload=ai-foundry stack=network
-```
-
-Create the workload RG:
-
-```powershell
-az group create -n $RG_WORKLOAD -l $LOC --tags environment=dev workload=ai-foundry stack=workload
-```
-
-Verify both RGs are `Succeeded`:
-
-```powershell
-az group list --query "[?name=='$RG_NETWORK' || name=='$RG_WORKLOAD'].{Name:name, Location:location, State:properties.provisioningState}" -o table
-```
-
-Expected: both rows show `Succeeded` in the `State` column.
-
-Register the 7 Resource Providers this stack needs (this block is one command — the `foreach` loop):
-
-```powershell
-foreach ($rp in @(
-    # NOTE: if you add/remove an RP here, also update the verify query below AND the mirror
-    # list in Path A Step 3's Resume block + Path B Step 1's register block + Path B Step 5's Resume block + all 4 verify queries -- 8 places total.
-    'Microsoft.App',                # required by the agent subnet's Microsoft.App/environments delegation (Foundry Agent Service runtime)
-    'Microsoft.CognitiveServices',  # Foundry account + project + connections + capability hosts
-    'Microsoft.ContainerService',   # capability-host provisioning uses AKS internally; MS docs REQUIRE this for network-injection deploys
-    'Microsoft.DocumentDB',         # Cosmos DB
-    'Microsoft.Network',            # VNet, subnets, private DNS zones, private endpoints
-    'Microsoft.Search',             # AI Search
-    'Microsoft.Storage'             # Storage account
-)) { az provider register --namespace $rp --wait }
-```
-
-Verify every RP shows `Registered` (keep this list in sync with the registration block above):
-
-```powershell
-az provider list --query "[?contains(['Microsoft.App','Microsoft.CognitiveServices','Microsoft.ContainerService','Microsoft.DocumentDB','Microsoft.Network','Microsoft.Search','Microsoft.Storage'], namespace)].{Namespace:namespace, State:registrationState}" -o table
-```
-
-Expected: every row shows `Registered`.
-
-Define the two safety helpers that every Bicep deploy below runs first. `Assert-BaseNetwork` guards the base deploy (Step 2). `Resolve-DataServiceVars` guards every workload deploy (Step 3, Redeploy, C1, C2): it reads the Storage / Cosmos DB / AI Search accounts the Foundry project actually uses and copies their names and regions into the session variables above, so a new terminal or a re-run of this step can't move, rename, or duplicate a deployed service. Both throw on any mismatch, ambiguity, or failed `az` call, and every deploy command is written as `if (<helper>) { az deployment group create ... }`, so nothing deploys when a check fails. This block only defines functions — it doesn't call Azure yet (the VNet doesn't exist until Step 2). Re-run it in any new terminal:
-
-```powershell
-# Safety helpers for the Bicep path. This block only DEFINES functions -- nothing runs yet.
-# Both helpers throw on any failed check, so `if (<helper>) { az deployment group create ... }`
-# never deploys with wrong values.
-
-function ConvertTo-AzRegion([string] $Region) {
-    # "West US 3" (how Cosmos DB reports its region) -> "westus3"
-    ($Region -replace '\s', '').ToLowerInvariant()
-}
-
-function Invoke-AzJson {
-    # Runs az with JSON output and parses it; throws with az's message if az fails.
-    $out = & az @args -o json 2>&1
-    if ($LASTEXITCODE -ne 0) { throw "az $($args -join ' ') failed: $(($out | ForEach-Object { "$_" }) -join ' ')" }
-    $json = ($out | Where-Object { $_ -is [string] }) -join "`n"
-    if ($json.Trim()) { $json | ConvertFrom-Json }
-}
-
-function Get-AzResourceOrNull([string] $Url) {
-    # GETs an ARM URL; returns $null on 404 and throws on any other failure.
-    $out = & az rest --method get --url $Url -o json 2>&1
-    $text = ($out | ForEach-Object { "$_" }) -join ' '
-    if ($LASTEXITCODE -eq 0) { return (($out | Where-Object { $_ -is [string] }) -join "`n" | ConvertFrom-Json) }
-    if ($text -match '(?i)\bnot ?found\b|"code"\s*:\s*"(Resource)?NotFound"|\b404\b') { return $null }
-    throw "az rest GET $Url failed: $text"
-}
-
-function Assert-BaseNetwork {
-    # Gate for the base deploy: stops unless $RG_NETWORK is empty or already holds exactly
-    # $VNET_NAME in $LOC, so a base redeploy can't create a second VNet next to an old one.
-    foreach ($n in 'LOC', 'RG_NETWORK', 'VNET_NAME') {
-        if (-not (Get-Variable -Name $n -ValueOnly -ErrorAction SilentlyContinue)) { throw "`$$n isn't set -- run Step 1 first." }
-    }
-    if (-not (Invoke-AzJson group exists -n $RG_NETWORK)) { throw "Resource group $RG_NETWORK doesn't exist -- create it in Step 1 first." }
-    $vnets = @(Invoke-AzJson network vnet list -g $RG_NETWORK --query '[].{name:name, location:location}')
-    if ($vnets.Count -gt 1) { throw "$RG_NETWORK has $($vnets.Count) VNets ($($vnets.name -join ', ')); expected at most one. Nothing was deployed." }
-    if ($vnets.Count -eq 1 -and ($vnets[0].name -ne $VNET_NAME -or (ConvertTo-AzRegion $vnets[0].location) -ne (ConvertTo-AzRegion $LOC))) {
-        throw "$RG_NETWORK already has VNet $($vnets[0].name) in $($vnets[0].location), but this deploy targets $VNET_NAME in $LOC. Set `$LOC / `$VNET_NAME to match it (or use a new networking RG). Nothing was deployed."
-    }
-    $true
-}
-
-function Resolve-DataServiceVars {
-    # Gate for every workload deploy. Reads the Storage / Cosmos DB / AI Search accounts the
-    # Foundry project actually uses and copies their names and regions into $STORAGE_NAME,
-    # $LOC_STORAGE, $COSMOS_NAME, $LOC_COSMOS, $AI_SEARCH_NAME and $LOC_SEARCH, so a resumed
-    # session can't move, rename or duplicate a deployed service. Services that don't exist
-    # yet keep your values (blank = template default). Stops on any mismatch, ambiguity or
-    # failed query. -Migrate <service> allows exactly one deliberate move -- see the README.
-    param([ValidateSet('Storage', 'Cosmos', 'Search')] [string] $Migrate)
-
-    foreach ($n in 'LOC', 'RG_NETWORK', 'RG_WORKLOAD', 'VNET_NAME', 'COGNITIVE_ACCOUNT_NAME') {
-        if (-not (Get-Variable -Name $n -ValueOnly -ErrorAction SilentlyContinue)) { throw "`$$n isn't set -- run Step 1 first." }
-    }
-    $loc = ConvertTo-AzRegion $LOC
-    $services = @(
-        @{ Key = 'Storage'; Type = 'Microsoft.Storage/storageAccounts';     Conn = 'conn-storage';  LocVar = 'LOC_STORAGE'; NameVar = 'STORAGE_NAME' }
-        @{ Key = 'Cosmos';  Type = 'Microsoft.DocumentDB/databaseAccounts'; Conn = 'conn-cosmos';   LocVar = 'LOC_COSMOS';  NameVar = 'COSMOS_NAME' }
-        @{ Key = 'Search';  Type = 'Microsoft.Search/searchServices';       Conn = 'conn-aisearch'; LocVar = 'LOC_SEARCH';  NameVar = 'AI_SEARCH_NAME' }
-    )
-
-    $result = [ordered]@{}
-    foreach ($s in $services) {
-        foreach ($v in $s.LocVar, $s.NameVar) { $result[$v] = [string](Get-Variable -Name $v -ValueOnly -ErrorAction SilentlyContinue) }
-        if ($result[$s.LocVar] -and $result[$s.LocVar] -cnotmatch '^[a-z][a-z0-9]*$') {
-            throw "`$$($s.LocVar) must be a programmatic region name such as 'eastus2' (got '$($result[$s.LocVar])')."
-        }
+. {
+    # Session helpers (both paths). This block only defines functions; paste it once per terminal.
+    function ConvertTo-AzRegion([string] $Region) {
+        # "West US 3" (how Cosmos DB reports its region) -> "westus3"
+        ($Region -replace '\s', '').ToLowerInvariant()
     }
 
-    # The base VNet must exist in $LOC: the Foundry account and every private endpoint go there.
-    $vnet = Invoke-AzJson network vnet show -g $RG_NETWORK -n $VNET_NAME --query '{name:name, location:location}'
-    if ((ConvertTo-AzRegion $vnet.location) -ne $loc) { throw "VNet $VNET_NAME is in $($vnet.location), not `$LOC ($LOC). Nothing was deployed." }
+    function Invoke-AzJson {
+        # Runs az with JSON output and parses it; throws with az's message if az fails.
+        $out = & az @args -o json 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "az $($args -join ' ') failed: $(($out | ForEach-Object { "$_" }) -join ' ')" }
+        $json = ($out | Where-Object { $_ -is [string] }) -join "`n"
+        if ($json.Trim()) { $json | ConvertFrom-Json }
+    }
 
-    $migrationOldId = $null
-    if (Invoke-AzJson group exists -n $RG_WORKLOAD) {
-        $sub = Invoke-AzJson account show --query id
-        $accounts = @(Invoke-AzJson cognitiveservices account list -g $RG_WORKLOAD --query "[?kind=='AIServices'].{name:name, location:location}")
-        foreach ($a in $accounts) {
-            if ((ConvertTo-AzRegion $a.location) -ne $loc) { throw "Foundry account $($a.name) is in $($a.location), not `$LOC ($LOC). Nothing was deployed." }
-        }
-        $accountPath = "/subscriptions/$sub/resourceGroups/$RG_WORKLOAD/providers/Microsoft.CognitiveServices/accounts/$COGNITIVE_ACCOUNT_NAME"
-        $hasAccount = [bool]($accounts | Where-Object { $_.name -eq $COGNITIVE_ACCOUNT_NAME })
+    function Get-AzResourceOrNull([string] $Url) {
+        # GETs an ARM URL; returns $null on 404 and throws on any other failure.
+        $out = & az rest --method get --url $Url -o json 2>&1
+        $text = ($out | ForEach-Object { "$_" }) -join ' '
+        if ($LASTEXITCODE -eq 0) { return (($out | Where-Object { $_ -is [string] }) -join "`n" | ConvertFrom-Json) }
+        if ($text -match '(?i)\bnot ?found\b|"code"\s*:\s*"(Resource)?NotFound"|\b404\b') { return $null }
+        throw "az rest GET $Url failed: $text"
+    }
 
-        foreach ($s in $services) {
-            $all = @(Invoke-AzJson resource list -g $RG_WORKLOAD --resource-type $s.Type --query '[].{id:id, name:name, location:location}')
-            $chosenLoc = $result[$s.LocVar]
-            $chosenName = $result[$s.NameVar]
+    function Assert-Subscription {
+        # Stops unless az is on $SUBSCRIPTION_ID from Step 1, so nothing lands in another subscription.
+        if (-not $SUBSCRIPTION_ID) { throw "`$SUBSCRIPTION_ID isn't set -- run Step 1 first." }
+        $active = Invoke-AzJson account show --query id
+        if ($active -ne $SUBSCRIPTION_ID) { throw "az is on subscription $active, not `$SUBSCRIPTION_ID ($SUBSCRIPTION_ID). Run: az account set --subscription `$SUBSCRIPTION_ID" }
+    }
 
-            # Prefer the service the Foundry connection points at; otherwise there must be at most one.
-            $connId = $null
-            if ($hasAccount) {
-                $conn = Get-AzResourceOrNull "$accountPath/connections/$($s.Conn)?api-version=2025-06-01"
-                if ($conn) { $connId = [string]$conn.properties.metadata.ResourceId }
-            }
-            if ($connId) {
-                $current = @($all | Where-Object { $_.id -eq $connId })
-                if ($current.Count -ne 1) { throw "Connection $($s.Conn) points at '$connId', which isn't a $($s.Type) in $RG_WORKLOAD (subscription $sub). Nothing was deployed." }
-            } elseif ($all.Count -gt 1) {
-                $current = @($all | Where-Object { $chosenName -and $_.name -eq $chosenName })
-                if ($current.Count -ne 1) { throw "$RG_WORKLOAD has $($all.Count) $($s.Type) resources ($($all.name -join ', ')) and no Foundry connection says which one is in use. Set `$$($s.NameVar) to the one to keep. Nothing was deployed." }
-            } else {
-                $current = $all
-            }
-            $current = $current | Select-Object -First 1
-            foreach ($o in @($all | Where-Object { $current -and $_.id -ne $current.id })) {
-                Write-Warning "$($s.Key) $($o.name) ($($o.location)) isn't used by the Foundry project. Delete it once you no longer need its data: az resource delete --ids $($o.id)"
-            }
-
-            if (-not $current) {
-                if ($Migrate -eq $s.Key) { throw "-Migrate $($s.Key): no deployed $($s.Key) found in $RG_WORKLOAD." }
-                continue
-            }
-            $actualLoc = ConvertTo-AzRegion $current.location
-            if ($Migrate -eq $s.Key) {
-                if (-not $chosenLoc -or -not $chosenName) { throw "-Migrate $($s.Key): first set `$$($s.LocVar) to the new region and `$$($s.NameVar) to a new, globally unique name." }
-                if ($chosenLoc -eq $actualLoc -and $chosenName -eq $current.name) { throw "-Migrate $($s.Key): the Foundry connection already points at $($current.name) in $actualLoc, so the move is already deployed. Run Resolve-DataServiceVars without -Migrate, validate, then delete the old service named in its warning." }
-                if ($chosenLoc -eq $actualLoc) { throw "-Migrate $($s.Key): $($current.name) is already in $actualLoc." }
-                if ($chosenName -eq $current.name) { throw "-Migrate $($s.Key): a move needs a new name; $($current.name) is the current one." }
-                $migrationOldId = $current.id
-                continue
-            }
-            if ($chosenLoc -and $chosenLoc -ne $actualLoc) { throw "$($current.name) is deployed in $actualLoc, but `$$($s.LocVar) is '$chosenLoc'. A deployed service can't change region in place: clear `$$($s.LocVar), or follow 'Moving a deployed service to another region' in the README. Nothing was deployed." }
-            if ($chosenName -and $chosenName -ne $current.name) { throw "The deployed $($s.Key) is $($current.name), but `$$($s.NameVar) is '$chosenName'. Clear `$$($s.NameVar) or set it to $($current.name). Nothing was deployed." }
-            $result[$s.LocVar] = $actualLoc
-            $result[$s.NameVar] = $current.name
-        }
-
-        if ($Migrate) {
-            foreach ($p in @((Get-AzResourceOrNull "$accountPath/projects?api-version=2025-06-01").value)) {
-                if (Get-AzResourceOrNull "$($p.id)/capabilityHosts/default?api-version=2025-06-01") {
-                    throw "-Migrate: project $($p.name) still has its capability host. Delete it first (see the README). Nothing was deployed."
+    function Test-Preflight {
+        # Checks, before anything is created, that each region offers what this lab deploys and that this
+        # subscription may use it there. It can't reserve capacity: a region can still run out before the deploy.
+        # -TfVars reads storage_location / cosmos_location / ai_search_location from a terraform.tfvars file.
+        param(
+            [string] $Location = $LOC,
+            [string] $StorageLocation = $LOC_STORAGE,
+            [string] $CosmosLocation = $LOC_COSMOS,
+            [string] $SearchLocation = $LOC_SEARCH,
+            [string] $TfVars
+        )
+        if (-not $Location) { throw "`$LOC isn't set -- run Step 1 first." }
+        Assert-Subscription
+        if ($TfVars -and (Test-Path $TfVars)) {
+            foreach ($line in Get-Content $TfVars) {
+                if ($line -match '^\s*(storage|cosmos|ai_search)_location\s*=\s*"([^"]*)"') {
+                    switch ($Matches[1]) { 'storage' { $StorageLocation = $Matches[2] } 'cosmos' { $CosmosLocation = $Matches[2] } 'ai_search' { $SearchLocation = $Matches[2] } }
                 }
             }
         }
-    } elseif ($Migrate) {
-        throw "-Migrate needs an existing deployment, but $RG_WORKLOAD doesn't exist."
+        $r = @{ Foundry = ConvertTo-AzRegion $Location }
+        foreach ($p in @(@('Storage', $StorageLocation), @('Cosmos', $CosmosLocation), @('Search', $SearchLocation))) {
+            $r[$p[0]] = ConvertTo-AzRegion $(if ($p[1]) { $p[1] } else { $Location })
+        }
+        $sub = $SUBSCRIPTION_ID
+        $offered = @{}
+        $isOffered = {
+            param($Namespace, $Type, $Region)
+            $key = "$Namespace/$Type"
+            if (-not $offered.ContainsKey($key)) {
+                $offered[$key] = @(Invoke-AzJson provider show -n $Namespace --query "resourceTypes[?resourceType=='$Type'].locations | [0]" | ForEach-Object { ConvertTo-AzRegion $_ })
+            }
+            $offered[$key] -contains $Region
+        }
+        $checks = @(
+            @{ Service = 'Foundry account'; Region = $r.Foundry; Check = 'offered in region'; Test = { & $isOffered Microsoft.CognitiveServices accounts $r.Foundry } }
+            @{ Service = 'Foundry account'; Region = $r.Foundry; Check = 'AIServices S0 SKU available'; Test = { @(Invoke-AzJson cognitiveservices account list-skus --kind AIServices --location $r.Foundry | Where-Object { $_.name -eq 'S0' -and -not $_.restrictions }).Count -gt 0 } }
+            @{ Service = 'Agent runtime'; Region = $r.Foundry; Check = 'Container Apps offered'; Test = { & $isOffered Microsoft.App managedEnvironments $r.Foundry } }
+            @{ Service = 'Storage'; Region = $r.Storage; Check = 'offered in region'; Test = { & $isOffered Microsoft.Storage storageAccounts $r.Storage } }
+            @{ Service = 'Cosmos DB'; Region = $r.Cosmos; Check = 'offered in region'; Test = { & $isOffered Microsoft.DocumentDB databaseAccounts $r.Cosmos } }
+            @{ Service = 'Cosmos DB'; Region = $r.Cosmos; Check = 'subscription may create accounts'; Test = { (Invoke-AzJson cosmosdb locations show --location $r.Cosmos).properties.isSubscriptionRegionAccessAllowedForRegular -ne $false } }
+            @{ Service = 'AI Search'; Region = $r.Search; Check = 'offered in region'; Test = { & $isOffered Microsoft.Search searchServices $r.Search } }
+            @{ Service = 'AI Search'; Region = $r.Search; Check = 'standard SKU quota left'; Test = {
+                $q = @((Invoke-AzJson rest --method get --url "/subscriptions/$sub/providers/Microsoft.Search/locations/$($r.Search)/usages?api-version=2025-05-01").value | Where-Object { $_.name.value -eq 'standard' })
+                $q.Count -eq 1 -and $q[0].currentValue -lt $q[0].limit
+            } }
+        )
+        $rows = foreach ($c in $checks) {
+            try { $ok = [bool](& $c.Test); $why = '' } catch { $ok = $false; $m = "$($_.Exception.Message)" -replace '\s+', ' '; $why = " ($($m.Substring(0, [Math]::Min(100, $m.Length))))" }
+            [pscustomobject]@{ Service = $c.Service; Region = $c.Region; Check = $c.Check; Result = $(if ($ok) { 'OK' } else { "FAIL$why" }) }
+        }
+        $rows | Format-Table -AutoSize -Wrap | Out-Host
+        $failed = @($rows | Where-Object Result -ne 'OK')
+        if ($failed) { throw "Preflight: $($failed.Count) check(s) failed -- pick another region for that service (Step 1) or fix the subscription. Nothing was created." }
+        Write-Host 'Preflight passed. It reserves nothing: a region can still run out of capacity before the deploy finishes.'
     }
 
-    # Every check passed: publish the values into the caller's scope.
-    foreach ($k in $result.Keys) { Set-Variable -Name $k -Value $result[$k] -Scope 1 }
-    if ($Migrate) { Set-Variable -Name MIGRATION_OLD_RESOURCE_ID -Value $migrationOldId -Scope 1 }
-    [pscustomobject]$result | Format-List | Out-Host
-    $true
+    function Assert-BaseNetwork {
+        # Gate for the base deploy: stops unless $RG_NETWORK is empty or already holds exactly
+        # $VNET_NAME in $LOC, so a base redeploy can't create a second VNet next to an old one.
+        foreach ($n in 'LOC', 'RG_NETWORK', 'VNET_NAME') {
+            if (-not (Get-Variable -Name $n -ValueOnly -ErrorAction SilentlyContinue)) { throw "`$$n isn't set -- run Step 1 first." }
+        }
+        Assert-Subscription
+        if (-not (Invoke-AzJson group exists -n $RG_NETWORK)) { throw "Resource group $RG_NETWORK doesn't exist -- create it in Step 1 first." }
+        $vnets = @(Invoke-AzJson network vnet list -g $RG_NETWORK --query '[].{name:name, location:location}')
+        if ($vnets.Count -gt 1) { throw "$RG_NETWORK has $($vnets.Count) VNets ($($vnets.name -join ', ')); expected at most one. Nothing was deployed." }
+        if ($vnets.Count -eq 1 -and ($vnets[0].name -ne $VNET_NAME -or (ConvertTo-AzRegion $vnets[0].location) -ne (ConvertTo-AzRegion $LOC))) {
+            throw "$RG_NETWORK already has VNet $($vnets[0].name) in $($vnets[0].location), but this deploy targets $VNET_NAME in $LOC. Set `$LOC / `$VNET_NAME to match it (or use a new networking RG). Nothing was deployed."
+        }
+        $true
+    }
+
+    function Resolve-DataServiceVars {
+        # Gate for every workload deploy. Reads the Storage / Cosmos DB / AI Search accounts the
+        # Foundry project actually uses and copies their names and regions into $STORAGE_NAME,
+        # $LOC_STORAGE, $COSMOS_NAME, $LOC_COSMOS, $AI_SEARCH_NAME and $LOC_SEARCH, so a resumed
+        # session can't move, rename or duplicate a deployed service. Services that don't exist
+        # yet keep your values (blank = template default). Stops on any mismatch, ambiguity or
+        # failed query. -Migrate <service> allows exactly one deliberate move -- see the README.
+        param([ValidateSet('Storage', 'Cosmos', 'Search')] [string] $Migrate)
+
+        foreach ($n in 'LOC', 'RG_NETWORK', 'RG_WORKLOAD', 'VNET_NAME', 'COGNITIVE_ACCOUNT_NAME') {
+            if (-not (Get-Variable -Name $n -ValueOnly -ErrorAction SilentlyContinue)) { throw "`$$n isn't set -- run Step 1 first." }
+        }
+        Assert-Subscription
+        $loc = ConvertTo-AzRegion $LOC
+        $services = @(
+            @{ Key = 'Storage'; Type = 'Microsoft.Storage/storageAccounts';     Conn = 'conn-storage';  LocVar = 'LOC_STORAGE'; NameVar = 'STORAGE_NAME' }
+            @{ Key = 'Cosmos';  Type = 'Microsoft.DocumentDB/databaseAccounts'; Conn = 'conn-cosmos';   LocVar = 'LOC_COSMOS';  NameVar = 'COSMOS_NAME' }
+            @{ Key = 'Search';  Type = 'Microsoft.Search/searchServices';       Conn = 'conn-aisearch'; LocVar = 'LOC_SEARCH';  NameVar = 'AI_SEARCH_NAME' }
+        )
+
+        $result = [ordered]@{}
+        foreach ($s in $services) {
+            foreach ($v in $s.LocVar, $s.NameVar) { $result[$v] = [string](Get-Variable -Name $v -ValueOnly -ErrorAction SilentlyContinue) }
+            if ($result[$s.LocVar] -and $result[$s.LocVar] -cnotmatch '^[a-z][a-z0-9]*$') {
+                throw "`$$($s.LocVar) must be a programmatic region name such as 'eastus2' (got '$($result[$s.LocVar])')."
+            }
+        }
+
+        # The base VNet must exist in $LOC: the Foundry account and every private endpoint go there.
+        $vnet = Invoke-AzJson network vnet show -g $RG_NETWORK -n $VNET_NAME --query '{name:name, location:location}'
+        if ((ConvertTo-AzRegion $vnet.location) -ne $loc) { throw "VNet $VNET_NAME is in $($vnet.location), not `$LOC ($LOC). Nothing was deployed." }
+
+        $migrationOldId = $null
+        if (Invoke-AzJson group exists -n $RG_WORKLOAD) {
+            $sub = Invoke-AzJson account show --query id
+            $accounts = @(Invoke-AzJson cognitiveservices account list -g $RG_WORKLOAD --query "[?kind=='AIServices'].{name:name, location:location}")
+            foreach ($a in $accounts) {
+                if ((ConvertTo-AzRegion $a.location) -ne $loc) { throw "Foundry account $($a.name) is in $($a.location), not `$LOC ($LOC). Nothing was deployed." }
+            }
+            $accountPath = "/subscriptions/$sub/resourceGroups/$RG_WORKLOAD/providers/Microsoft.CognitiveServices/accounts/$COGNITIVE_ACCOUNT_NAME"
+            $hasAccount = [bool]($accounts | Where-Object { $_.name -eq $COGNITIVE_ACCOUNT_NAME })
+
+            foreach ($s in $services) {
+                $all = @(Invoke-AzJson resource list -g $RG_WORKLOAD --resource-type $s.Type --query '[].{id:id, name:name, location:location}')
+                $chosenLoc = $result[$s.LocVar]
+                $chosenName = $result[$s.NameVar]
+
+                # Prefer the service the Foundry connection points at; otherwise there must be at most one.
+                $connId = $null
+                if ($hasAccount) {
+                    $conn = Get-AzResourceOrNull "$accountPath/connections/$($s.Conn)?api-version=2025-06-01"
+                    if ($conn) { $connId = [string]$conn.properties.metadata.ResourceId }
+                }
+                if ($connId) {
+                    $current = @($all | Where-Object { $_.id -eq $connId })
+                    if ($current.Count -ne 1) { throw "Connection $($s.Conn) points at '$connId', which isn't a $($s.Type) in $RG_WORKLOAD (subscription $sub). Nothing was deployed." }
+                } elseif ($all.Count -gt 1) {
+                    $current = @($all | Where-Object { $chosenName -and $_.name -eq $chosenName })
+                    if ($current.Count -ne 1) { throw "$RG_WORKLOAD has $($all.Count) $($s.Type) resources ($($all.name -join ', ')) and no Foundry connection says which one is in use. Set `$$($s.NameVar) to the one to keep. Nothing was deployed." }
+                } else {
+                    $current = $all
+                }
+                $current = $current | Select-Object -First 1
+                foreach ($o in @($all | Where-Object { $current -and $_.id -ne $current.id })) {
+                    Write-Warning "$($s.Key) $($o.name) ($($o.location)) isn't used by the Foundry project. Delete it once you no longer need its data: az resource delete --ids $($o.id)"
+                }
+
+                if (-not $current) {
+                    if ($Migrate -eq $s.Key) { throw "-Migrate $($s.Key): no deployed $($s.Key) found in $RG_WORKLOAD." }
+                    continue
+                }
+                $actualLoc = ConvertTo-AzRegion $current.location
+                if ($Migrate -eq $s.Key) {
+                    if (-not $chosenLoc -or -not $chosenName) { throw "-Migrate $($s.Key): first set `$$($s.LocVar) to the new region and `$$($s.NameVar) to a new, globally unique name." }
+                    if ($chosenLoc -eq $actualLoc -and $chosenName -eq $current.name) { throw "-Migrate $($s.Key): the Foundry connection already points at $($current.name) in $actualLoc, so the move is already deployed. Run Resolve-DataServiceVars without -Migrate, validate, then delete the old service named in its warning." }
+                    if ($chosenLoc -eq $actualLoc) { throw "-Migrate $($s.Key): $($current.name) is already in $actualLoc." }
+                    if ($chosenName -eq $current.name) { throw "-Migrate $($s.Key): a move needs a new name; $($current.name) is the current one." }
+                    $migrationOldId = $current.id
+                    continue
+                }
+                if ($chosenLoc -and $chosenLoc -ne $actualLoc) { throw "$($current.name) is deployed in $actualLoc, but `$$($s.LocVar) is '$chosenLoc'. A deployed service can't change region in place: clear `$$($s.LocVar), or follow 'Moving a deployed service to another region' in the README. Nothing was deployed." }
+                if ($chosenName -and $chosenName -ne $current.name) { throw "The deployed $($s.Key) is $($current.name), but `$$($s.NameVar) is '$chosenName'. Clear `$$($s.NameVar) or set it to $($current.name). Nothing was deployed." }
+                $result[$s.LocVar] = $actualLoc
+                $result[$s.NameVar] = $current.name
+            }
+
+            if ($Migrate) {
+                foreach ($p in @((Get-AzResourceOrNull "$accountPath/projects?api-version=2025-06-01").value)) {
+                    if (Get-AzResourceOrNull "$($p.id)/capabilityHosts/default?api-version=2025-06-01") {
+                        throw "-Migrate: project $($p.name) still has its capability host. Delete it first (see the README). Nothing was deployed."
+                    }
+                }
+            }
+        } elseif ($Migrate) {
+            throw "-Migrate needs an existing deployment, but $RG_WORKLOAD doesn't exist."
+        }
+
+        # Every check passed: publish the values into the caller's scope.
+        foreach ($k in $result.Keys) { Set-Variable -Name $k -Value $result[$k] -Scope 1 }
+        if ($Migrate) { Set-Variable -Name MIGRATION_OLD_RESOURCE_ID -Value $migrationOldId -Scope 1 }
+        [pscustomobject]$result | Format-List | Out-Host
+        $true
+    }
 }
 ```
 
-Verify they're defined:
+</details>
+
+## Path A — Bicep
+
+### Step 1. Set your variables
+
+Review the values, then paste the whole block. To change a value later, edit it and run the block again: values built from `$LOC` are computed when the block runs.
 
 ```powershell
-Get-Command Assert-BaseNetwork, Resolve-DataServiceVars | Format-Table -AutoSize Name, CommandType
-```
+. {
+    $SUBSCRIPTION_ID = "<YOUR_SUBSCRIPTION_ID>"
+    $AIF = Join-Path (git rev-parse --show-toplevel) 'environments/ai-foundry'   # run from inside your clone
 
-### Step 2. Deploy the base stack (~4 min)
+    # Regions: the Foundry account, VNet and all 9 private endpoints go in $LOC
+    $LOC         = "westus3"
+    $LOC_STORAGE = ""   # "" = $LOC. Other regions for Storage, Cosmos DB, AI Search are optional;
+    $LOC_COSMOS  = ""   #   decide before the first workload deploy (see "Regions")
+    $LOC_SEARCH  = ""
 
-Base creates the VNet + 5 subnets + 11 private DNS zones with VNet links, **into the networking RG (`$RG_NETWORK`)**. No IP allowlisting needed — none of these are firewalled services.
+    # Resource groups
+    $RG_NETWORK  = "rg-ai-foundry-network-dev-$LOC"    # VNet, subnets, private DNS zones
+    $RG_WORKLOAD = "rg-ai-foundry-workload-dev-$LOC"   # Foundry, Storage, Cosmos DB, AI Search, private endpoints
+    $RG_DNS      = $RG_NETWORK                         # resource group of the 11 private DNS zones (e.g. a hub)
+    $SUB_DNS     = $SUBSCRIPTION_ID                    # subscription of the DNS zones (same tenant)
 
-`cd` into the base Bicep directory:
+    # Network names; must match the VNet the workload attaches to
+    $VNET_NAME            = "vnet-ai-foundry-dev-$LOC"
+    $SUBNET_COGNITIVE_PEP = "snet-cognitive-ai-foundry-dev"
+    $SUBNET_STORAGE_PEP   = "snet-storage-ai-foundry-dev"
+    $SUBNET_COSMOS_PEP    = "snet-cosmos-ai-foundry-dev"
+    $SUBNET_SEARCH_PEP    = "snet-search-ai-foundry-dev"
+    $SUBNET_AGENT         = "snet-agent-ai-foundry-dev"     # delegated to Microsoft.App/environments
 
-```powershell
-Set-Location (Join-Path (git rev-parse --show-toplevel) 'environments/ai-foundry/base/bicep')
-```
+    # Workload names
+    $COGNITIVE_ACCOUNT_NAME = "ais-ai-foundry-dev-$LOC"
+    $COGNITIVE_SUBDOMAIN    = "cog-acc-ai-foundry-dev-$LOC"   # globally unique
+    $STORAGE_NAME   = ""   # "" = default name for the service's region; once deployed, the deploy
+    $COSMOS_NAME    = ""   #   reads the real names back from Azure. Set one only to avoid a
+    $AI_SEARCH_NAME = ""   #   global-name collision.
 
-Verify:
+    # Firewalls
+    $DEPLOYER_IP   = (Invoke-RestMethod https://api.ipify.org).Trim()   # allowlisted; "" = private path
+    $PUBLIC_ACCESS = "true"                                             # "false" = no public endpoints (Harden)
 
-```powershell
-Get-Location   # expect: ...\environments\ai-foundry\base\bicep
-```
-
-Deploy. `Assert-BaseNetwork` (defined in Step 1) runs first and stops if `$RG_NETWORK` already holds a different VNet, or one outside `$LOC`; `-p location=$LOC` puts the VNet in your chosen region:
-
-```powershell
-if (Assert-BaseNetwork) {
-    az deployment group create `
-        -g $RG_NETWORK `
-        -n base-$(Get-Date -Format 'yyyyMMdd-HHmmss') `
-        -f main.bicep `
-        -p "location=$LOC"
+    Get-Variable LOC, LOC_STORAGE, LOC_COSMOS, LOC_SEARCH, RG_NETWORK, RG_WORKLOAD, RG_DNS, SUB_DNS, VNET_NAME, SUBNET_*, COGNITIVE_ACCOUNT_NAME, COGNITIVE_SUBDOMAIN, STORAGE_NAME, COSMOS_NAME, AI_SEARCH_NAME, DEPLOYER_IP, PUBLIC_ACCESS | Format-Table Name, Value
 }
 ```
 
-Verify:
+Then paste the [session helpers](#session-helpers) block, if you haven't already in this terminal.
 
-```powershell
-az resource list -g $RG_NETWORK --query "[?type=='Microsoft.Network/virtualNetworks' || type=='Microsoft.Network/privateDnsZones'].{Name:name, Type:type, Location:location}" -o table
-```
+### Step 2. Sign in, check regions, create resource groups (~3 min)
 
-Expected: 1 VNet (`vnet-ai-foundry-dev-<$LOC>`, in `$LOC`) + 11 privateDnsZones (location `global`).
-
-### Step 3. Deploy the workload stack (~15–20 min)
-
-The workload deploys **into `$RG_WORKLOAD`** and by default looks up base's VNet + subnets + 11 private DNS zones cross-RG in `$RG_NETWORK` (the `baseResourceGroupName` param in `main.bicep` defaults to `rg-ai-foundry-network-dev-westus3`). If the DNS zones live in a separate central connectivity / hub RG, override `dnsResourceGroupName` too — see [Bringing your own base networking](#bringing-your-own-base-networking).
-
-> **Resuming from an existing base deploy?** If you're in a new terminal session (variables gone) or the base was deployed by someone else / a prior CI run, you need to re-set the session variables before running the deploy — the RG names AND the workload naming vars (VNet + 5 subnets + 5 workload resource names) both feed the deploy command below.
->
-> Sign in (skip if you already have an active session on the target subscription):
->
-> ```powershell
-> az login
-> ```
->
-> Pin the subscription (paste yours):
->
-> ```powershell
-> az account set --subscription <YOUR_SUBSCRIPTION_ID>
-> ```
->
-> Verify:
->
-> ```powershell
-> az account show --query "{Subscription:name, Id:id, Tenant:tenantId}" -o table
-> ```
->
-> Register the 7 workload Resource Providers on this subscription (safe to re-run — `--wait` no-ops if already registered):
->
-> ```powershell
-> foreach ($rp in @(
->     'Microsoft.App',
->     'Microsoft.CognitiveServices',
->     'Microsoft.ContainerService',
->     'Microsoft.DocumentDB',
->     'Microsoft.Network',
->     'Microsoft.Search',
->     'Microsoft.Storage'
-> )) { az provider register --namespace $rp --wait }
-> ```
->
-> Verify every RP shows `Registered`:
->
-> ```powershell
-> az provider list --query "[?contains(['Microsoft.App','Microsoft.CognitiveServices','Microsoft.ContainerService','Microsoft.DocumentDB','Microsoft.Network','Microsoft.Search','Microsoft.Storage'], namespace)].{Namespace:namespace, State:registrationState}" -o table
-> ```
->
-> Set the region (the region the base stack was deployed in):
->
-> ```powershell
-> $LOC = "westus3"
-> ```
->
-> Set the RG the base stack lives in:
->
-> ```powershell
-> $RG_NETWORK = "rg-ai-foundry-network-dev-$LOC"
-> ```
->
-> Set the RG that owns the 11 private DNS zones (defaults to `$RG_NETWORK`; override if DNS lives in a separate central connectivity / hub RG):
->
-> ```powershell
-> $RG_DNS = $RG_NETWORK
-> ```
->
-> Set the subscription that owns the DNS zones (defaults to the current subscription; override if DNS lives in a hub subscription — same tenant only):
->
-> ```powershell
-> $SUB_DNS = (az account show --query id -o tsv)
-> ```
->
-> Set the RG the workload deploys into (create it below if missing):
->
-> ```powershell
-> $RG_WORKLOAD = "rg-ai-foundry-workload-dev-$LOC"
-> ```
->
-> Re-set the 11 workload naming vars (6 VNet+subnet names + 5 workload resource names) and the 3 data-service region vars. Defaults match the base stack's convention; change any that don't match your actual base deploy. Leave the Storage / Cosmos DB / AI Search names and regions blank — `Resolve-DataServiceVars` (end of this block, and again before every deploy) reads the deployed values from Azure; set them only for a global-name collision on a service that doesn't exist yet (see the [BYO section](#bringing-your-own-base-networking) and the Troubleshooting row for `StorageAccountAlreadyTaken` / `ServiceNameUnavailable` / `CustomDomainInUse`). PowerShell expands `$LOC` at assignment time, so `$LOC` must already be set (from the block above) before the `$VNET_NAME` line runs; if you change `$LOC` later, re-run every line below that uses `$LOC`:
->
-> ```powershell
-> $VNET_NAME = "vnet-ai-foundry-dev-$LOC"
-> ```
->
-> ```powershell
-> $SUBNET_COGNITIVE_PEP = "snet-cognitive-ai-foundry-dev"
-> ```
->
-> ```powershell
-> $SUBNET_STORAGE_PEP = "snet-storage-ai-foundry-dev"
-> ```
->
-> ```powershell
-> $SUBNET_COSMOS_PEP = "snet-cosmos-ai-foundry-dev"
-> ```
->
-> ```powershell
-> $SUBNET_SEARCH_PEP = "snet-search-ai-foundry-dev"
-> ```
->
-> ```powershell
-> $SUBNET_AGENT = "snet-agent-ai-foundry-dev"
-> ```
->
-> ```powershell
-> $STORAGE_NAME = ""
-> ```
->
-> ```powershell
-> $COGNITIVE_ACCOUNT_NAME = "ais-ai-foundry-dev-$LOC"
-> ```
->
-> ```powershell
-> $COGNITIVE_SUBDOMAIN = "cog-acc-ai-foundry-dev-$LOC"
-> ```
->
-> ```powershell
-> $COSMOS_NAME = ""
-> ```
->
-> ```powershell
-> $AI_SEARCH_NAME = ""
-> ```
->
-> ```powershell
-> $LOC_STORAGE = ""; $LOC_COSMOS = ""; $LOC_SEARCH = ""
-> ```
->
-> Make sure `$RG_WORKLOAD` exists (Path A Step 1 creates it — skip if you already ran it):
->
-> ```powershell
-> az group create -n $RG_WORKLOAD -l $LOC --tags environment=dev workload=ai-foundry stack=workload
-> ```
->
-> **If the base stack was deployed with non-default names / values**, first discover what's actually in `$RG_NETWORK`. List the VNet and DNS zones:
->
-> ```powershell
-> az resource list -g $RG_NETWORK --query "[?type=='Microsoft.Network/virtualNetworks' || type=='Microsoft.Network/privateDnsZones'].{Name:name, Type:type}" -o table
-> ```
->
-> Set `$VNET_NAME` to the VNet name shown in the output above:
->
-> ```powershell
-> $VNET_NAME = Read-Host "Enter the VNet name shown above"
-> ```
->
-> Then list its subnets:
->
-> ```powershell
-> az network vnet subnet list -g $RG_NETWORK --vnet-name $VNET_NAME --query "[].name" -o tsv
-> ```
->
-> Then override on the CLI: append `-p key=value` flags to the `az deployment group create` command below — e.g. `-p baseName=<value>`. VNet + subnet names, RG names, workload resource names, and regions are the exception: change the session vars from Step 1, NOT `-p vnetName=…` / `-p baseResourceGroupName=…` / `-p location=…` etc. (the deploy command already carries those `-p` flags from the session vars).
->
-> The most common overrides:
-> - **`$RG_NETWORK`** — change this session var if base lives in an RG that doesn't match the default `rg-ai-foundry-network-dev-<loc>`. The Step 3 deploy already passes `-p "baseResourceGroupName=$RG_NETWORK"`, so no CLI flag to append.
-> - **`$RG_DNS`** — change this session var if the 11 private DNS zones live in a different RG from the VNet (classic CAF: DNS zones consolidated in a central connectivity / hub RG). Default reuses `$RG_NETWORK`. The Step 3 deploy already passes `-p "dnsResourceGroupName=$RG_DNS"`.
-> - **VNet + subnet names** — change the 6 session vars (`$VNET_NAME`, `$SUBNET_COGNITIVE_PEP`, `$SUBNET_STORAGE_PEP`, `$SUBNET_COSMOS_PEP`, `$SUBNET_SEARCH_PEP`, `$SUBNET_AGENT`) in Step 1. The Step 3 deploy always passes them as `-p` flags.
-> - **Regions** — `$LOC` is passed as `-p "location=$LOC"` (Foundry Account, VNet lookup, all 9 PEs) and must be the VNet's region; `$LOC_STORAGE` / `$LOC_COSMOS` / `$LOC_SEARCH` are passed as `storageLocation` / `cosmosLocation` / `aiSearchLocation`. See [Placing Storage, Cosmos DB, and AI Search in other regions](#placing-storage-cosmos-db-and-ai-search-in-other-regions) before changing a deployed service's region.
-> - `-p baseName=<v> -p environment=<v>` — only affect the module's tag defaults and internal-derived names. The deploy command already passes explicit `-p` flags for the VNet, subnets, Cognitive account name, and Cognitive custom subdomain, so those DO NOT re-derive from `baseName` / `environment`; blank Storage / Cosmos DB / AI Search names do (together with each service's region). Update the corresponding session vars separately if you're changing them.
->
-> Finally, re-define the safety helpers by running the helper block at the end of [Step 1](#step-1-sign-in-create-the-rg-register-resource-providers-3-min) (it only defines functions), then read the deployed Storage / Cosmos DB / AI Search names and regions back from Azure. It prints what it found and stops if anything is ambiguous or doesn't match your session vars; every deploy below runs it again:
->
-> ```powershell
-> $null = Resolve-DataServiceVars
-> ```
-
-`cd` into the workload Bicep directory:
-
-```powershell
-Set-Location (Join-Path (git rev-parse --show-toplevel) 'environments/ai-foundry/workload/bicep')
-```
-
-Verify:
-
-```powershell
-Get-Location   # expect: ...\environments\ai-foundry\workload\bicep
-```
-
-Set your public IP as an environment variable — the deploy command below passes it into the template via `-p "deployerIp=$env:DEPLOYER_IP"`. See [Deployment topology](#deployment-topology-public-path-vs-private-path) for how to choose — both are valid; pick one:
-
-Choose ONE of Options A or B below — they differ in whether the deployer's public IP goes into the workload firewall allowlist. See [Deployment topology](#deployment-topology-public-path-vs-private-path).
-
-Both deploy commands start with `Resolve-DataServiceVars` (defined in Step 1). On a first deploy it keeps your Step 1 values (blank = template defaults); once Storage / Cosmos DB / AI Search exist, it fills in their real names and regions from Azure. Either way it stops — without deploying — on any mismatch, ambiguity, or failed `az` call.
-
-**Option A — public-path deploy (default).** Laptop on the public internet. Grab your public IP so the workload firewalls allow your `az` session:
-
-```powershell
-$env:DEPLOYER_IP = (Invoke-RestMethod https://api.ipify.org).Trim()
-```
-
-Echo to verify:
-
-```powershell
-Write-Host "DEPLOYER_IP = $env:DEPLOYER_IP"
-```
-
-Deploy (this variant passes `-p deployerIp=` to allowlist your IP):
-
-```powershell
-if (Resolve-DataServiceVars) {
-    az deployment group create `
-        -g $RG_WORKLOAD `
-        -n workload-$(Get-Date -Format 'yyyyMMdd-HHmmss') `
-        -f main.bicep `
-        -p "location=$LOC" `
-        -p "baseResourceGroupName=$RG_NETWORK" `
-        -p "dnsResourceGroupName=$RG_DNS" `
-        -p "dnsSubscriptionId=$SUB_DNS" `
-        -p "deployerIp=$env:DEPLOYER_IP" `
-        -p "vnetName=$VNET_NAME" `
-        -p "subnetNameCognitivePep=$SUBNET_COGNITIVE_PEP" `
-        -p "subnetNameStoragePep=$SUBNET_STORAGE_PEP" `
-        -p "subnetNameCosmosPep=$SUBNET_COSMOS_PEP" `
-        -p "subnetNameSearchPep=$SUBNET_SEARCH_PEP" `
-        -p "subnetNameAgent=$SUBNET_AGENT" `
-        -p "storageAccountName=$STORAGE_NAME" `
-        -p "storageLocation=$LOC_STORAGE" `
-        -p "cognitiveAccountName=$COGNITIVE_ACCOUNT_NAME" `
-        -p "cognitiveCustomSubdomainName=$COGNITIVE_SUBDOMAIN" `
-        -p "cosmosAccountName=$COSMOS_NAME" `
-        -p "cosmosLocation=$LOC_COSMOS" `
-        -p "aiSearchName=$AI_SEARCH_NAME" `
-        -p "aiSearchLocation=$LOC_SEARCH"
-}
-```
-
-**Option B — private-path deploy.** Deployer on VPN / ExpressRoute / Bastion / VNet-injected runner. The workload FQDNs resolve to private IPs via the base stack's private DNS zones, so no allowlist entry is needed — the deploy command below omits `-p deployerIp=` entirely, so it works even if your local `main.bicep` predates the `deployerIp` parameter default (`az` won't reject an unpassed parameter that has a template default).
-
-```powershell
-if (Resolve-DataServiceVars) {
-    az deployment group create `
-        -g $RG_WORKLOAD `
-        -n workload-$(Get-Date -Format 'yyyyMMdd-HHmmss') `
-        -f main.bicep `
-        -p "location=$LOC" `
-        -p "baseResourceGroupName=$RG_NETWORK" `
-        -p "dnsResourceGroupName=$RG_DNS" `
-        -p "dnsSubscriptionId=$SUB_DNS" `
-        -p "vnetName=$VNET_NAME" `
-        -p "subnetNameCognitivePep=$SUBNET_COGNITIVE_PEP" `
-        -p "subnetNameStoragePep=$SUBNET_STORAGE_PEP" `
-        -p "subnetNameCosmosPep=$SUBNET_COSMOS_PEP" `
-        -p "subnetNameSearchPep=$SUBNET_SEARCH_PEP" `
-        -p "subnetNameAgent=$SUBNET_AGENT" `
-        -p "storageAccountName=$STORAGE_NAME" `
-        -p "storageLocation=$LOC_STORAGE" `
-        -p "cognitiveAccountName=$COGNITIVE_ACCOUNT_NAME" `
-        -p "cognitiveCustomSubdomainName=$COGNITIVE_SUBDOMAIN" `
-        -p "cosmosAccountName=$COSMOS_NAME" `
-        -p "cosmosLocation=$LOC_COSMOS" `
-        -p "aiSearchName=$AI_SEARCH_NAME" `
-        -p "aiSearchLocation=$LOC_SEARCH"
-}
-```
-
-Verify the 4 data-plane services and the 9 workload PEs (all in `$RG_WORKLOAD`). List the four data-plane services:
-
-```powershell
-az resource list -g $RG_WORKLOAD --query "[?type=='Microsoft.CognitiveServices/accounts' || type=='Microsoft.Storage/storageAccounts' || type=='Microsoft.DocumentDB/databaseAccounts' || type=='Microsoft.Search/searchServices'].{Name:name, Type:type, Location:location}" -o table
-```
-
-Count the Private Endpoints:
-
-```powershell
-(az resource list -g $RG_WORKLOAD --resource-type Microsoft.Network/privateEndpoints -o json | ConvertFrom-Json).Count
-```
-
-List the regions the Private Endpoints are in:
-
-```powershell
-az resource list -g $RG_WORKLOAD --resource-type Microsoft.Network/privateEndpoints --query "[].location" -o tsv | Sort-Object -Unique
-```
-
-Expected: 1 Foundry Account + 1 Storage + 1 Cosmos + 1 Search; PE count = **9** (1 Foundry + 6 Storage subresources + 1 Cosmos + 1 Search). The Foundry Account and every PE are in `$LOC` (the PE region list shows only `$LOC`); Storage / Cosmos / Search are in `$LOC` or the regions you chose (Cosmos DB may report a display name such as `West US 3`).
-
-→ **Verify the project MI RBAC:** run the [commands in the RBAC roster section](#verify-the-project-mi-rbac) to confirm the workload's 6 ARM role assignments + 1 Cosmos SQL role landed on the Foundry project's SystemAssigned MI. Missing assignments are a common cause of runtime agent 403s that only surface later.
-
-→ **Public-path deploys should now run [Part C1](#part-c1--strip-deployer-ip-and-any-extra-allowlisted-ips-public-path-only)** to strip the deployer IP + `allowedIpsExtra` off every workload firewall so those IPs don't linger. [Part C2](#part-c2--optionally-disable-public-endpoints-entirely-zero-trust) then optionally closes the public endpoints entirely.
-
-**Verify the private path** (only if you chose Option B above). Resolve the Foundry Account's FQDN; a `10.x.x.x` address means DNS routed through the base stack's private zones and admin traffic is on the private path. A public IP means the DNS didn't integrate — either allowlist your IP + redeploy (public path), or fix your DNS routing (e.g. add a conditional forwarder / peer the VPN's DNS to Azure DNS) and rerun this verify.
-
-Grab the Foundry FQDN:
-
-```powershell
-$foundryFqdn = (az cognitiveservices account list -g $RG_WORKLOAD --query "[?kind=='AIServices'].properties.endpoint | [0]" -o tsv) -replace 'https://', '' -replace '/$', ''
-```
-
-Resolve it:
-
-```powershell
-Resolve-DnsName $foundryFqdn | Select-Object Name, IPAddress
-```
-
-Why the IP is on the allowlist by default: the deploy itself is mostly ARM control-plane (the Cognitive Services / Cosmos / Search / Storage RPs do their work internally via the `bypass = AzureServices` trusted-services path), but the allowlist entry means your `az` / Portal / SDK admin operations from this same machine keep working **after** the deploy without further changes. On the private path (see [Deployment topology](#deployment-topology-public-path-vs-private-path)) that admin traffic goes through Private Endpoints instead, and no allowlist entry is needed.
-
-### Step 4. Full inventory (across both RGs)
-
-List everything in the networking RG:
-
-```powershell
-az resource list -g $RG_NETWORK  --query "sort_by([], &type)[].{Name:name, Type:type, Location:location}" -o table
-```
-
-List everything in the workload RG:
-
-```powershell
-az resource list -g $RG_WORKLOAD --query "sort_by([], &type)[].{Name:name, Type:type, Location:location}" -o table
-```
-
-Expected:
-- `$RG_NETWORK`: 1 VNet, 5 subnets, 11 privateDnsZones
-- `$RG_WORKLOAD`: 9 privateEndpoints, 1 Foundry Account + 1 project, 1 Storage, 1 Cosmos, 1 Search — the Foundry Account and every privateEndpoint in `$LOC`; Storage / Cosmos / Search in `$LOC` or the regions you chose
-
----
-
-## Path B — Terraform
-
-Terraform can't atomically create its own backing store, so the flow has one extra step at the top: **bootstrap the state Storage Account with `az`**, then `terraform import` it and let Terraform manage it (including adding its Private Endpoint) from there.
-
-### Step 1. Sign in, create the RG, register Resource Providers, grant blob data access (~3 min)
-
-These are all `az` commands — no working-directory dependency. Run them from anywhere.
-
-Sign in:
+Sign in, or skip this if you already have a session:
 
 ```powershell
 az login
 ```
 
-Pin the subscription:
+Register the resource providers, run the preflight check, and create the two resource groups:
 
 ```powershell
-az account set --subscription <YOUR_SUBSCRIPTION_ID>
+. {
+    az account set --subscription $SUBSCRIPTION_ID
+    Assert-Subscription
+    az account show --query "{Subscription:name, Id:id, Tenant:tenantId}" -o table
+    # Easy to miss: Microsoft.App (agent subnet delegation); Microsoft.ContainerService and Microsoft.MachineLearningServices (capability hosts)
+    foreach ($rp in 'Microsoft.App', 'Microsoft.CognitiveServices', 'Microsoft.ContainerService', 'Microsoft.DocumentDB', 'Microsoft.KeyVault', 'Microsoft.MachineLearningServices', 'Microsoft.Network', 'Microsoft.Search', 'Microsoft.Storage') {
+        az provider register --namespace $rp --wait
+    }
+    Test-Preflight
+    if ((az group exists -n $RG_NETWORK) -eq 'false') { az group create -n $RG_NETWORK -l $LOC --tags environment=dev workload=ai-foundry stack=network -o none }
+    if ((az group exists -n $RG_WORKLOAD) -eq 'false') { az group create -n $RG_WORKLOAD -l $LOC --tags environment=dev workload=ai-foundry stack=workload -o none }
+    az group list --query "[?name=='$RG_NETWORK' || name=='$RG_WORKLOAD'].{Name:name, Location:location, State:properties.provisioningState}" -o table
+}
 ```
 
-Set the target region (default `westus3`):
+Expected: every preflight row shows `OK`, then both resource groups show `Succeeded`. If a preflight row fails, the block stops before it creates anything. Choose another region for that service in Step 1, or get access or quota from your Azure admin. Then run Step 1 and this block again.
+
+### Step 3. Deploy the base stack (~4 min)
+
+This creates the VNet, 5 subnets, and 11 private DNS zones in `$RG_NETWORK`. Skip it if you're [attaching to existing networking](#existing-byo-networking).
 
 ```powershell
-$LOC = "westus3"
+. {
+    if (Assert-BaseNetwork) {
+        az deployment group create -g $RG_NETWORK -n "base-$(Get-Date -Format yyyyMMdd-HHmmss)" `
+            -f "$AIF/base/bicep/main.bicep" -p "location=$LOC" "vnetName=$VNET_NAME" -o none
+    }
+    az resource list -g $RG_NETWORK --query "[].{Name:name, Type:type, Location:location}" -o table
+}
 ```
 
-Set the networking RG name (base stack + tfstate SA live here):
+Expected: 1 VNet in `$LOC`, plus 11 private DNS zones and their 11 VNet links (`global`).
+
+### Step 4. Deploy the workload stack (~15–20 min)
+
+For the public path, run the block as it is. For the private path, run `$DEPLOYER_IP = ""` first. You also use this same block to [redeploy](#new-terminal-or-redeploy), [harden](#harden), and [move a service](#move-a-service-to-another-region).
 
 ```powershell
-$RG_NETWORK = "rg-ai-foundry-network-dev-$LOC"
+. {
+    if (Resolve-DataServiceVars) {
+        az deployment group create -g $RG_WORKLOAD -n "workload-$(Get-Date -Format yyyyMMdd-HHmmss)" `
+            -f "$AIF/workload/bicep/main.bicep" -o none `
+            -p "location=$LOC" "storageLocation=$LOC_STORAGE" "cosmosLocation=$LOC_COSMOS" "aiSearchLocation=$LOC_SEARCH" `
+            -p "baseResourceGroupName=$RG_NETWORK" "dnsResourceGroupName=$RG_DNS" "dnsSubscriptionId=$SUB_DNS" `
+            -p "vnetName=$VNET_NAME" "subnetNameCognitivePep=$SUBNET_COGNITIVE_PEP" "subnetNameStoragePep=$SUBNET_STORAGE_PEP" `
+               "subnetNameCosmosPep=$SUBNET_COSMOS_PEP" "subnetNameSearchPep=$SUBNET_SEARCH_PEP" "subnetNameAgent=$SUBNET_AGENT" `
+            -p "cognitiveAccountName=$COGNITIVE_ACCOUNT_NAME" "cognitiveCustomSubdomainName=$COGNITIVE_SUBDOMAIN" `
+               "storageAccountName=$STORAGE_NAME" "cosmosAccountName=$COSMOS_NAME" "aiSearchName=$AI_SEARCH_NAME" `
+            -p "deployerIp=$DEPLOYER_IP" "enablePublicNetworkAccess=$PUBLIC_ACCESS"
+    }
+}
 ```
 
-Set the workload RG name:
+`Resolve-DataServiceVars` first prints the Storage, Cosmos DB, and AI Search names and regions it will use. On a first deploy, a blank value means the default. If the deploy fails on capacity, see [Troubleshooting](#troubleshooting): change that service's region and run the block again, and the deploy reuses everything it already created. Then [verify the deployment](#verify-the-deployment).
+
+## Path B — Terraform
+
+### Step 1. Set your variables
+
+Review the values, then paste the whole block. Run it again after any change: the `$TF_*_VARS` lists are built from the values when the block runs.
 
 ```powershell
-$RG_WORKLOAD = "rg-ai-foundry-workload-dev-$LOC"
+. {
+    $SUBSCRIPTION_ID = "<YOUR_SUBSCRIPTION_ID>"
+    $AIF = Join-Path (git rev-parse --show-toplevel) 'environments/ai-foundry'   # run from inside your clone
+
+    $LOC         = "westus3"                           # Foundry account, VNet, all 9 private endpoints
+    $RG_NETWORK  = "rg-ai-foundry-network-dev-$LOC"    # base stack (VNet, subnets, DNS zones) and Terraform state
+    $RG_WORKLOAD = "rg-ai-foundry-workload-dev-$LOC"   # Foundry, Storage, Cosmos DB, AI Search, private endpoints
+    $RG_VNET     = $RG_NETWORK                         # resource group of the VNet the workload attaches to
+    $RG_DNS      = $RG_VNET                            # resource group of the 11 private DNS zones (e.g. a hub)
+    $env:ARM_SUBSCRIPTION_ID = $SUBSCRIPTION_ID        # Terraform deploys here, whatever az is set to
+
+    # Network names; must match the VNet the workload attaches to
+    $VNET_NAME            = "vnet-ai-foundry-dev-$LOC"
+    $SUBNET_COGNITIVE_PEP = "snet-cognitive-ai-foundry-dev"
+    $SUBNET_STORAGE_PEP   = "snet-storage-ai-foundry-dev"
+    $SUBNET_COSMOS_PEP    = "snet-cosmos-ai-foundry-dev"
+    $SUBNET_SEARCH_PEP    = "snet-search-ai-foundry-dev"
+    $SUBNET_AGENT         = "snet-agent-ai-foundry-dev"     # delegated to Microsoft.App/environments
+
+    $DEPLOYER_IP = (Invoke-RestMethod https://api.ipify.org).Trim()   # allowlisted on the Terraform-state account
+    # Terraform-state Storage account. Set a unique name here if Step 3 reports StorageAccountAlreadyTaken.
+    $STATE_SA = "sttfs" + ([BitConverter]::ToString([Security.Cryptography.MD5]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes("${RG_NETWORK}ai-foundrydev${LOC}"))).Replace('-', '').ToLower().Substring(0, 12))
+
+    # Passed to every terraform command below. Command-line values override terraform.tfvars.
+    $TF_BASE_VARS = @("-var=resource_group_name=$RG_NETWORK", "-var=location=$LOC", "-var=tfstate_storage_account_name=$STATE_SA")
+    $TF_WORKLOAD_VARS = @(
+        "-var=resource_group_name=$RG_WORKLOAD", "-var=base_resource_group_name=$RG_VNET", "-var=dns_resource_group_name=$RG_DNS",
+        "-var=location=$LOC", "-var=vnet_name=$VNET_NAME", "-var=subnet_name_cognitive_pep=$SUBNET_COGNITIVE_PEP",
+        "-var=subnet_name_storage_pep=$SUBNET_STORAGE_PEP", "-var=subnet_name_cosmos_pep=$SUBNET_COSMOS_PEP",
+        "-var=subnet_name_search_pep=$SUBNET_SEARCH_PEP", "-var=subnet_name_agent=$SUBNET_AGENT"
+    )
+
+    Get-Variable LOC, RG_NETWORK, RG_WORKLOAD, RG_VNET, RG_DNS, VNET_NAME, SUBNET_*, DEPLOYER_IP, STATE_SA | Format-Table Name, Value
+}
 ```
 
-Set the workload naming variables that the workload deploy looks up cross-RG on base's VNet. The defaults below match the base stack's naming convention with `base_name=ai-foundry`, `environment=dev`. If you're deploying against a pre-existing VNet with different names (BYO base networking), change any of them before running the workload deploy — see [Bringing your own base networking](#bringing-your-own-base-networking). PowerShell expands `$LOC` at assignment time, so make sure `$LOC` is set BEFORE the `$VNET_NAME` block below — if you change `$LOC` later, re-run the `$VNET_NAME` assignment too.
+Then paste the [session helpers](#session-helpers) block, if you haven't already in this terminal. Path B only uses `Test-Preflight`.
 
-Set the VNet name:
+**Optional:** to put Storage, Cosmos DB, or AI Search in another region ([Regions](#regions)), write it to `terraform.tfvars` now, before the preflight check and the first apply. For example:
 
 ```powershell
-$VNET_NAME = "vnet-ai-foundry-dev-$LOC"
+Set-Content "$AIF/workload/terraform/terraform.tfvars" 'cosmos_location = "eastus2"'
 ```
 
-Set the Cognitive-PE subnet name (Foundry Account Private Endpoint lives here):
+[`terraform.tfvars.example`](workload/terraform/terraform.tfvars.example) lists every setting. Keep the file, because later plans, applies, and destroys need the same values.
+
+### Step 2. Sign in, check regions, create resource groups (~3 min)
+
+Sign in, or skip this if you already have a session:
 
 ```powershell
-$SUBNET_COGNITIVE_PEP = "snet-cognitive-ai-foundry-dev"
+az login
 ```
 
-Set the Storage-PE subnet name (all 6 Storage subresource Private Endpoints live here):
+Register the resource providers (Terraform doesn't register them for you), run the preflight check, create the two resource groups, and give yourself blob access for the Terraform state. The state account has shared keys disabled, so Terraform reaches it with Entra ID.
 
 ```powershell
-$SUBNET_STORAGE_PEP = "snet-storage-ai-foundry-dev"
+. {
+    az account set --subscription $SUBSCRIPTION_ID
+    Assert-Subscription
+    az account show --query "{Subscription:name, Id:id, Tenant:tenantId}" -o table
+    # Easy to miss: Microsoft.App (agent subnet delegation); Microsoft.ContainerService and Microsoft.MachineLearningServices (capability hosts)
+    foreach ($rp in 'Microsoft.App', 'Microsoft.CognitiveServices', 'Microsoft.ContainerService', 'Microsoft.DocumentDB', 'Microsoft.KeyVault', 'Microsoft.MachineLearningServices', 'Microsoft.Network', 'Microsoft.Search', 'Microsoft.Storage') {
+        az provider register --namespace $rp --wait
+    }
+    Test-Preflight -TfVars "$AIF/workload/terraform/terraform.tfvars"   # also checks the regions set there
+    if ((az group exists -n $RG_NETWORK) -eq 'false') { az group create -n $RG_NETWORK -l $LOC --tags environment=dev workload=ai-foundry stack=network -o none }
+    if ((az group exists -n $RG_WORKLOAD) -eq 'false') { az group create -n $RG_WORKLOAD -l $LOC --tags environment=dev workload=ai-foundry stack=workload -o none }
+    $ME = az ad signed-in-user show --query id -o tsv
+    az role assignment create --assignee-object-id $ME --assignee-principal-type User --role "Storage Blob Data Contributor" `
+        --scope "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NETWORK" -o none
+    az group list --query "[?name=='$RG_NETWORK' || name=='$RG_WORKLOAD'].{Name:name, Location:location, State:properties.provisioningState}" -o table
+}
 ```
 
-Set the Cosmos-PE subnet name:
+Expected: every preflight row shows `OK`, then both resource groups show `Succeeded`. If a preflight row fails, nothing is created. Choose another region, or get access or quota, then run the block again.
+
+### Step 3. Create the Terraform-state Storage account (~2 min)
+
+Terraform can't create its own backend. So `az` creates the state account, with shared keys off and a firewall that allows only your IP, plus its `tfstate` container. Step 4 then imports both into Terraform.
 
 ```powershell
-$SUBNET_COSMOS_PEP = "snet-cosmos-ai-foundry-dev"
+. {
+    az storage account create -g $RG_NETWORK -n $STATE_SA -l $LOC --sku Standard_LRS --kind StorageV2 `
+        --min-tls-version TLS1_2 --https-only true --allow-blob-public-access false --allow-shared-key-access false `
+        --public-network-access Enabled --default-action Deny --bypass AzureServices -o none
+    az storage account network-rule add -g $RG_NETWORK -n $STATE_SA --ip-address $DEPLOYER_IP -o none
+    az storage container-rm create -g $RG_NETWORK --storage-account $STATE_SA -n tfstate --public-access off -o none
+    az storage account show -g $RG_NETWORK -n $STATE_SA --query "{Name:name, SharedKey:allowSharedKeyAccess, Firewall:networkRuleSet.defaultAction, AllowedIp:networkRuleSet.ipRules[0].ipAddressOrRange}" -o table
+}
 ```
 
-Set the Search-PE subnet name:
+Expected: `SharedKey` is `False`, `Firewall` is `Deny`, and `AllowedIp` is your IP. If the create fails with `StorageAccountAlreadyTaken`, set `$STATE_SA` to a unique name in Step 1, then run Step 1 and this block again.
+
+### Step 4. Deploy the base stack (~5 min)
+
+This initializes the backend and imports the state account and container (on the first run only). It then creates the VNet, 5 subnets, 11 private DNS zones, and the state account's private endpoint.
 
 ```powershell
-$SUBNET_SEARCH_PEP = "snet-search-ai-foundry-dev"
+. {
+    Set-Location "$AIF/base/terraform"
+    terraform init -backend-config="resource_group_name=$RG_NETWORK" -backend-config="storage_account_name=$STATE_SA"
+    if ($LASTEXITCODE) { throw "terraform init failed. If it's a 403, wait a minute for the Step 2 role assignment, then run this block again." }
+    $stateSaId = "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NETWORK/providers/Microsoft.Storage/storageAccounts/$STATE_SA"
+    $managed = @(terraform state list 2>$null)
+    if ($managed -notcontains 'module.tfstate_storage.azurerm_storage_account.this') {
+        terraform import @TF_BASE_VARS module.tfstate_storage.azurerm_storage_account.this $stateSaId
+        if ($LASTEXITCODE) { throw "Importing the state account failed; nothing was applied." }
+    }
+    if ($managed -notcontains 'azurerm_storage_container.tfstate') {
+        terraform import @TF_BASE_VARS azurerm_storage_container.tfstate "$stateSaId/blobServices/default/containers/tfstate"
+        if ($LASTEXITCODE) { throw "Importing the tfstate container failed; nothing was applied." }
+    }
+    terraform apply @TF_BASE_VARS
+}
 ```
 
-Set the agent subnet name (delegated to `Microsoft.App/environments`; Foundry Agent Service network-injects here):
+Review the plan, then type `yes`. The plan updates the imported state account (adding its private endpoint, blob soft delete, and versioning) and creates the network. Upgrading an older deployment? The plan also removes the retired jumpbox and CI-runner modules; approve that.
+
+### Step 5. Deploy the workload stack (~15–20 min)
+
+This uses `terraform.tfvars` from Step 1, if you created one. For the private path, add `-var 'deployer_ip='` to the apply.
 
 ```powershell
-$SUBNET_AGENT = "snet-agent-ai-foundry-dev"
+. {
+    Set-Location "$AIF/workload/terraform"
+    terraform init -backend-config="resource_group_name=$RG_NETWORK" -backend-config="storage_account_name=$STATE_SA"
+    if ($LASTEXITCODE) { throw "terraform init failed; nothing was applied." }
+    terraform apply @TF_WORKLOAD_VARS
+}
 ```
 
-Capture the current subscription ID:
+Terraform detects your public IP (`data.http.myip`) and adds it to the firewalls. Then [verify the deployment](#verify-the-deployment). `terraform output` shows the regions and names Terraform used.
+
+## Verify the deployment
+
+This block works for both paths. It lists both resource groups and the roles held by the Foundry project's managed identity.
 
 ```powershell
-$SUB = (az account show --query id -o tsv)
-```
-
-Capture your Entra object ID:
-
-```powershell
-$ME = (az ad signed-in-user show --query id -o tsv)
-```
-
-Echo them back to verify:
-
-```powershell
-Get-Variable LOC, RG_NETWORK, RG_WORKLOAD, VNET_NAME, SUBNET_COGNITIVE_PEP, SUBNET_STORAGE_PEP, SUBNET_COSMOS_PEP, SUBNET_SEARCH_PEP, SUBNET_AGENT, SUB, ME | Format-Table -AutoSize Name, Value
-```
-
-Expected: all values non-empty; `SUB` looks like a GUID, `ME` looks like a GUID.
-
-Create the networking RG:
-
-```powershell
-az group create -n $RG_NETWORK  -l $LOC --tags environment=dev workload=ai-foundry stack=network
-```
-
-Create the workload RG:
-
-```powershell
-az group create -n $RG_WORKLOAD -l $LOC --tags environment=dev workload=ai-foundry stack=workload
-```
-
-Verify both RGs are `Succeeded`:
-
-```powershell
-az group list --query "[?name=='$RG_NETWORK' || name=='$RG_WORKLOAD'].{Name:name, Location:location, State:properties.provisioningState}" -o table
-```
-
-Register the 7 Resource Providers (Terraform's `resource_provider_registrations = "none"` means Terraform will NOT auto-register, so this is required):
-
-```powershell
-foreach ($rp in @(
-    # NOTE: if you add/remove an RP here, also update the verify query below AND the mirror
-    # list in Path A Step 1's register block + Path A Step 3's Resume block + Path B Step 5's Resume block + all 4 verify queries -- 8 places total.
-    'Microsoft.App',                # required by the agent subnet's Microsoft.App/environments delegation (Foundry Agent Service runtime)
-    'Microsoft.CognitiveServices',  # Foundry account + project + connections + capability hosts
-    'Microsoft.ContainerService',   # capability-host provisioning uses AKS internally; MS docs REQUIRE this for network-injection deploys
-    'Microsoft.DocumentDB',         # Cosmos DB
-    'Microsoft.Network',            # VNet, subnets, private DNS zones, private endpoints
-    'Microsoft.Search',             # AI Search
-    'Microsoft.Storage'             # Storage account (also backs the tfstate SA bootstrapped in Step 2)
-)) { az provider register --namespace $rp --wait }
-```
-
-Verify every RP shows `Registered` (keep this list in sync with the registration block above):
-
-```powershell
-az provider list --query "[?contains(['Microsoft.App','Microsoft.CognitiveServices','Microsoft.ContainerService','Microsoft.DocumentDB','Microsoft.Network','Microsoft.Search','Microsoft.Storage'], namespace)].{Namespace:namespace, State:registrationState}" -o table
-```
-
-Expected: every row shows `Registered`.
-
-Grant yourself `Storage Blob Data Contributor` at the **networking RG** scope (that's where the tfstate SA will live) so `az storage container create --auth-mode login` and Terraform's `azurerm` backend can both authenticate via Entra ID (shared-key access is disabled on the state SA):
-
-```powershell
-az role assignment create `
-    --assignee-object-id $ME `
-    --assignee-principal-type User `
-    --role "Storage Blob Data Contributor" `
-    --scope "/subscriptions/$SUB/resourceGroups/$RG_NETWORK"
-```
-
-Wait for the role assignment to propagate before using it:
-
-```powershell
-Start-Sleep -Seconds 60
-```
-
-Verify the assignment:
-
-```powershell
-az role assignment list --assignee $ME --scope "/subscriptions/$SUB/resourceGroups/$RG_NETWORK" --query "[?roleDefinitionName=='Storage Blob Data Contributor'].{Role:roleDefinitionName, Scope:scope}" -o table
-```
-
-Expected: one row with `Storage Blob Data Contributor` at the `$RG_NETWORK` scope.
-
-### Step 2. Bootstrap the Terraform-state Storage Account (~2 min)
-
-The tfstate SA lives in the **networking RG** (`$RG_NETWORK`) — it's part of the base / platform stack's lifecycle. Detect your IP and derive the state SA name (`sttfs<md5(RG + base_name + environment + location)>` truncated to 12 hex chars — must match what base's `main.tf` will compute).
-
-Grab your public IP:
-
-```powershell
-$DEPLOYER_IP = (Invoke-RestMethod https://api.ipify.org).Trim()
-```
-
-Set `$BASE_NAME` (must match `base_name` default in `variables.tf`):
-
-```powershell
-$BASE_NAME = "ai-foundry"
-```
-
-Set `$ENVIRONMENT` (must match `environment` default in `variables.tf`):
-
-```powershell
-$ENVIRONMENT = "dev"
-```
-
-Compute the state SA name (this one-liner mirrors the `md5(RG + base_name + environment + location)` hash base's `main.tf` computes, so both stacks agree on the name):
-
-```powershell
-$STATE_SA = "sttfs" + ([BitConverter]::ToString([System.Security.Cryptography.MD5]::Create().ComputeHash([System.Text.Encoding]::UTF8.GetBytes("${RG_NETWORK}${BASE_NAME}${ENVIRONMENT}${LOC}"))).Replace('-','').ToLower().Substring(0,12))
-```
-
-Echo to verify:
-
-```powershell
-Get-Variable DEPLOYER_IP, STATE_SA | Format-Table -AutoSize Name, Value
-```
-
-Expected: `DEPLOYER_IP` is a public IPv4; `STATE_SA` is 17 chars starting with `sttfs`.
-
-Create the Storage Account in `$RG_NETWORK`:
-
-```powershell
-az storage account create `
-    -g $RG_NETWORK -n $STATE_SA -l $LOC `
-    --sku Standard_LRS `
-    --kind StorageV2 `
-    --min-tls-version TLS1_2 `
-    --https-only true `
-    --allow-blob-public-access false `
-    --allow-shared-key-access false `
-    --default-action Deny `
-    --public-network-access Enabled `
-    --bypass AzureServices `
-    --ip-address $DEPLOYER_IP
-```
-
-Verify it landed with the expected properties:
-
-```powershell
-az storage account show -g $RG_NETWORK -n $STATE_SA --query "{Name:name, SKU:sku.name, PublicNetwork:publicNetworkAccess, TLS:minimumTlsVersion, SharedKey:allowSharedKeyAccess}" -o table
-```
-
-Expected: `SKU = Standard_LRS`, `TLS = TLS1_2`, `SharedKey = False`.
-
-> **If this returns `StorageAccountAlreadyTaken`** (the derived `sttfs<hash>` name collides globally), pick a unique name and use it for the remainder of Path B — including `terraform init`, the `terraform import` commands, and the `-var 'tfstate_storage_account_name=...'` you'll pass to `terraform apply`:
-> ```powershell
-> $STATE_SA = "sttfs<something-unique>"   # then rerun the `az storage account create` above
-> ```
-
-Create the `tfstate` container:
-
-```powershell
-az storage container create `
-    --auth-mode login `
-    --account-name $STATE_SA `
-    -n tfstate
-```
-
-Verify:
-
-```powershell
-az storage container list --auth-mode login --account-name $STATE_SA --query "[].{Name:name, PublicAccess:publicAccess}" -o table
-```
-
-Expected: `tfstate` container present with `PublicAccess = None`.
-
-### Step 3. Init base with the remote backend + import the bootstrapped SA (~2 min)
-
-`cd` into the base Terraform directory — everything in Steps 3 and 4 runs from here:
-
-```powershell
-Set-Location (Join-Path (git rev-parse --show-toplevel) 'environments/ai-foundry/base/terraform')
-```
-
-Verify:
-
-```powershell
-Get-Location   # expect: ...\environments\ai-foundry\base\terraform
-```
-
-Init:
-
-```powershell
-terraform init `
-    -backend-config="resource_group_name=$RG_NETWORK" `
-    -backend-config="storage_account_name=$STATE_SA"
-```
-
-Expected: `Terraform has been successfully initialized!`
-
-Import the Storage Account so Terraform manages it going forward:
-
-```powershell
-terraform import `
-    "module.tfstate_storage.azurerm_storage_account.this" `
-    "/subscriptions/$SUB/resourceGroups/$RG_NETWORK/providers/Microsoft.Storage/storageAccounts/$STATE_SA"
-```
-
-Import the tfstate container:
-
-```powershell
-terraform import `
-    "azurerm_storage_container.tfstate" `
-    "/subscriptions/$SUB/resourceGroups/$RG_NETWORK/providers/Microsoft.Storage/storageAccounts/$STATE_SA/blobServices/default/containers/tfstate"
-```
-
-Verify both imports landed in state:
-
-```powershell
-terraform state list
-```
-
-Expected: at minimum `azurerm_storage_container.tfstate` and `module.tfstate_storage.azurerm_storage_account.this` present in the list.
-
-### Step 4. Apply base (~5 min)
-
-Still in `environments/ai-foundry/base/terraform` from Step 3. If you overrode `$STATE_SA` from the default, pass it as a variable — otherwise omit the `-var` flag:
-
-```powershell
-terraform apply `
-    -var "tfstate_storage_account_name=$STATE_SA"
-```
-
-Terraform reconciles the imported state SA (adds its blob PE, applies blob-service properties: 30-day soft delete + versioning + last-access tracking), then creates the VNet + 5 subnets + 11 DNS zones with VNet links — all in `$RG_NETWORK`.
-
-> **Upgrading an older AI Foundry deployment:** early versions also created jumpbox and CI-runner modules. The current configuration explicitly removes both historical modules; review the destroy actions in the plan and apply them to clean those resources from Azure and Terraform state.
-
-Verify:
-
-```powershell
-az resource list -g $RG_NETWORK --query "[?type=='Microsoft.Network/virtualNetworks' || type=='Microsoft.Network/privateDnsZones' || type=='Microsoft.Network/privateEndpoints'].{Name:name, Type:type}" -o table
-```
-
-Expected: 1 VNet, 11 privateDnsZones, **1 privateEndpoint** (on the state SA).
-
-### Step 5. Init workload with remote backend + apply (~15–20 min)
-
-The workload deploys **into `$RG_WORKLOAD`** and by default looks up base's VNet + subnets + 11 private DNS zones cross-RG in `$RG_NETWORK` (`variables.tf`'s `resource_group_name` defaults to `rg-ai-foundry-workload-dev-westus3` and `base_resource_group_name` defaults to `rg-ai-foundry-network-dev-westus3`). If the DNS zones live in a separate central connectivity / hub RG, override `dns_resource_group_name` too — see [Bringing your own base networking](#bringing-your-own-base-networking).
-
-> **Resuming from an existing base deploy?** If you're in a new terminal session (variables gone) or the base was deployed by someone else / a prior CI run, you need at minimum these session variables before running init + apply.
->
-> Sign in (skip if you already have an active session on the target subscription):
->
-> ```powershell
-> az login
-> ```
->
-> Pin the subscription (paste yours):
->
-> ```powershell
-> az account set --subscription <YOUR_SUBSCRIPTION_ID>
-> ```
->
-> Verify:
->
-> ```powershell
-> az account show --query "{Subscription:name, Id:id, Tenant:tenantId}" -o table
-> ```
->
-> Register the 7 workload Resource Providers on this subscription (Terraform's `resource_provider_registrations = "none"` means it won't auto-register; safe to re-run):
->
-> ```powershell
-> foreach ($rp in @(
->     'Microsoft.App',
->     'Microsoft.CognitiveServices',
->     'Microsoft.ContainerService',
->     'Microsoft.DocumentDB',
->     'Microsoft.Network',
->     'Microsoft.Search',
->     'Microsoft.Storage'
-> )) { az provider register --namespace $rp --wait }
-> ```
->
-> Verify every RP shows `Registered`:
->
-> ```powershell
-> az provider list --query "[?contains(['Microsoft.App','Microsoft.CognitiveServices','Microsoft.ContainerService','Microsoft.DocumentDB','Microsoft.Network','Microsoft.Search','Microsoft.Storage'], namespace)].{Namespace:namespace, State:registrationState}" -o table
-> ```
->
-> Set the region (the region the base stack was deployed in):
->
-> ```powershell
-> $LOC = "westus3"
-> ```
->
-> Set the RG the base stack + tfstate SA live in:
->
-> ```powershell
-> $RG_NETWORK = "rg-ai-foundry-network-dev-$LOC"
-> ```
->
-> Set the RG the workload deploys into (create it below if missing):
->
-> ```powershell
-> $RG_WORKLOAD = "rg-ai-foundry-workload-dev-$LOC"
-> ```
->
-> Re-set the 6 workload naming vars (defaults match the base stack's convention; change any that don't match your actual base deploy — see the [BYO section](#bringing-your-own-base-networking)). Per-service regions and a custom Storage account name are NOT session vars on this path: they live in `workload/terraform/terraform.tfvars` (git-ignored) — make sure that file is still there before you plan or apply; `terraform output` from the last apply shows the values. PowerShell expands `$LOC` at assignment time, so `$LOC` must already be set (from the block above) before the `$VNET_NAME` line runs; if you change `$LOC` later, re-run the `$VNET_NAME` assignment too:
->
-> ```powershell
-> $VNET_NAME = "vnet-ai-foundry-dev-$LOC"
-> ```
->
-> ```powershell
-> $SUBNET_COGNITIVE_PEP = "snet-cognitive-ai-foundry-dev"
-> ```
->
-> ```powershell
-> $SUBNET_STORAGE_PEP = "snet-storage-ai-foundry-dev"
-> ```
->
-> ```powershell
-> $SUBNET_COSMOS_PEP = "snet-cosmos-ai-foundry-dev"
-> ```
->
-> ```powershell
-> $SUBNET_SEARCH_PEP = "snet-search-ai-foundry-dev"
-> ```
->
-> ```powershell
-> $SUBNET_AGENT = "snet-agent-ai-foundry-dev"
-> ```
->
-> The tfstate SA name lives in `$RG_NETWORK`. If you don't remember it, discover it directly (safer than recomputing the hash):
->
-> ```powershell
-> $STATE_SA = (az storage account list -g $RG_NETWORK --query "[?starts_with(name, 'sttfs')].name | [0]" -o tsv)
-> ```
->
-> Echo to verify:
->
-> ```powershell
-> Write-Host "STATE_SA = $STATE_SA"
-> ```
->
-> Make sure `$RG_WORKLOAD` exists (Path B Step 1 creates it — skip if you already ran it):
->
-> ```powershell
-> az group create -n $RG_WORKLOAD -l $LOC --tags environment=dev workload=ai-foundry stack=workload
-> ```
->
-> **If the base stack was deployed with non-default names / values**, first discover what's actually in `$RG_NETWORK`:
->
-> ```powershell
-> az resource list -g $RG_NETWORK --query "[?type=='Microsoft.Network/virtualNetworks' || type=='Microsoft.Network/privateDnsZones'].{Name:name, Type:type}" -o table
-> ```
->
-> Set `$VNET_NAME` to the VNet name shown in the output above:
->
-> ```powershell
-> $VNET_NAME = Read-Host "Enter the VNet name shown above"
-> ```
->
-> Then list its subnets:
->
-> ```powershell
-> az network vnet subnet list -g $RG_NETWORK --vnet-name $VNET_NAME --query "[].name" -o tsv
-> ```
->
-> Then override on the CLI: append `-var 'key=value'` flags to the `terraform plan` / `terraform apply` commands below — e.g. `-var 'base_resource_group_name=<rg-name>' -var 'base_name=<value>'`. VNet + subnet names are the exception: change the 6 session vars (`$VNET_NAME`, `$SUBNET_*`) from Step 1, NOT `-var 'vnet_name=…'` (the apply command already carries `-var "vnet_name=$VNET_NAME"` etc.). Everything below is CLI-only — no `terraform.tfvars` file required — except the per-service regions and the Storage account name override, which belong in `terraform.tfvars` so every later plan / apply / destroy sees the same values (see [Placing Storage, Cosmos DB, and AI Search in other regions](#placing-storage-cosmos-db-and-ai-search-in-other-regions)).
->
-> The most common overrides:
-> - `-var 'resource_group_name=<rg>'` — workload RG (if not `rg-ai-foundry-workload-dev-<loc>`)
-> - `-var 'base_resource_group_name=<rg>'` — where base's VNet + subnets live (if not `rg-ai-foundry-network-dev-<loc>`)
-> - `-var 'dns_resource_group_name=<rg>'` — where the 11 private DNS zones live (if separate from the VNet's RG, i.e. classic CAF: zones consolidated in a central connectivity / hub RG). Omit to reuse `base_resource_group_name`.
-> - **VNet + subnet names** — change the 6 session vars (`$VNET_NAME`, `$SUBNET_COGNITIVE_PEP`, `$SUBNET_STORAGE_PEP`, `$SUBNET_COSMOS_PEP`, `$SUBNET_SEARCH_PEP`, `$SUBNET_AGENT`) in Step 1, NOT ad-hoc `-var 'vnet_name=…'` flags. The Step 5 apply always passes them as `-var` flags, so CLI overrides win over `terraform.tfvars` — file edits to these 6 names are silently ignored.
-> - `-var 'base_name=<v>' -var 'environment=<v>' -var 'location=<v>'` — shifts derived names for the Foundry Account subdomain (`cog-acc-<base_name>-<environment>-<location>`) and the account resource itself. `location` is also the region of the Foundry Account and all 9 PEs (it must be the VNet's region) and the default region for Storage / Cosmos DB / AI Search, so prefer setting it in `terraform.tfvars` where every later apply sees it. It does NOT re-derive the VNet + subnet names, because those come from the 6 session vars — update the session vars separately if you're changing `base_name` / `environment` / `location`.
-
-`cd` into the workload Terraform directory:
-
-```powershell
-Set-Location (Join-Path (git rev-parse --show-toplevel) 'environments/ai-foundry/workload/terraform')
-```
-
-Verify:
-
-```powershell
-Get-Location   # expect: ...\environments\ai-foundry\workload\terraform
-```
-
-Init points at the same tfstate SA (in `$RG_NETWORK`) as base, but with a different blob key (`workload.tfstate`):
-
-```powershell
-terraform init `
-    -backend-config="resource_group_name=$RG_NETWORK" `
-    -backend-config="storage_account_name=$STATE_SA"
-```
-
-**Optional — Storage, Cosmos DB, or AI Search in other regions:** before the first apply, add `storage_location` / `cosmos_location` / `ai_search_location` (and `storage_account_name` if a long Storage region pushes the derived name past 24 characters) to `terraform.tfvars` in this directory — see [Placing Storage, Cosmos DB, and AI Search in other regions](#placing-storage-cosmos-db-and-ai-search-in-other-regions). The commands below stay the same: Terraform reads `terraform.tfvars` automatically.
-
-Apply. See [Deployment topology](#deployment-topology-public-path-vs-private-path) for how to choose — both are valid; pick one:
-
-**Option A — public-path deploy (default).** Deployer on the public internet. Terraform's `data.http.myip` auto-detects your public IP and pins it into the workload firewalls:
-
-```powershell
-terraform apply `
-    -var "vnet_name=$VNET_NAME" `
-    -var "subnet_name_cognitive_pep=$SUBNET_COGNITIVE_PEP" `
-    -var "subnet_name_storage_pep=$SUBNET_STORAGE_PEP" `
-    -var "subnet_name_cosmos_pep=$SUBNET_COSMOS_PEP" `
-    -var "subnet_name_search_pep=$SUBNET_SEARCH_PEP" `
-    -var "subnet_name_agent=$SUBNET_AGENT"
-```
-
-**Option B — private-path deploy.** Deployer on VPN / ExpressRoute / Bastion / VNet-injected runner. Skip the ipify call entirely by pinning `deployer_ip` to empty string; the workload FQDNs resolve to private IPs via the base stack's private DNS zones, so no allowlist entry is needed:
-
-```powershell
-terraform apply `
-    -var 'deployer_ip=' `
-    -var "vnet_name=$VNET_NAME" `
-    -var "subnet_name_cognitive_pep=$SUBNET_COGNITIVE_PEP" `
-    -var "subnet_name_storage_pep=$SUBNET_STORAGE_PEP" `
-    -var "subnet_name_cosmos_pep=$SUBNET_COSMOS_PEP" `
-    -var "subnet_name_search_pep=$SUBNET_SEARCH_PEP" `
-    -var "subnet_name_agent=$SUBNET_AGENT"
-```
-
-**Verify the private path** (only if you chose Option B). Resolve the Foundry Account's FQDN; a `10.x.x.x` address means DNS routed through the base stack's private zones. A public IP means fix your DNS routing (or drop back to the public path).
-
-Grab the Foundry FQDN:
-
-```powershell
-$foundryFqdn = (az cognitiveservices account list -g $RG_WORKLOAD --query "[?kind=='AIServices'].properties.endpoint | [0]" -o tsv) -replace 'https://', '' -replace '/$', ''
-```
-
-Resolve it:
-
-```powershell
-Resolve-DnsName $foundryFqdn | Select-Object Name, IPAddress
-```
-
-→ **Verify the project MI RBAC:** run the [commands in the RBAC roster section](#verify-the-project-mi-rbac) to confirm the workload's 6 ARM role assignments + 1 Cosmos SQL role landed on the Foundry project's SystemAssigned MI. Missing assignments are a common cause of runtime agent 403s that only surface later.
-
-→ **Public-path deploys should now run [Part C1](#part-c1--strip-deployer-ip-and-any-extra-allowlisted-ips-public-path-only)** to strip the deployer IP + `allowed_ips_extra` off every workload firewall so those IPs don't linger. [Part C2](#part-c2--optionally-disable-public-endpoints-entirely-zero-trust) then optionally closes the public endpoints entirely.
-
-### Step 6. Full inventory (across both RGs)
-
-List everything in the networking RG:
-
-```powershell
-az resource list -g $RG_NETWORK  --query "sort_by([], &type)[].{Name:name, Type:type, Location:location}" -o table
-```
-
-List everything in the workload RG:
-
-```powershell
-az resource list -g $RG_WORKLOAD --query "sort_by([], &type)[].{Name:name, Type:type, Location:location}" -o table
+. {
+    az resource list -g $RG_NETWORK  --query "sort_by([], &type)[].{Name:name, Type:type, Location:location}" -o table
+    az resource list -g $RG_WORKLOAD --query "sort_by([], &type)[].{Name:name, Type:type, Location:location}" -o table
+
+    $projectId = az resource list -g $RG_WORKLOAD --resource-type Microsoft.CognitiveServices/accounts/projects --query "[0].id" -o tsv
+    $mi = az resource show --ids $projectId --api-version 2025-04-01-preview --query identity.principalId -o tsv
+    $dataIds = az resource list -g $RG_WORKLOAD --query "[?type=='Microsoft.Storage/storageAccounts' || type=='Microsoft.DocumentDB/databaseAccounts' || type=='Microsoft.Search/searchServices'].id" -o tsv
+    $roles = @(foreach ($id in $dataIds) {
+        az role assignment list --assignee-object-id $mi --fill-principal-name false --scope $id --query "[].roleDefinitionName" -o tsv |
+            ForEach-Object { [pscustomobject]@{ Resource = ($id -split '/')[-1]; Role = $_ } }
+    })
+    $cosmosName = az cosmosdb list -g $RG_WORKLOAD --query "[0].name" -o tsv
+    $roles += @(az cosmosdb sql role assignment list -g $RG_WORKLOAD --account-name $cosmosName --query "[?principalId=='$mi'].roleDefinitionId" -o tsv |
+        ForEach-Object { [pscustomobject]@{ Resource = $cosmosName; Role = "Cosmos DB SQL role $(($_ -split '/')[-1])" } })
+    $roles | Sort-Object Resource, Role | Format-Table
+}
 ```
 
 Expected:
-- `$RG_NETWORK`: 1 VNet, 5 subnets, 11 privateDnsZones, 1 privateEndpoint (on the state SA), 1 Storage Account (the state SA itself)
-- `$RG_WORKLOAD`: 9 privateEndpoints, 1 Foundry Account + 1 project, 1 Storage, 1 Cosmos, 1 Search — the Foundry Account and every privateEndpoint in `location`; Storage / Cosmos / Search in `location` or the regions set in `terraform.tfvars`
 
-Show the effective Storage / Cosmos DB / AI Search regions and names (run from `environments/ai-foundry/workload/terraform`):
+- **Networking resource group:** 1 VNet in `$LOC`, plus 11 private DNS zones and their 11 VNet links (`global`). Path B also shows the state Storage account, with its private endpoint and network interface. `az resource list` doesn't show subnets. With existing networking, the VNet and zones are in their own resource groups, and Path B's `$RG_NETWORK` holds only the state account (no private endpoint, since Step 4 was skipped).
+- **Workload resource group:** the Foundry account and project, and 9 private endpoints with their 9 network interfaces, all in `$LOC`. Storage, Cosmos DB, and AI Search are each in their own region; Cosmos DB may report a display name such as `West US 3`.
+- **Roles:** 7 rows.
+  - Storage: Storage Account Contributor, Storage Blob Data Contributor, Storage Blob Data Owner.
+  - Cosmos DB: Cosmos DB Operator, and SQL role `00000000-0000-0000-0000-000000000002` (Built-in Data Contributor).
+  - AI Search: Search Index Data Contributor, Search Service Contributor.
+
+  A missing role causes agent 403s later. Run the workload deploy again. If the role is still missing, check Azure Policy and your [permissions](#prerequisites).
+
+On the private path, also check that the Foundry endpoint resolves to a private (`10.x`) address:
 
 ```powershell
-terraform output
+Resolve-DnsName ((az cognitiveservices account list -g $RG_WORKLOAD --query "[0].properties.endpoint" -o tsv) -replace '^https://|/$')
 ```
 
----
+## After you deploy
 
-## Redeploy
+### New terminal or redeploy
 
-Both paths are idempotent — rerun the deploy commands to pick up any change (config edit, code change, or your IP moved because you reconnected the VPN). The IaC reconciles firewall allowlists automatically.
+Session variables don't survive a new terminal. To continue in a new one:
 
-> **If you're in a new terminal session, redefine variables first** — re-run Step 1 for both paths, plus Step 2's `$STATE_SA` derivation for Path B. Path A's Step 1 includes the helper block, and the deploy below reads the Storage / Cosmos DB / AI Search names and regions back from Azure. Path B keeps the per-service regions in `terraform.tfvars`, so nothing to re-set for them.
+1. Run `az login` if needed.
+2. Run your path's Step 1 block and the [session helpers](#session-helpers) block.
+3. Run `az account set --subscription $SUBSCRIPTION_ID`.
 
-### Path A — Bicep
+To redeploy, for example to apply a change or because your IP changed:
 
-`cd` into the workload Bicep directory:
-
-```powershell
-Set-Location (Join-Path (git rev-parse --show-toplevel) 'environments/ai-foundry/workload/bicep')
-```
-
-Refresh your public IP into `$env:DEPLOYER_IP`:
+- **Path A:** run the [Step 4](#step-4-deploy-the-workload-stack-1520-min) block again. Blank Storage, Cosmos DB, and AI Search names and regions are fine, because `Resolve-DataServiceVars` reads them from Azure.
+- **Path B:** allow your current IP on the state account, then apply. Terraform reads the per-service regions from `terraform.tfvars`. Old IPs stay on the state account until the next base apply (the [Step 4](#step-4-deploy-the-base-stack-5-min) block), which resets its allowlist to your current IP. With existing networking there's no base apply, so remove an old IP with `az storage account network-rule remove -g $RG_NETWORK -n $STATE_SA --ip-address <old-ip>`.
 
 ```powershell
-$env:DEPLOYER_IP = (Invoke-RestMethod https://api.ipify.org).Trim()
-```
-
-Deploy:
-
-```powershell
-if (Resolve-DataServiceVars) {
-    az deployment group create `
-        -g $RG_WORKLOAD `
-        -n workload-$(Get-Date -Format 'yyyyMMdd-HHmmss') `
-        -f main.bicep `
-        -p "location=$LOC" `
-        -p "baseResourceGroupName=$RG_NETWORK" `
-        -p "dnsResourceGroupName=$RG_DNS" `
-        -p "dnsSubscriptionId=$SUB_DNS" `
-        -p "deployerIp=$env:DEPLOYER_IP" `
-        -p "vnetName=$VNET_NAME" `
-        -p "subnetNameCognitivePep=$SUBNET_COGNITIVE_PEP" `
-        -p "subnetNameStoragePep=$SUBNET_STORAGE_PEP" `
-        -p "subnetNameCosmosPep=$SUBNET_COSMOS_PEP" `
-        -p "subnetNameSearchPep=$SUBNET_SEARCH_PEP" `
-        -p "subnetNameAgent=$SUBNET_AGENT" `
-        -p "storageAccountName=$STORAGE_NAME" `
-        -p "storageLocation=$LOC_STORAGE" `
-        -p "cognitiveAccountName=$COGNITIVE_ACCOUNT_NAME" `
-        -p "cognitiveCustomSubdomainName=$COGNITIVE_SUBDOMAIN" `
-        -p "cosmosAccountName=$COSMOS_NAME" `
-        -p "cosmosLocation=$LOC_COSMOS" `
-        -p "aiSearchName=$AI_SEARCH_NAME" `
-        -p "aiSearchLocation=$LOC_SEARCH"
+. {
+    az storage account network-rule add -g $RG_NETWORK -n $STATE_SA --ip-address $DEPLOYER_IP -o none
+    Set-Location "$AIF/workload/terraform"
+    terraform apply @TF_WORKLOAD_VARS
 }
 ```
 
-### Path B — Terraform
+A redeploy allows your current IP again, which undoes [Harden](#harden). To keep the lab hardened, redeploy with the hardened settings.
 
-If your IP changed since the last apply, refresh the state SA's firewall allowlist first (Storage's control plane is always reachable regardless of the data-plane firewall — that's how this ad-hoc rule gets added). The state SA lives in `$RG_NETWORK`.
+### Move a service to another region
 
-Refresh your public IP:
+Moving Storage, Cosmos DB, or AI Search **recreates it empty**. Agent files (Storage), threads (Cosmos DB), and vector stores (AI Search) aren't copied. The project capability host is recreated too, because [capability hosts can't be updated](https://learn.microsoft.com/azure/ai-foundry/agents/concepts/capability-hosts). Export what you need first.
+
+**Path B:**
+
+1. Change the region in `terraform.tfvars`. Also set `storage_account_name` if the new default name is too long.
+2. Run the workload apply, and read the plan before you approve it. It destroys the old service, creates the new one with its private endpoints and roles, updates the connection, and replaces the capability host.
+3. If the apply stops partway, for example on capacity, the old service may already be gone. Set another region and apply again.
+
+If a plan you didn't intend wants to replace one of these services or the capability host, a region or name input changed (for example, `terraform.tfvars` was lost). Don't approve it. Restore the values; `terraform output` from the last apply shows them.
+
+**Path A:** ARM can't replace a service. So you delete the capability host, deploy the new service under a new name, and delete the old one once you've checked that your agents work. This example moves Cosmos DB. For the other services, use `Storage` / `$LOC_STORAGE` / `$STORAGE_NAME` or `Search` / `$LOC_SEARCH` / `$AI_SEARCH_NAME`.
+
+1. Delete the capability host and wait until it's gone. Agents stop working until step 2 finishes.
+
+   ```powershell
+   . {
+       $projectId = az rest --method get --url "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_WORKLOAD/providers/Microsoft.CognitiveServices/accounts/$COGNITIVE_ACCOUNT_NAME/projects?api-version=2025-06-01" --query "value[0].id" -o tsv
+       az rest --method delete --url "$projectId/capabilityHosts/default?api-version=2025-06-01"
+       do { Start-Sleep -Seconds 15; az rest --method get --url "$projectId/capabilityHosts/default?api-version=2025-06-01" -o none 2>$null } while ($LASTEXITCODE -eq 0)
+   }
+   ```
+
+2. Set the new region and a new, globally unique name:
+
+   ```powershell
+   $LOC_COSMOS = "eastus2"; $COSMOS_NAME = "cosmos-ai-foundry-dev-eastus2"
+   ```
+
+   Then run the [Step 4](#step-4-deploy-the-workload-stack-1520-min) block with its first line changed to `if (Resolve-DataServiceVars -Migrate Cosmos) {`. In that mode the helper:
+
+   - checks that the capability host is gone;
+   - keeps your new Cosmos DB values, and still checks Storage and AI Search against Azure;
+   - saves the old account's ID in `$MIGRATION_OLD_RESOURCE_ID`.
+
+   If the deploy fails to create the new service, the old one is untouched but agents stay down. Choose another region and name, and run the `-Migrate` deploy again. If the helper says the move is already deployed, an earlier attempt succeeded; go to step 3.
+
+3. Check your agents (a thread, a file upload, a vector store query). Then delete the old service and its private endpoints:
+
+   ```powershell
+   . {
+       az network private-endpoint list -g $RG_WORKLOAD -o json | ConvertFrom-Json |
+           Where-Object { $_.privateLinkServiceConnections.privateLinkServiceId -contains $MIGRATION_OLD_RESOURCE_ID } |
+           ForEach-Object { az network private-endpoint delete --ids $_.id }
+       az resource delete --ids $MIGRATION_OLD_RESOURCE_ID
+   }
+   ```
+
+   Lost `$MIGRATION_OLD_RESOURCE_ID`, for example in a new terminal? Run `$null = Resolve-DataServiceVars`. It warns about the unused old service and prints the command that deletes it.
+
+### Harden
+
+Once you no longer need data-plane access from your machine:
+
+1. **Remove the allowlisted IPs** (public path).
+   - Still works: agents, through the private endpoints, and control-plane commands such as `az resource list`, `az … show`, and portal blades.
+   - Fails with 403: data-plane calls from your machine, such as portal data views, the SDKs, `az storage blob`, and `az cosmosdb sql`.
+2. **Disable public network access** (optional, zero trust). The services then accept traffic only through private endpoints, and the trusted-services bypass stops too.
+
+| | Path A: set these, then run the [Step 4](#step-4-deploy-the-workload-stack-1520-min) block | Path B: run in `$AIF/workload/terraform` |
+|---|---|---|
+| Remove allowlisted IPs | `$DEPLOYER_IP = ""` | `terraform apply @TF_WORKLOAD_VARS -var 'deployer_ip=' -var 'allowed_ips_extra=[]'` |
+| Also disable public access | `$DEPLOYER_IP = ""; $PUBLIC_ACCESS = "false"` | `terraform apply @TF_WORKLOAD_VARS -var 'deployer_ip=' -var 'allowed_ips_extra=[]' -var 'enable_public_network_access=false'` |
+| Undo | `$DEPLOYER_IP = (Invoke-RestMethod https://api.ipify.org).Trim(); $PUBLIC_ACCESS = "true"` | `terraform apply @TF_WORKLOAD_VARS` |
+
+A deploy with the default settings opens the firewalls to your IP again. Running Step 1 again resets `$DEPLOYER_IP` and `$PUBLIC_ACCESS`. Path B's state account in `$RG_NETWORK` keeps its own allowlist, so that Terraform can still reach its state; a base apply resets that allowlist to your current IP. Check the result:
 
 ```powershell
-$DEPLOYER_IP = (Invoke-RestMethod https://api.ipify.org).Trim()
-```
-
-Add it to the state SA firewall:
-
-```powershell
-az storage account network-rule add -g $RG_NETWORK -n $STATE_SA --ip-address $DEPLOYER_IP
-```
-
-`cd` into the workload Terraform directory:
-
-```powershell
-Set-Location (Join-Path (git rev-parse --show-toplevel) 'environments/ai-foundry/workload/terraform')
-```
-
-Apply:
-
-```powershell
-terraform apply `
-    -var "vnet_name=$VNET_NAME" `
-    -var "subnet_name_cognitive_pep=$SUBNET_COGNITIVE_PEP" `
-    -var "subnet_name_storage_pep=$SUBNET_STORAGE_PEP" `
-    -var "subnet_name_cosmos_pep=$SUBNET_COSMOS_PEP" `
-    -var "subnet_name_search_pep=$SUBNET_SEARCH_PEP" `
-    -var "subnet_name_agent=$SUBNET_AGENT"
-```
-
-The ad-hoc network-rule stays as drift on the state SA until the next `base` apply, at which point `data.http.myip` reconciles the full allowlist canonically.
-
----
-
-## Part C — Harden: remove deployer IP and close public endpoints
-
-Once the deploy is verified, lock the workload data planes down. Two sub-parts — do them in order:
-
-1. **[Part C1](#part-c1--strip-deployer-ip-and-any-extra-allowlisted-ips-public-path-only)** — strip **every** allowlisted IP off the 4 workload firewalls (deployer IP + `allowedIpsExtra`). Recommended immediately after every public-path deploy so your IP doesn't linger. Public endpoints stay enabled with a default-deny firewall + empty allowlist; the agent runtime keeps working over Private Endpoints, and Azure trusted services keep working over the `bypass = AzureServices` path.
-2. **[Part C2](#part-c2--optionally-disable-public-endpoints-entirely-zero-trust)** — optionally close the public endpoints entirely. Blocks the trusted-services bypass path too. Skip if you plan to redeploy soon (you'll re-add the IP anyway) or if you want to keep the option of testing from your laptop later.
-
-> **Private-path deployers** (deployed with `deployerIp=""` / `-var 'deployer_ip='`) can skip C1 — there's no allowlist entry to strip. C2 is still useful for zero-trust posture.
-
-### Part C1 — Strip deployer IP and any extra allowlisted IPs (public path only)
-
-**Before you run this**, know what will break: after the strip, your **laptop-side data-plane calls fail with 403** — `az storage blob upload/download`, `az cosmosdb sql database *`, and Python SDK calls (`ContainerClient`, `CosmosClient`, `SearchClient`) hitting the public FQDN. What keeps working: the agent runtime inside the VNet (Private Endpoints), `az` CLI reads that hit ARM control plane (`az cognitiveservices account show`, `az storage account show`, Portal blades, `az resource list`), and any tool going through a Private Endpoint via Azure-integrated DNS. If you still need laptop admin access, skip C1 for now.
-
-**Path A — Bicep.** Setting both `deployerIp=""` **and** `allowedIpsExtra=@()` is required to actually empty the allowlist — the two are `union`'d inside the workload template, so clearing only one leaves the other in place.
-
-`cd` into the workload Bicep directory:
-
-```powershell
-Set-Location (Join-Path (git rev-parse --show-toplevel) 'environments/ai-foundry/workload/bicep')
-```
-
-Deploy with cleared allowlists:
-
-```powershell
-if (Resolve-DataServiceVars) {
-    az deployment group create `
-        -g $RG_WORKLOAD `
-        -n strip-ip-$(Get-Date -Format 'yyyyMMdd-HHmmss') `
-        -f main.bicep `
-        -p "location=$LOC" `
-        -p "baseResourceGroupName=$RG_NETWORK" `
-        -p "dnsResourceGroupName=$RG_DNS" `
-        -p "dnsSubscriptionId=$SUB_DNS" `
-        -p deployerIp="" `
-        -p allowedIpsExtra='[]' `
-        -p "vnetName=$VNET_NAME" `
-        -p "subnetNameCognitivePep=$SUBNET_COGNITIVE_PEP" `
-        -p "subnetNameStoragePep=$SUBNET_STORAGE_PEP" `
-        -p "subnetNameCosmosPep=$SUBNET_COSMOS_PEP" `
-        -p "subnetNameSearchPep=$SUBNET_SEARCH_PEP" `
-        -p "subnetNameAgent=$SUBNET_AGENT" `
-        -p "storageAccountName=$STORAGE_NAME" `
-        -p "storageLocation=$LOC_STORAGE" `
-        -p "cognitiveAccountName=$COGNITIVE_ACCOUNT_NAME" `
-        -p "cognitiveCustomSubdomainName=$COGNITIVE_SUBDOMAIN" `
-        -p "cosmosAccountName=$COSMOS_NAME" `
-        -p "cosmosLocation=$LOC_COSMOS" `
-        -p "aiSearchName=$AI_SEARCH_NAME" `
-        -p "aiSearchLocation=$LOC_SEARCH"
+. {
+    $rows = @(
+        az cognitiveservices account list -g $RG_WORKLOAD -o json | ConvertFrom-Json | ForEach-Object { [pscustomobject]@{ Name = $_.name; PublicAccess = $_.properties.publicNetworkAccess; AllowedIPs = $_.properties.networkAcls.ipRules.value -join ', ' } }
+        az storage account list -g $RG_WORKLOAD -o json | ConvertFrom-Json | ForEach-Object { [pscustomobject]@{ Name = $_.name; PublicAccess = $_.publicNetworkAccess; AllowedIPs = $_.networkRuleSet.ipRules.ipAddressOrRange -join ', ' } }
+        az cosmosdb list -g $RG_WORKLOAD -o json | ConvertFrom-Json | ForEach-Object { [pscustomobject]@{ Name = $_.name; PublicAccess = $_.publicNetworkAccess; AllowedIPs = $_.ipRules.ipAddressOrRange -join ', ' } }
+        az search service list -g $RG_WORKLOAD -o json | ConvertFrom-Json | ForEach-Object { [pscustomobject]@{ Name = $_.name; PublicAccess = $_.publicNetworkAccess; AllowedIPs = $_.networkRuleSet.ipRules.value -join ', ' } }
+    )
+    $rows | Format-Table
 }
 ```
 
-**Path B — Terraform.** Same reasoning — `compact(concat([deployer_ip], allowed_ips_extra))` means both must be cleared.
-
-`cd` into the workload Terraform directory:
-
-```powershell
-Set-Location (Join-Path (git rev-parse --show-toplevel) 'environments/ai-foundry/workload/terraform')
-```
-
-Apply with cleared allowlists:
-
-```powershell
-terraform apply `
-    -var 'deployer_ip=' `
-    -var 'allowed_ips_extra=[]' `
-    -var "vnet_name=$VNET_NAME" `
-    -var "subnet_name_cognitive_pep=$SUBNET_COGNITIVE_PEP" `
-    -var "subnet_name_storage_pep=$SUBNET_STORAGE_PEP" `
-    -var "subnet_name_cosmos_pep=$SUBNET_COSMOS_PEP" `
-    -var "subnet_name_search_pep=$SUBNET_SEARCH_PEP" `
-    -var "subnet_name_agent=$SUBNET_AGENT"
-```
-
-**Verify the allowlists are empty across all 4 services.**
-
-Grab the Foundry Account name:
-
-```powershell
-$foundryAccount = (az cognitiveservices account list -g $RG_WORKLOAD --query "[?kind=='AIServices'].name | [0]" -o tsv)
-```
-
-Check the Foundry Account's IP rules (requires `$foundryAccount` from the block above):
-
-```powershell
-az cognitiveservices account show -g $RG_WORKLOAD -n $foundryAccount --query "properties.networkAcls.ipRules" -o json
-```
-
-Check the Storage Account's IP rules:
-
-```powershell
-az storage account list -g $RG_WORKLOAD --query "[].{Name:name, IpRules:networkRuleSet.ipRules}" -o json
-```
-
-Check the Cosmos Account's IP rules:
-
-```powershell
-az cosmosdb list -g $RG_WORKLOAD --query "[].{Name:name, IpRules:ipRules}" -o json
-```
-
-Check the AI Search Service's IP rules:
-
-```powershell
-az search service list -g $RG_WORKLOAD --query "[].{Name:name, IpRules:networkRuleSet.ipRules}" -o json
-```
-
-Expected: `ipRules` (or `IpRules`) is `[]` on every service.
-
-> **To re-add your IP quickly** (without a full 15-min redeploy) for one-off admin work: use `az <service> network-rule add` per-service. This creates drift the next full deploy will reconcile away.
->
-> Refresh your IP:
-> ```powershell
-> $DEPLOYER_IP = (Invoke-RestMethod https://api.ipify.org).Trim()
-> ```
->
-> Re-add on Storage:
-> ```powershell
-> az storage account network-rule add -g $RG_WORKLOAD -n <storageName> --ip-address $DEPLOYER_IP
-> ```
->
-> Re-add on the Foundry Account:
-> ```powershell
-> az cognitiveservices account network-rule add -g $RG_WORKLOAD -n <foundryAccountName> --ip-address $DEPLOYER_IP
-> ```
->
-> Re-add on Cosmos:
-> ```powershell
-> az cosmosdb network-rule add -g $RG_WORKLOAD -n <cosmosName> --ip-address $DEPLOYER_IP
-> ```
->
-> Re-add on AI Search:
-> ```powershell
-> az search service network-rule add -g $RG_WORKLOAD --service-name <searchName> --ip-address-value $DEPLOYER_IP
-> ```
->
-> Remove them the same way with `network-rule remove` when you're done.
-
-> **Path B tfstate caveat.** C1 only strips the four **workload** service firewalls. The base stack's tfstate Storage Account in `$RG_NETWORK` keeps whatever allowlist entries the last base apply set. If your IP changes and you later run `terraform init` for either stack, the state read may 403 — see the tfstate-403 row in [Troubleshooting](#troubleshooting) for the one-line `az storage account network-rule add` recovery.
-
-> **Redeploy will undo C1.** Any subsequent `az deployment group create` (Bicep, [Redeploy](#redeploy) as documented) re-fetches the current IP into `$env:DEPLOYER_IP` and re-adds it to every workload allowlist. Any subsequent `terraform apply` (Terraform) does the same via `data.http.myip`. To keep the strip through a redeploy, pass the same `deployerIp="" allowedIpsExtra=[]` / `-var 'deployer_ip=' -var 'allowed_ips_extra=[]'` overrides on the redeploy command.
-
-### Part C2 — Optionally disable public endpoints entirely (zero-trust)
-
-Run C1 first. C2 closes the public endpoints so the trusted-services bypass path can't be used either — anything reaching the 4 workload services now has to come through a Private Endpoint. Only run this if you're done with laptop-side administration for the foreseeable future.
-
-**Path A — Bicep.** `cd` into the workload Bicep directory:
-
-```powershell
-Set-Location (Join-Path (git rev-parse --show-toplevel) 'environments/ai-foundry/workload/bicep')
-```
-
-Deploy with public endpoints disabled and allowlists cleared:
-
-```powershell
-if (Resolve-DataServiceVars) {
-    az deployment group create `
-        -g $RG_WORKLOAD `
-        -n harden-$(Get-Date -Format 'yyyyMMdd-HHmmss') `
-        -f main.bicep `
-        -p "location=$LOC" `
-        -p "baseResourceGroupName=$RG_NETWORK" `
-        -p "dnsResourceGroupName=$RG_DNS" `
-        -p "dnsSubscriptionId=$SUB_DNS" `
-        -p enablePublicNetworkAccess=false `
-        -p deployerIp="" `
-        -p allowedIpsExtra='[]' `
-        -p "vnetName=$VNET_NAME" `
-        -p "subnetNameCognitivePep=$SUBNET_COGNITIVE_PEP" `
-        -p "subnetNameStoragePep=$SUBNET_STORAGE_PEP" `
-        -p "subnetNameCosmosPep=$SUBNET_COSMOS_PEP" `
-        -p "subnetNameSearchPep=$SUBNET_SEARCH_PEP" `
-        -p "subnetNameAgent=$SUBNET_AGENT" `
-        -p "storageAccountName=$STORAGE_NAME" `
-        -p "storageLocation=$LOC_STORAGE" `
-        -p "cognitiveAccountName=$COGNITIVE_ACCOUNT_NAME" `
-        -p "cognitiveCustomSubdomainName=$COGNITIVE_SUBDOMAIN" `
-        -p "cosmosAccountName=$COSMOS_NAME" `
-        -p "cosmosLocation=$LOC_COSMOS" `
-        -p "aiSearchName=$AI_SEARCH_NAME" `
-        -p "aiSearchLocation=$LOC_SEARCH"
-}
-```
-
-**Path B — Terraform.** `cd` into the workload Terraform directory:
-
-```powershell
-Set-Location (Join-Path (git rev-parse --show-toplevel) 'environments/ai-foundry/workload/terraform')
-```
-
-Apply with public endpoints disabled and allowlists cleared:
-
-```powershell
-terraform apply `
-    -var 'enable_public_network_access=false' `
-    -var 'deployer_ip=' `
-    -var 'allowed_ips_extra=[]' `
-    -var "vnet_name=$VNET_NAME" `
-    -var "subnet_name_cognitive_pep=$SUBNET_COGNITIVE_PEP" `
-    -var "subnet_name_storage_pep=$SUBNET_STORAGE_PEP" `
-    -var "subnet_name_cosmos_pep=$SUBNET_COSMOS_PEP" `
-    -var "subnet_name_search_pep=$SUBNET_SEARCH_PEP" `
-    -var "subnet_name_agent=$SUBNET_AGENT"
-```
-
-**Verify all 4 services flipped to `Disabled`.** The Foundry Account resource name is `ais-<baseName>-<environment>-<location>` (the `cog-acc-...` string you may see elsewhere is the custom subdomain, not the account name) — discover it dynamically so this works regardless of override.
-
-Grab the Foundry Account name:
-
-```powershell
-$foundryAccount = (az cognitiveservices account list -g $RG_WORKLOAD --query "[?kind=='AIServices'].name | [0]" -o tsv)
-```
-
-Check the Foundry Account (requires `$foundryAccount` from the block above):
-
-```powershell
-az cognitiveservices account show -g $RG_WORKLOAD -n $foundryAccount --query "properties.publicNetworkAccess" -o tsv
-```
-
-Check the Storage Account:
-
-```powershell
-az storage account list -g $RG_WORKLOAD --query "[].{Name:name, PublicNetwork:publicNetworkAccess}" -o table
-```
-
-Check Cosmos:
-
-```powershell
-az cosmosdb list -g $RG_WORKLOAD --query "[].{Name:name, PublicNetwork:publicNetworkAccess}" -o table
-```
-
-Check AI Search:
-
-```powershell
-az search service list -g $RG_WORKLOAD --query "[].{Name:name, PublicNetwork:publicNetworkAccess}" -o table
-```
-
-Expected: `Disabled` for the Foundry Account, the workload Storage Account, Cosmos, and Search. The state SA (Path B only, in `$RG_NETWORK`) is intentionally untouched — keep its public endpoint enabled so subsequent Terraform runs can reach the backend.
-
-### Un-harden (before your next deploy)
-
-**Path A — Bicep**: rerun Path A Step 3 exactly as written (including the `cd` into `environments/ai-foundry/workload/bicep`). If you're in a new terminal session, re-run Path A Step 1 first (or the Resume blockquote at the top of Step 3) so `$RG_WORKLOAD` + the 11 workload naming vars are re-seeded. `$env:DEPLOYER_IP` gets re-read from the current session, `enablePublicNetworkAccess` falls back to its default (`true`), `allowedIpsExtra` falls back to `[]`, and the 11 workload naming vars get re-passed unchanged.
-
-**Path B — Terraform**: `cd` into `environments/ai-foundry/workload/terraform` and rerun the [Path B Step 5 Option A public-path apply](#step-5-init-workload-with-remote-backend--apply-1520-min) (the one with `-var` flags for the 6 workload naming vars). If you're in a new terminal session, re-run Path B Step 1 first (or the Resume blockquote at the top of Step 5) so `$RG_WORKLOAD` + the 6 workload naming vars are re-seeded. `enable_public_network_access` defaults back to `true`, `deployer_ip` re-auto-detects via `data.http.myip`, and `allowed_ips_extra` falls back to `[]`.
-
----
+Expected: `AllowedIPs` is empty for every service, and `PublicAccess` is `Disabled` after step 2.
 
 ## Tear down
 
-### Path A — Bicep
-
-Delete both RGs (workload first for cleanliness, though the operations are RG-scoped and won't cross-block).
-
-Delete the workload RG:
+**Path A:** delete the workload resource group, and purge the soft-deleted Foundry account so its name is free right away instead of after the soft-delete period.
 
 ```powershell
-az group delete -n $RG_WORKLOAD --yes --no-wait
+. {
+    az group delete -n $RG_WORKLOAD --yes
+    az cognitiveservices account list-deleted -o json | ConvertFrom-Json | Where-Object id -like "*/resourceGroups/$RG_WORKLOAD/*" |
+        ForEach-Object { az cognitiveservices account purge -l $_.location -g $RG_WORKLOAD -n $_.name }
+}
 ```
 
-Delete the networking RG:
+Then delete the networking resource group, unless you [attached to existing networking](#existing-byo-networking):
 
 ```powershell
-az group delete -n $RG_NETWORK  --yes --no-wait
+az group delete -n $RG_NETWORK --yes
 ```
 
-Verify the workload RG is gone (poll every ~30 s until it returns `false`):
+**Path B:** destroy the workload, delete its resource group, and purge the Foundry account:
 
 ```powershell
-az group exists -n $RG_WORKLOAD
+. {
+    Set-Location "$AIF/workload/terraform"
+    terraform destroy @TF_WORKLOAD_VARS
+    if ($LASTEXITCODE) { throw "Workload destroy failed. A 409 (Etag conflict on a connection, or RequestConflict while the account finishes deleting its project) is transient: wait a few minutes and run this block again." }
+    az group delete -n $RG_WORKLOAD --yes
+    az cognitiveservices account list-deleted -o json | ConvertFrom-Json | Where-Object id -like "*/resourceGroups/$RG_WORKLOAD/*" |
+        ForEach-Object { az cognitiveservices account purge -l $_.location -g $RG_WORKLOAD -n $_.name }
+}
 ```
 
-Verify the networking RG is gone:
+Then destroy the base stack and delete the networking resource group, which also holds the state account. The block first removes the state account and container from Terraform's state, so that Terraform doesn't delete its own backend mid-run; the `az group delete` removes them. With existing networking, skip this block: `$RG_NETWORK` holds only your state account, so delete that account, or the resource group if the lab created it.
 
 ```powershell
-az group exists -n $RG_NETWORK
+. {
+    Set-Location "$AIF/base/terraform"
+    terraform state rm module.tfstate_storage.azurerm_storage_account.this azurerm_storage_container.tfstate
+    terraform destroy @TF_BASE_VARS
+    az group delete -n $RG_NETWORK --yes
+}
 ```
 
-Expected: both return `false` once the async deletes complete (typically 2–5 min each).
+Each `az group delete` takes 5–30 minutes. Two failures are transient; run the same block again a few minutes later:
 
-### Path B — Terraform
+- the workload delete fails with `ResourceGroupDeletionBlocked` or `RequestConflict` while the Foundry account is still tearing down its project;
+- the base destroy or the networking delete fails because the agent subnet is still in use. If the subnet stays blocked, see [legionservicelink](#deleting-the-agent-subnet-is-blocked-by-legionservicelink).
 
-Remove the state SA + container from Terraform's tracking BEFORE destroying, so `terraform destroy` on base doesn't try to delete the backend it's currently reading state from.
+## RBAC roster
 
-First, `cd` into the workload Terraform directory:
+The workload grants these roles to the Foundry project's system-assigned identity:
 
-```powershell
-Set-Location (Join-Path (git rev-parse --show-toplevel) 'environments/ai-foundry/workload/terraform')
-```
+| Role | Scope | Why |
+|---|---|---|
+| Cosmos DB Operator | Cosmos DB account | Foundry creates the `enterprise_memory` database and its containers |
+| Storage Account Contributor | Storage account | Foundry creates the agent blob containers |
+| Search Index Data Contributor | AI Search | Agents read and write vector indexes |
+| Search Service Contributor | AI Search | Agents create indexes on demand |
+| Storage Blob Data Contributor | Storage account | Agents read and write files in `<workspaceId>-azureml-blobstore` |
+| Storage Blob Data Owner | Storage account | Agents read and write files in `<workspaceId>-agents-blobstore` ([Standard Setup](https://learn.microsoft.com/azure/ai-foundry/agents/concepts/standard-agent-setup) requires Owner) |
+| Cosmos DB Built-in Data Contributor (SQL role) | Cosmos DB account | Agents read and write threads in `enterprise_memory` |
 
-Destroy the workload stack. The 6 `-var` flags are required because Terraform re-plans data sources (subnets, DNS zones) on destroy, and if you deployed with BYO names, the defaults won't find the resources:
-
-```powershell
-terraform destroy `
-    -var "vnet_name=$VNET_NAME" `
-    -var "subnet_name_cognitive_pep=$SUBNET_COGNITIVE_PEP" `
-    -var "subnet_name_storage_pep=$SUBNET_STORAGE_PEP" `
-    -var "subnet_name_cosmos_pep=$SUBNET_COSMOS_PEP" `
-    -var "subnet_name_search_pep=$SUBNET_SEARCH_PEP" `
-    -var "subnet_name_agent=$SUBNET_AGENT"
-```
-
-Then switch to base:
-
-```powershell
-Set-Location (Join-Path (git rev-parse --show-toplevel) 'environments/ai-foundry/base/terraform')
-```
-
-Untrack the tfstate Storage Account (so `terraform destroy` won't touch it):
-
-```powershell
-terraform state rm 'module.tfstate_storage.azurerm_storage_account.this'
-```
-
-Untrack the tfstate container:
-
-```powershell
-terraform state rm 'azurerm_storage_container.tfstate'
-```
-
-Destroy the base stack:
-
-```powershell
-terraform destroy
-```
-
-Finally, delete both RGs. Workload destroy runs first (its resources reference base); base destroy only removes the VNet + DNS zones because we untracked the tfstate SA + container; the final `az group delete` cleans up the still-in-Azure, no-longer-in-Terraform tfstate SA from `$RG_NETWORK`.
-
-Delete the workload RG:
-
-```powershell
-az group delete -n $RG_WORKLOAD --yes --no-wait
-```
-
-Delete the networking RG:
-
-```powershell
-az group delete -n $RG_NETWORK  --yes --no-wait
-```
-
-Verify the workload RG is gone:
-
-```powershell
-az group exists -n $RG_WORKLOAD
-```
-
-Verify the networking RG is gone:
-
-```powershell
-az group exists -n $RG_NETWORK
-```
-
----
-
-## RBAC roster (workload)
-
-The workload's `foundry_project` module grants these to the Foundry project's SystemAssigned MI:
-
-| Phase | Role | Scope | Why |
-|---|---|---|---|
-| 3 | Cosmos DB Operator | Cosmos Account | Foundry creates `enterprise_memory` DB + containers |
-| 3 | Storage Account Contributor | Storage Account | Foundry creates agent blob containers |
-| 5 | Search Index Data Contributor | AI Search | Agents read/write vector indexes |
-| 5 | Search Service Contributor | AI Search | Agents create indexes on demand |
-| 5 | Storage Blob Data Contributor | Storage Account | Agents read/write files in the auto-created `<workspaceId>-azureml-blobstore` container |
-| 5 | Storage Blob Data Owner | Storage Account | Agents read/write files in `<workspaceId>-agents-blobstore` (Owner, not Contributor, per Microsoft's [Standard Setup docs](https://learn.microsoft.com/azure/ai-foundry/agents/concepts/standard-agent-setup)) |
-| 5 | Cosmos DB Built-in Data Contributor | Cosmos Account (SQL role) | Agents read/write threads in `enterprise_memory` |
-
-Terraform waits 60 s via `time_sleep` between the assignments and capability-host provisioning — a client-side wait, no Azure resources involved. Bicep has no equivalent primitive: `Microsoft.Resources/deploymentScripts` requires shared-key auth to its own auto-provisioned Storage Account, which is incompatible with tenants that enforce `allowSharedKeyAccess = false`. Bicep therefore relies on ARM's `dependsOn` chain and accepts that first-apply capability-host creation may occasionally 403 on RBAC propagation lag — recovery is a plain rerun of the same `az deployment group create` (idempotent; the capability-host retry succeeds after propagation completes).
-
-### Verify the project MI RBAC
-
-Confirm every role in the roster above landed on the project MI. Uses `$RG_WORKLOAD` from Step 1 — same commands work for both Path A and Path B.
-
-Get the Foundry project's resource ID:
-
-```powershell
-$PROJ_ID = az resource list -g $RG_WORKLOAD --resource-type "Microsoft.CognitiveServices/accounts/projects" --query "[0].id" -o tsv
-```
-
-Get the project MI principal ID:
-
-```powershell
-$MI = az resource show --ids $PROJ_ID --api-version 2025-04-01-preview --query "identity.principalId" -o tsv
-```
-
-Get the Storage account ID:
-
-```powershell
-$STORAGE = az storage account list -g $RG_WORKLOAD --query "[0].id" -o tsv
-```
-
-Get the Cosmos account ID:
-
-```powershell
-$COSMOS = az cosmosdb list -g $RG_WORKLOAD --query "[0].id" -o tsv
-```
-
-Get the AI Search service ID:
-
-```powershell
-$SEARCH = az search service list -g $RG_WORKLOAD --query "[0].id" -o tsv
-```
-
-List the MI's role assignments on the Storage account:
-
-```powershell
-az role assignment list --assignee-object-id $MI --fill-principal-name false --scope $STORAGE --query "[].{Role:roleDefinitionName}" -o table
-```
-
-Expected: 3 rows — Storage Account Contributor, Storage Blob Data Contributor, Storage Blob Data Owner.
-
-List the MI's role assignments on the Cosmos account:
-
-```powershell
-az role assignment list --assignee-object-id $MI --fill-principal-name false --scope $COSMOS --query "[].{Role:roleDefinitionName}" -o table
-```
-
-Expected: 1 row — Cosmos DB Operator.
-
-List the MI's role assignments on the AI Search service:
-
-```powershell
-az role assignment list --assignee-object-id $MI --fill-principal-name false --scope $SEARCH --query "[].{Role:roleDefinitionName}" -o table
-```
-
-Expected: 2 rows — Search Index Data Contributor, Search Service Contributor.
-
-List the Cosmos SQL data-plane role assignment on the MI (separate resource type from ARM RBAC):
-
-```powershell
-az cosmosdb sql role assignment list -g $RG_WORKLOAD --account-name (($COSMOS -split '/')[-1]) --query "[?principalId=='$MI'].{RoleDefinitionId:roleDefinitionId}" -o table
-```
-
-Expected: 1 row with `roleDefinitionId` ending in `00000000-0000-0000-0000-000000000002` (Cosmos DB Built-in Data Contributor).
-
-Any row missing → rerun the workload deploy (both paths are idempotent). If it still fails, check whether an Azure Policy is blocking role-assignment creation at that scope, or whether the deployer principal lacks `Microsoft.Authorization/roleAssignments/write` per the [Prerequisites](#prerequisites) table.
-
----
+Terraform waits 60 seconds (`time_sleep`) between the role assignments and the capability host, so the roles have time to propagate. Bicep can't wait, because deployment scripts need shared-key storage, which this lab disables. So a first Bicep deploy can occasionally fail on the capability host with a 403. Run the deploy again.
 
 ## Troubleshooting
 
-| Symptom | Cause | Fix |
-|---|---|---|
-| `terraform apply` fails reading state with an authorization / 403 on the tfstate blob | Your IP changed and isn't allowlisted on the state SA firewall | `az storage account network-rule add -g $RG_NETWORK -n $STATE_SA --ip-address $((Invoke-RestMethod https://api.ipify.org).Trim())` then retry |
-| `az storage account create` in Path B Step 2 returns `StorageAccountAlreadyTaken` | Your derived `sttfs<hash>` name collides globally with someone else's account | See the collision note **inside Path B Step 2** — pick a unique name for `$STATE_SA` and re-run Step 2 with it; carry the same value through `terraform init` and the `-var 'tfstate_storage_account_name=...'` in Step 4 |
-| Workload deploy preflight fails with `StorageAccountAlreadyTaken` / `ServiceNameUnavailable` / `CustomDomainInUse` on Storage, AI Search, Cosmos, or the Cognitive Services subdomain | The derived name (e.g. `staifoundrydevwestus3`, `srch-ai-foundry-dev-westus3`) is globally taken by someone else | **Bicep**: edit the corresponding session var from Step 1 (`$STORAGE_NAME`, `$AI_SEARCH_NAME`, `$COSMOS_NAME`, `$COGNITIVE_SUBDOMAIN`, or `$COGNITIVE_ACCOUNT_NAME`) to a unique value and rerun the deploy — the `-p` flags in the deploy command pick them up automatically. **Terraform**: for Storage, set `storage_account_name` in `terraform.tfvars`; for the others there's no override yet — edit the derived-name locals in the relevant `iac-modules/terraform/<service>/v1/main.tf` module. See [BYO section](#bringing-your-own-base-networking). |
-| Workload deploy fails creating Cosmos DB, AI Search, or Storage with a regional capacity or availability error (for example `ServiceUnavailable` / high demand in the region, AI Search's `InsufficientResourcesAvailable`, or the SKU isn't offered there) | That service has no capacity, or isn't offered, in its current region | During a move, see [Moving a deployed service to another region](#moving-a-deployed-service-to-another-region). If the service doesn't exist yet, put it in another region — Bicep: `$LOC_COSMOS` / `$LOC_SEARCH` / `$LOC_STORAGE`; Terraform: `cosmos_location` / `ai_search_location` / `storage_location` in `terraform.tfvars` — delete any half-created account, and rerun the deploy. See [Placing Storage, Cosmos DB, and AI Search in other regions](#placing-storage-cosmos-db-and-ai-search-in-other-regions). The Foundry Account and the PEs stay in `$LOC`. |
-| A Bicep deploy stops before calling ARM with an error from `Resolve-DataServiceVars` or `Assert-BaseNetwork` (e.g. `… is deployed in eastus2, but $LOC_COSMOS is …`, `… has 2 … resources …`, `… isn't set -- run Step 1 first`) | The helper found a mismatch between your session vars and what's deployed, an ambiguity, or a failed `az` call — nothing was deployed | Read the message: usually clear the named variable (blank = use the deployed value), set the name it asks for, or re-run Step 1 (incl. the helper block). To change a deployed service's region on purpose, follow [Moving a deployed service to another region](#moving-a-deployed-service-to-another-region). |
-| `terraform plan` / `apply` wants to replace a Storage / Cosmos DB / AI Search account or the project capability host you didn't mean to change | A region or name input changed — e.g. `terraform.tfvars` was lost or edited, or `location` changed — and these resources can't move or be renamed in place | Don't approve. Restore the previous values in `terraform.tfvars` (`terraform output` shows the ones from the last apply), then plan again. For an intentional move see [Moving a deployed service to another region](#moving-a-deployed-service-to-another-region). |
-| Workload deploy fails with `The template parameter 'deployerIp' is not found` (or similar "unrecognized template parameter") | Your local `main.bicep` predates the current version — the deploy command's `-p "deployerIp=..."` flag has no matching parameter | `git pull` (or re-clone) to get the current template, then rerun the Option A or Option B deploy. Same fix if the error names any other `-p` flag from the current deploy command (`storageAccountName`, `cognitiveAccountName`, etc.). If a `git pull` isn't available, the Option B (private-path) deploy in Step 3 omits `-p deployerIp=` entirely and works with older templates as long as the Bicep hasn't drifted on the other params. |
-| Bicep or Terraform deploy fails on `Microsoft.CognitiveServices/accounts/capabilityHosts` with 403 | RBAC propagation lag (Entra ID replication) between the workload's role assignments and the data-plane call to create the capability host | **Bicep**: rerun the [Path A Step 3 deploy](#step-3-deploy-the-workload-stack-1520-min) exactly as written (idempotent; capability host retry succeeds once propagation completes, typically < 60 s). If in a new session, re-run Step 1 first (including its helper block) so `$RG_WORKLOAD`, the 11 workload naming vars, and the 3 region vars are re-seeded. **Terraform**: `time_sleep` will NOT re-fire if already in state — rerun the [Path B Step 5 Option A `terraform apply` block](#step-5-init-workload-with-remote-backend--apply-1520-min) with `-replace='module.foundry_project.time_sleep.wait_for_rbac_propagation'` appended (this way the 6 workload naming `-var`s stay attached). |
-| First `terraform apply` for base in Path B Step 4 wants to *create* the state SA instead of updating it | You skipped the `terraform import` commands in Path B Step 3 | Cancel the apply, run the two `terraform import` commands from Step 3, then rerun `terraform apply` |
-| Workload deployed OK but hitting a workload endpoint (e.g. `Invoke-RestMethod` to the Foundry Account) returns 403 | Your public IP isn't currently allowlisted, or you ran the [hardening step](#part-c--harden-remove-deployer-ip-and-close-public-endpoints) | Rerun the workload deploy from the current network to reconcile the allowlist; if hardened, follow the [un-harden step](#un-harden-before-your-next-deploy) |
-| `az storage container create --auth-mode login` returns 403 | RBAC propagation lag on the `Storage Blob Data Contributor` assignment | Wait 30-60 s and retry (Path B Step 1 already includes a `Start-Sleep 60`) |
-| Bicep base deploy fails on one or more subnets with `RetryableError` / `A retryable error occurred` (rerun succeeds) | Parallel subnet creates on the same VNet race on the VNet's per-request write lock. Bicep's default loop batchSize is 10, so all 5 subnets fire concurrently and one occasionally loses the race | Serialised in [iac-modules/bicep/vnet/v1/vnet.bicep](iac-modules/bicep/vnet/v1/vnet.bicep) via `@batchSize(1)` on the subnet `[for]` loop. If a rerun still flakes on a different resource, it's likely the same class of race on a different shared parent (see next row) |
-| Workload deploy fails on one or more storage Private Endpoints with `RetryableError` / `AnotherOperationInProgress` / `409` (rerun succeeds) | Parallel PE creation on the shared storage-PE subnet AND on the shared Storage Account — same class of race as subnets. All 6 subresource PEs (blob/file/queue/table/dfs/web) target the same subnet + same account, so their NIC writes contend on the subnet's IP-configuration write lock and their `privateLinkServiceConnections` writes contend on the Storage Account write lock | Serialised via chained `dependsOn` (Bicep [iac-modules/bicep/storage_account/v1/storage_account.bicep](iac-modules/bicep/storage_account/v1/storage_account.bicep)) and chained `depends_on` (Terraform [iac-modules/terraform/storage_account/v1/main.tf](iac-modules/terraform/storage_account/v1/main.tf)). No action needed; just documented so you know why the storage step takes ~30 s instead of ~10 s |
-
-### Deleting an AI Foundry subnet blocked by `legionservicelink`
-
-When you delete a Foundry Account (`kind=AIServices`) that had Agent Service network injection, the underlying Container Apps managed environment (in a Microsoft-owned `hobov3_*` subscription) can be orphaned. It leaves a `legionservicelink` service association link (SAL) pinning your subnet — the account delete completes, but the SAL survives and the subnet won't delete.
-
-**The only working recovery is: delete the account, wait for the SAL to release, then clean up.** Every "shortcut" is rejected by the platform:
-
-| Attempted shortcut | RP response |
+| Symptom | Fix |
 |---|---|
-| PATCH `networkInjections: []` | `InvalidResourceProperties: Invalid/Empty NetworkInjection object` |
-| PATCH `useMicrosoftManagedNetwork: true` | `NetworkInjectionUpdateNotAllowed: Removing NetworkInjections is not allowed once it has been set.` |
-| `az rest --method delete` on the SAL directly | `UnauthorizedClientApplication` (only the `Microsoft.App/environments` RP in the `hobov3_*` sub can release it) |
-| `az cognitiveservices account purge` while SAL still present | `RequestConflict: provisioning state is not terminal` |
-| `az network vnet subnet update --set delegations=[]` while SAL still present | `SubnetMissingRequiredDelegation` |
-| Deleting the parent VNet or RG | Same SAL check, same failure |
+| A preflight row shows `FAIL` | Nothing was created. **Offered in region** or **S0 SKU:** choose another region. **Subscription may create accounts** (Cosmos DB): choose another region, or ask Azure support for access to the region. **Quota left** (AI Search): delete unused search services or request more quota. |
+| The workload deploy fails on capacity: AI Search `InsufficientResourcesAvailable`, Cosmos DB `ServiceUnavailable` or high demand, or a SKU that isn't offered | Azure doesn't expose capacity, so the preflight can't catch this. Choose another region for that service (Step 1 or `terraform.tfvars`). If the failed service was left behind, delete it (`az resource delete --ids …`). Then run the deploy again; everything else is reused. During a move, see [Move a service](#move-a-service-to-another-region). |
+| A Bicep deploy stops with an error from `Resolve-DataServiceVars` or `Assert-BaseNetwork` | Nothing was deployed. Do what the message says: usually clear the variable it names (blank means "use what's deployed") or set the name it asks for. To move a service on purpose, see [Move a service](#move-a-service-to-another-region). |
+| `StorageAccountAlreadyTaken`, `ServiceNameUnavailable`, `CustomDomainInUse`, or `ProjectNameInUse` | Someone else holds a global name. `ProjectNameInUse` means another Foundry account with the same name, in this subscription and region, already has that project (for example, a second copy of this lab). **Path A:** set `$STORAGE_NAME`, `$COSMOS_NAME`, `$AI_SEARCH_NAME`, `$COGNITIVE_SUBDOMAIN`, or `$COGNITIVE_ACCOUNT_NAME` in Step 1, then redeploy. **Path B:** set `storage_account_name` or `cognitive_custom_subdomain_name` in `terraform.tfvars`, or change `environment` there to rename everything. For the Path B state account, set `$STATE_SA` in Step 1. |
+| Creating the capability host fails with 403 | The role assignments hadn't propagated yet. **Path A:** run Step 4 again. **Path B:** `terraform apply @TF_WORKLOAD_VARS -replace='module.foundry_project.time_sleep.wait_for_rbac_propagation'`. |
+| `terraform init`, `plan`, or `apply` gets a 403 on the state blob | Either your IP changed or the Step 2 role assignment hasn't propagated. Run Step 1 again to get your current IP, then `az storage account network-rule add -g $RG_NETWORK -n $STATE_SA --ip-address $DEPLOYER_IP`. Wait a minute and retry. |
+| The first base plan wants to *create* the state account | The Step 4 imports didn't run. Run the Step 4 block again. |
+| A plan wants to replace Storage, Cosmos DB, AI Search, or the capability host and you didn't ask for it | A region or name input changed, for example a lost `terraform.tfvars` or a different `$LOC`. Don't approve. Restore the values; `terraform output` shows the last applied ones. |
+| `terraform destroy` or `az group delete` fails with a 409: `Etag conflict` on a connection, `RequestConflict` on the Foundry account, or `ResourceGroupDeletionBlocked` | It's transient: the account is still deleting its project and capability host. Wait a few minutes and run the same block again. |
+| A service returns 403 to your machine after the deploy (portal, SDK) | Your IP isn't allowlisted, either because it changed or because you hardened. Redeploy from your current network, or undo [Harden](#harden). |
+| A deploy fails with "The template parameter … is not found" | Your clone is older than this README. Run `git pull`. |
+| `RetryableError` or `AnotherOperationInProgress` on subnets or storage private endpoints | These are concurrent writes to one VNet or Storage account. The templates already serialize them: `@batchSize(1)` in [`vnet.bicep`](../../iac-modules/bicep/vnet/v1/vnet.bicep), and chained dependencies in the [Bicep](../../iac-modules/bicep/storage_account/v1/storage_account.bicep) and [Terraform](../../iac-modules/terraform/storage_account/v1/main.tf) storage modules. If one still gets through, run the deploy again. |
 
-The SAL usually releases in 5–45 min but has been observed to take **overnight (~8+ h)** when the platform teardown stalls. If it's still stuck after 45 min, jump to [If the SAL never clears](#if-the-sal-never-clears) below.
+### Deleting the agent subnet is blocked by `legionservicelink`
 
-> **Naming conventions.** The script uses the same session variables as the rest of the README (`$LOC`, `$RG_NETWORK`, `$RG_WORKLOAD`). The Foundry Account lives in `$RG_WORKLOAD`; the VNet + delegated subnet live in `$RG_NETWORK`.
+When you delete a Foundry account that uses agent network injection, the Azure-managed Container Apps environment behind it can linger. It keeps a `legionservicelink` service association link on the agent subnet. The account delete succeeds, but the subnet, VNet, and networking resource group can't be deleted until Azure releases the link. That usually takes 5–45 minutes, and occasionally overnight.
 
-**Step 1 — set variables + fire the delete.** Set the six naming variables first, then run the recovery script.
+There's no shortcut. Azure rejects every workaround:
 
-Set the region:
+| Attempt | Result |
+|---|---|
+| PATCH `networkInjections: []` | `InvalidResourceProperties` |
+| PATCH `useMicrosoftManagedNetwork: true` | `NetworkInjectionUpdateNotAllowed` |
+| DELETE the service association link | `UnauthorizedClientApplication` |
+| Purge the soft-deleted account while the link exists | `RequestConflict: provisioning state is not terminal` |
+| Remove the subnet delegation, or delete the VNet or resource group | `SubnetMissingRequiredDelegation`, or the same link check |
 
-```powershell
-$LOC = "westus3"
-```
-
-Set the networking RG (VNet + subnet live here):
-
-```powershell
-$RG_NETWORK = "rg-ai-foundry-network-dev-$LOC"
-```
-
-Set the workload RG (Foundry Account lives here):
-
-```powershell
-$RG_WORKLOAD = "rg-ai-foundry-workload-dev-$LOC"
-```
-
-Set the Foundry Account name:
+To recover, delete the account, wait for the link to clear, and purge the account. The block uses the Step 1 variables. On Path B, first set `$COGNITIVE_ACCOUNT_NAME = "ais-ai-foundry-dev-$LOC"`.
 
 ```powershell
-$ACCT = "ais-ai-foundry-dev-$LOC"
-```
-
-Set the VNet name:
-
-```powershell
-$VNET = "vnet-ai-foundry-dev-$LOC"
-```
-
-Set the stuck subnet name:
-
-```powershell
-$SUBNET = "snet-agent-ai-foundry-dev"
-```
-
-Fire the delete. This is an intentional single-paste recovery script (an `az cognitiveservices account show` probe, an `if/else` around `az cognitiveservices account delete`, and a `$LASTEXITCODE` reset), not a single command — kept as one block because the pieces only make sense together:
-
-```powershell
-az cognitiveservices account show -g $RG_WORKLOAD -n $ACCT --query id -o tsv 2>$null | Out-Null
-if ($LASTEXITCODE -eq 0) {
-    Write-Host "Firing account delete..."
-    az cognitiveservices account delete -g $RG_WORKLOAD -n $ACCT
-} else {
-    Write-Host "Account already gone or soft-deleted -- skipping delete."
+. {
+    $vnetRg = if ($RG_VNET) { $RG_VNET } else { $RG_NETWORK }   # Path B keeps the VNet's resource group in $RG_VNET
+    az cognitiveservices account delete -g $RG_WORKLOAD -n $COGNITIVE_ACCOUNT_NAME 2>$null   # no-op if already deleted
+    for ($i = 1; $i -le 90; $i++) {
+        $link = az network vnet subnet show -g $vnetRg --vnet-name $VNET_NAME -n $SUBNET_AGENT --query "serviceAssociationLinks[].name" -o tsv
+        Write-Host ("[{0:mm\:ss}] link: '{1}'" -f (New-TimeSpan -Seconds ($i * 30)), $link)
+        if (-not $link) { break }
+        Start-Sleep -Seconds 30
+    }
+    if ($link) { throw "The link is still there after 45 minutes. See 'If the link never clears'." }
+    az cognitiveservices account purge -l $LOC -g $RG_WORKLOAD -n $COGNITIVE_ACCOUNT_NAME 2>$null
 }
-$LASTEXITCODE = 0
 ```
 
-**Step 2 — poll for the SAL to release.** This is a scripted paste-once recovery block — a small polling script (a `for` loop + a final status `if`), not a single command. Intentionally kept as one block. It caps at 45 min. When it prints `SAL cleared` the poll is done; when it prints `SAL still stuck` after 45 min, go to the [If the SAL never clears](#if-the-sal-never-clears) section.
+Then run the [tear down](#tear-down) again; the deletes now succeed. To delete only the agent subnet instead, and only in a network this lab created (never in existing networking you don't own):
 
 ```powershell
-for ($i = 0; $i -lt 90; $i++) {
-    Start-Sleep -Seconds 30
-    $SAL = az network vnet subnet show -g $RG_NETWORK --vnet-name $VNET -n $SUBNET --query "serviceAssociationLinks[].name" -o tsv
-    Write-Host ("[{0:mm\:ss}] SAL='{1}'" -f (New-TimeSpan -Seconds (($i + 1) * 30)), $SAL)
-    if (-not $SAL) { break }
+. {
+    az network vnet subnet update -g $RG_NETWORK --vnet-name $VNET_NAME -n $SUBNET_AGENT --set 'delegations=[]' -o none
+    az network vnet subnet delete -g $RG_NETWORK --vnet-name $VNET_NAME -n $SUBNET_AGENT
 }
-if ($SAL) { Write-Host "SAL still stuck after 45 min. See 'If the SAL never clears'." } else { Write-Host "SAL cleared." }
 ```
 
-**Step 3 — clean up.** Only run this after Step 2 prints `SAL cleared`.
+**If the link never clears**, pick one:
 
-Purge the soft-deleted Foundry Account (`2>$null` swallows the noise if it was hard-deleted already — the next command resets `$LASTEXITCODE` for the same reason):
+- **Open a support ticket.** In the Azure portal, go to Help + support and choose *Azure OpenAI or Azure AI Foundry*. Use this subject: "Orphaned `legionservicelink` blocking subnet delete after Foundry Agent Service network-injection teardown". In the description, include:
+  - the subscription ID, the region, and the subnet's resource ID followed by `/serviceAssociationLinks/legionservicelink`;
+  - the deleted account's name and resource group;
+  - that you need the orphaned managed environment terminated and the link released;
+  - the errors from the table above.
+- **Wait.** The link has cleared on its own after 8+ hours.
+- **Abandon the subnet.** The link pins only that subnet. Deploy with a new agent subnet name (`$SUBNET_AGENT` / `subnet_name_agent`) and CIDR. That means adding the subnet to the base stack's subnet map.
 
-```powershell
-az cognitiveservices account purge --location $LOC --name $ACCT --resource-group $RG_WORKLOAD 2>$null
-```
-
-Reset the exit code (purge may return non-zero if the account was already hard-deleted):
-
-```powershell
-$LASTEXITCODE = 0
-```
-
-Strip the `Microsoft.App/environments` delegation off the subnet:
-
-```powershell
-az network vnet subnet update -g $RG_NETWORK --vnet-name $VNET -n $SUBNET --set 'delegations=[]'
-```
-
-Delete the subnet:
-
-```powershell
-az network vnet subnet delete -g $RG_NETWORK --vnet-name $VNET -n $SUBNET
-```
-
-> **PowerShell paste artifacts:** pwsh echoes `>>` continuation prompts while collecting a multi-line paste — those aren't output. Only lines from `Write-Host` or errors are real results; a clean `PS>` prompt after the paste means the block ran without throwing (real throws print `Exception:` + red-highlighted text).
-
-#### If the SAL never clears
-
-Step 2 timed out. Every user-side workaround from the table above has been ruled out — only Microsoft's Foundry team can force-release the SAL. Pick one:
-
-**A. Support ticket (recommended).** Portal → Help + support → Technical → *Azure OpenAI or Azure AI Foundry*. Use this template — fill in the placeholders from your `$LOC / $RG_NETWORK / $VNET / $SUBNET / $ACCT / $RG_WORKLOAD` values:
-
-> Subject: Orphaned `legionservicelink` SAL blocking subnet delete after Foundry Agent Service network-injection teardown
->
-> Subscription ID: `<sub GUID>`
-> Region: `<$LOC>`
-> Subnet ARM ID: `/subscriptions/<sub>/resourceGroups/<$RG_NETWORK>/providers/Microsoft.Network/virtualNetworks/<$VNET>/subnets/<$SUBNET>`
-> SAL ARM ID: `<subnet ARM ID>/serviceAssociationLinks/legionservicelink`
-> Soft-deleted Foundry Account: `<$ACCT>` in RG `<$RG_WORKLOAD>` (`$LOC`)
->
-> The Foundry Account was deleted cleanly, but the platform-provisioned Container Apps managed environment in the `hobov3_*` subscription did not tear down — `legionservicelink` is orphaned on our subnet. Direct SAL DELETE returns `UnauthorizedClientApplication`, purge on the soft-deleted account returns `RequestConflict: provisioning state is not terminal`, and every PATCH to `networkInjections` is rejected because the property is immutable post-creation. Please force-terminate the orphaned managed environment and release the SAL.
-
-**B. Wait it out.** The platform teardown has been observed to eventually complete after 8+ hours — sometimes overnight — without a ticket. Poll every hour or so; if nothing moves after 24 h, file A anyway.
-
-**C. Abandon the subnet.** The SAL only pins one subnet, not the whole VNet. Redeploy with a different agent subnet name (e.g. `snet-agent-v2` on `10.0.11.0/24`) — set `subnetNameAgent` (Bicep) / `subnet_name_agent` (Terraform) plus add the new CIDR to the base stack's subnet map. The old subnet stays reserved until it eventually clears or the ticket resolves.
-
-#### Prevention
-
-`networkInjections` is immutable post-creation, so there is no in-place fix. Two safe teardown patterns:
-
-1. **Whole-environment teardown:** `az group delete --resource-group $RG_WORKLOAD --yes` (workload RG first, then network RG). See [Tear down](#tear-down). ARM orders the deletes correctly and the SAL usually releases naturally; if it doesn't, this same recovery still applies.
-2. **Account-only teardown while keeping the VNet:** the walkthrough above. Budget 5–45 min for the SAL to release; be prepared to file A if not.
-
----
+**Prevention:** `networkInjections` can't change after creation. Tear down whole resource groups, workload first, as in [Tear down](#tear-down). ARM orders the deletes, and the link usually releases on its own.
 
 ## References
 
 - [Foundry Standard Agent Setup](https://learn.microsoft.com/azure/ai-foundry/agents/concepts/standard-agent-setup)
-- [Foundry private networking guide](https://learn.microsoft.com/azure/ai-foundry/agents/how-to/virtual-networks) — see Limitations for the region rules (Foundry in the VNet's region; Cosmos DB, AI Search, and Storage may be elsewhere)
-- [Foundry supported regions for private networking](https://learn.microsoft.com/azure/ai-foundry/agents/concepts/limits-quotas-regions#supported-regions)
-- [Capability hosts](https://learn.microsoft.com/azure/ai-foundry/agents/concepts/capability-hosts) — can't be updated; delete and recreate to change connections
-- [What is a private endpoint?](https://learn.microsoft.com/azure/private-link/private-endpoint-overview) — a PE must be in its VNet's region; the target resource can be in another region
+- [Foundry private networking](https://learn.microsoft.com/azure/ai-foundry/agents/how-to/virtual-networks). See Limitations for the region rules: Foundry in the VNet's region, and Cosmos DB, AI Search, and Storage allowed elsewhere.
+- [Supported regions for Agent Service private networking](https://learn.microsoft.com/azure/ai-foundry/agents/concepts/limits-quotas-regions#supported-regions)
+- [Capability hosts](https://learn.microsoft.com/azure/ai-foundry/agents/concepts/capability-hosts): they can't be updated; delete and recreate one to change its connections.
+- [What is a private endpoint?](https://learn.microsoft.com/azure/private-link/private-endpoint-overview): a private endpoint must be in its VNet's region, and its target can be in another region.
 - [Terraform azurerm provider](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs)
 - [Bicep language reference](https://learn.microsoft.com/azure/azure-resource-manager/bicep/)

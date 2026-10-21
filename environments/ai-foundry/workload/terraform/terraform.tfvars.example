@@ -6,6 +6,11 @@
 #
 # Copy this file to `terraform.tfvars` and uncomment lines only if you want
 # to override defaults. `terraform.tfvars` is git-ignored.
+#
+# If you follow the README, its Step 1 variables are passed as `-var` flags,
+# which override this file: resource_group_name, base_resource_group_name,
+# dns_resource_group_name, location, vnet_name and subnet_name_*. Change those
+# in the README's Step 1 block instead; set everything else here.
 
 # --- Optional: override the workload RG ---
 # resource_group_name = "rg-ai-foundry-workload-dev-westus3"
